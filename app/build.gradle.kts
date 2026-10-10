@@ -333,12 +333,17 @@ android {
     }
 }
 
+
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
-        variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
+        variant.applicationId.set(
+            if (isPlaystore) "com.kablekillers.tv.playstore.debug"
+            else "com.kablekillers.tv.debug"
+        )
     }
 }
+  
 
 afterEvaluate {
     tasks.withType<L8DexDesugarLibTask>().configureEach {
