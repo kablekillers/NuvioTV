@@ -268,10 +268,11 @@ private fun AuthQrBrandPanel(
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.Center
     ) {
-        BrandWordmark(
-            contentDescription = stringResource(R.string.cd_nuvio),
-            modifier = Modifier.height(60.dp),
-            contentScale = ContentScale.Fit
+                BrandWordmark(
+            contentDescription = "Kable Killers",
+            modifier = Modifier.height(160.dp),
+            contentScale = ContentScale.Fit,
+            drawableOverride = R.drawable.ic_launcher
         )
         Spacer(modifier = Modifier.height(32.dp))
         Text(
