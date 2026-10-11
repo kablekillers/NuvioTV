@@ -1,74 +1,102 @@
 
 package com.nuvio.tv
 
+import android.graphics.Color
 import android.net.Uri
+import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.VideoView
 import androidx.activity.ComponentActivity
 
-/**
- * Plays the Kable Killers startup video over the existing TV UI.
- * The underlying app remains intact while the intro is playing.
- */
 fun ComponentActivity.playKableKillersIntro() {
-    val root = window.decorView.findViewById<ViewGroup>(
+
+    val root = window.decorView.findViewById<FrameLayout>(
         android.R.id.content
     )
 
     val overlay = FrameLayout(this).apply {
-        setBackgroundColor(android.graphics.Color.BLACK)
+        setBackgroundColor(Color.BLACK)
         isClickable = true
         isFocusable = true
+        elevation = 1000f
     }
 
-    val player = VideoView(this).apply {
-        setBackgroundColor(android.graphics.Color.BLACK)
-    }
+    val video = VideoView(this)
 
     overlay.addView(
-        player,
+        video,
         FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        )
-    )
-
-    root.addView(
-        overlay,
-        ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
+            Gravity.CENTER
         )
     )
 
     var finished = false
 
-    fun finishIntro() {
+    fun closeIntro() {
         if (finished) return
         finished = true
-
-        player.stopPlayback()
-        root.removeView(overlay)
+        video.stopPlayback()
+        (overlay.parent as? ViewGroup)?.removeView(overlay)
     }
 
-    player.setOnCompletionListener {
-        finishIntro()
+    video.setOnPreparedListener { player ->
+        player.isLooping = false
+
+        // Maintain the original video aspect ratio.
+        val videoWidth = player.videoWidth
+        val videoHeight = player.videoHeight
+
+        if (videoWidth > 0 && videoHeight > 0) {
+            val displayWidth = root.width
+            val displayHeight = root.height
+
+            if (displayWidth > 0 && displayHeight > 0) {
+                val scale = minOf(
+                    displayWidth.toFloat() / videoWidth,
+                    displayHeight.toFloat() / videoHeight
+                )
+
+                video.layoutParams = FrameLayout.LayoutParams(
+                    (videoWidth * scale).toInt(),
+                    (videoHeight * scale).toInt(),
+                    Gravity.CENTER
+                )
+            }
+        }
+
+        video.start()
     }
 
-    player.setOnErrorListener { _, _, _ ->
-        finishIntro()
+    video.setOnCompletionListener {
+        closeIntro()
+    }
+
+    video.setOnErrorListener { _, _, _ ->
+        closeIntro()
         true
     }
 
-    player.setVideoURI(
+    video.setVideoURI(
         Uri.parse(
             "android.resource://$packageName/${R.raw.kable_killers_intro}"
         )
     )
 
-    player.setOnPreparedListener {
-        it.isLooping = false
-        player.start()
+    // Wait until the existing app has created its screen.
+    // Then place the intro above everything else.
+    root.post {
+        root.addView(
+            overlay,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        overlay.bringToFront()
+        video.start()
     }
 }
