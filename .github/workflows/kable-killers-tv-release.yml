@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: kable-killers-tv-final-release
@@ -102,6 +102,20 @@ jobs:
           path: final-release/*
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish signed TV APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::v1.1.0 already exists; bump the version for a new release."
+            exit 1
+          fi
+          gh release create v1.1.0 final-release/Kable-Killers-TV-1.1.0.apk final-release/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Kable Killers TV 1.1.0" \
+            --notes "First stable Kable Killers TV release for Fire TV and Android TV. Includes branded animated intro, Advanced cache controls, lighter trailer previews, nonblocking diagnostics startup, and bounded background image refreshes. P2P defaults and disclosure are preserved."
 
       - name: Remove signing material
         if: always()
