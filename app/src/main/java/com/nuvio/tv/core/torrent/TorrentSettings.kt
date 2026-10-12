@@ -34,7 +34,7 @@ enum class TorrentCacheSize(val bytes: Long) {
 }
 
 data class TorrentSettingsData(
-    val p2pEnabled: Boolean = false,
+    val p2pEnabled: Boolean = true,
     val enableUpload: Boolean = true,
     val hideTorrentStats: Boolean = true,
     val torrentProfile: TorrentProfile = TorrentProfile.BALANCED,
@@ -57,7 +57,7 @@ class TorrentSettings @Inject constructor(
 
     val settings: Flow<TorrentSettingsData> = context.torrentDataStore.data.map { prefs ->
         TorrentSettingsData(
-            p2pEnabled = prefs[Keys.P2P_ENABLED] ?: false,
+            p2pEnabled = prefs[Keys.P2P_ENABLED] ?: true,
             enableUpload = prefs[Keys.ENABLE_UPLOAD] ?: true,
             hideTorrentStats = prefs[Keys.HIDE_TORRENT_STATS] ?: true,
             torrentProfile = prefs[Keys.TORRENT_PROFILE]
