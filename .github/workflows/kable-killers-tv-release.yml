@@ -82,7 +82,8 @@ jobs:
           test -n "$apk"
           build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
           "$build_tools/apksigner" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/signature.txt"
-          grep -qi "Signer #1 certificate SHA-256 digest: 8e8c1f005ddb17b676289b27ba711873ae352975e59b0bb3dc314e3c69e1f467" "$RUNNER_TEMP/signature.txt"
+          grep -qi "certificate SHA-256 digest: 8e8c1f005ddb17b676289b27ba711873ae352975e59b0bb3dc314e3c69e1f467" "$RUNNER_TEMP/signature.txt"
+          grep -qx "Number of signers: 1" "$RUNNER_TEMP/signature.txt"
           "$build_tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/badging.txt"
           grep -q "name='com.kablekillers.tv'" "$RUNNER_TEMP/badging.txt"
           grep -q "versionCode='1069'" "$RUNNER_TEMP/badging.txt"
@@ -93,7 +94,7 @@ jobs:
           fi
           mkdir -p final-release
           cp "$apk" final-release/Kable-Killers-TV-1.1.0.apk
-          sha256sum final-release/Kable-Killers-TV-1.1.0.apk > final-release/SHA256SUMS.txt
+          (cd final-release && sha256sum Kable-Killers-TV-1.1.0.apk > SHA256SUMS.txt)
 
       - name: Upload final TV release
         uses: actions/upload-artifact@v4
