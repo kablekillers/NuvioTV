@@ -81,8 +81,9 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     }
 
     override fun onCreate() {
-        super.onCreate()
-        SentryInitializer.start(this, sentrySettingsDataStore)
+    super.onCreate()
+    CacheCleaner.runStartupCleanup(this)
+    SentryInitializer.start(this, sentrySettingsDataStore)
         PluginRuntimeHooks.onApplicationCreate(this)
         androidTvChannelSyncService.start()
         serverUserStateProjection.start()
