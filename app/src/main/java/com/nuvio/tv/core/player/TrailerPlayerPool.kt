@@ -131,11 +131,13 @@ class TrailerPlayerPool @Inject constructor(
         Log.d(TAG, "Creating shared trailer ExoPlayer instance with forceNativeAllocation = $forceNative")
         val loadControlBuilder = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 30_000,
-                /* maxBufferMs = */ 120_000,
-                /* bufferForPlaybackMs = */ 5_000,
-                /* bufferForPlaybackAfterRebufferMs = */ 10_000
+                /* minBufferMs = */ 5_000,
+                /* maxBufferMs = */ 15_000,
+                /* bufferForPlaybackMs = */ 1_000,
+                /* bufferForPlaybackAfterRebufferMs = */ 2_000
             )
+            .setTargetBufferBytes(8 * 1024 * 1024)
+            .setPrioritizeTimeOverSizeThresholds(false)
         if (forceNative) {
             val allocator = DefaultAllocator(
                 /* trimOnReset = */ true,
@@ -149,10 +151,10 @@ class TrailerPlayerPool @Inject constructor(
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(
                 buildUponParameters()
-                    .setMaxVideoSizeSd()
-                    .clearVideoSizeConstraints()
-                    .setForceHighestSupportedBitrate(true)
-                    .setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE)
+                    // Preview-only limits; the full-screen player's settings are separate.
+                    .setMaxVideoSize(1280, 720)
+                    .setMaxVideoBitrate(2_500_000)
+                    .setForceHighestSupportedBitrate(false)
             )
         }
         return ExoPlayer.Builder(context)
@@ -160,7 +162,6 @@ class TrailerPlayerPool @Inject constructor(
             .setTrackSelector(trackSelector)
             .setBandwidthMeter(
                 DefaultBandwidthMeter.Builder(context)
-                    .setInitialBitrateEstimate(50_000_000L) // 50 Mbps – force highest HLS variant from start
                     .build()
             )
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)

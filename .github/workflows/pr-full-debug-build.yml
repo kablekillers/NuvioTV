@@ -69,8 +69,8 @@ jobs:
             echo "NUVIO_RELEASE_STORE_PASSWORD=android"
           } >> "$GITHUB_ENV"
 
-      - name: Verify safe cache cleanup
-        run: bash ./gradlew :app:testFullDebugUnitTest --tests com.nuvio.tv.ManagedProbeFilesTest --tests com.nuvio.tv.HttpCacheCleanupTest --stacktrace --no-daemon
+      - name: Verify cache and image refresh safety
+        run: bash ./gradlew :app:testFullDebugUnitTest --tests com.nuvio.tv.ManagedProbeFilesTest --tests com.nuvio.tv.HttpCacheCleanupTest --tests com.nuvio.tv.core.image.ImageRevalidationSchedulerTest --tests com.nuvio.tv.core.image.StaleRevalidationTest --stacktrace --no-daemon
 
       - name: Build test APK
         run: bash ./gradlew :app:assembleFullDebug --stacktrace --no-daemon

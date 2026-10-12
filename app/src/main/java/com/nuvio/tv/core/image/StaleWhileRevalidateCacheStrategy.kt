@@ -11,8 +11,6 @@ import coil3.request.Options
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.ConcurrentHashMap
@@ -26,7 +24,8 @@ import java.util.concurrent.ConcurrentHashMap
  * Background revalidation runs only when the cached response has an ETag or
  * Last-Modified. Without a validator a GET always returns 200 and the body
  * would be discarded, then the UI would download the same image again.
- * Revalidation uses its own dispatcher so it cannot take slots from visible loads.
+ * A shared scheduler bounds synchronous refreshes across all strategy instances.
+ * Excess work is skipped; cached images remain visible and can refresh on a later read.
  * A 200 invalidates the on-screen image only when the validator actually changed.
  */
 @OptIn(ExperimentalCoilApi::class)
@@ -38,21 +37,14 @@ class StaleWhileRevalidateCacheStrategy(
     companion object {
         private const val TAG = "NuvioSWR"
         private const val REVALIDATION_COOLDOWN_MS = 10L * 60 * 1000 // 10 min
-        private const val REVALIDATION_MAX_REQUESTS = 8
-        private val revalidatingUrls = ConcurrentHashMap.newKeySet<String>()
+        private val revalidationScheduler = ImageRevalidationScheduler(
+            CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            maxConcurrent = 4
+        )
         private val revalidatedAt = ConcurrentHashMap<String, Long>()
     }
 
-    private val revalidationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val delegate = CacheControlCacheStrategy()
-    private val revalidationDispatcher = Dispatcher().apply {
-        maxRequests = REVALIDATION_MAX_REQUESTS
-        maxRequestsPerHost = REVALIDATION_MAX_REQUESTS
-    }
-
-    @Volatile
-    private var quietClient: OkHttpClient? = null
-
     override suspend fun read(
         cacheResponse: NetworkResponse,
         networkRequest: NetworkRequest,
@@ -85,20 +77,8 @@ class StaleWhileRevalidateCacheStrategy(
         return delegate.write(cacheResponse, networkRequest, networkResponse, options)
     }
 
-    private fun quietRevalidationClient(): OkHttpClient {
-        quietClient?.let { return it }
-        return synchronized(this) {
-            quietClient ?: revalidationClient().newBuilder()
-                .dispatcher(revalidationDispatcher)
-                .build()
-                .also { quietClient = it }
-        }
-    }
-
     private fun scheduleBackgroundRevalidation(url: String, cachedResponse: NetworkResponse) {
-        if (!revalidatingUrls.add(url)) return
-
-        revalidationScope.launch {
+        revalidationScheduler.schedule(url) {
             try {
                 val requestBuilder = Request.Builder().url(url)
                 cachedResponse.headers["etag"]?.let {
@@ -108,7 +88,7 @@ class StaleWhileRevalidateCacheStrategy(
                     requestBuilder.addHeader("If-Modified-Since", it)
                 }
 
-                val response = quietRevalidationClient().newCall(requestBuilder.build()).execute()
+                val response = revalidationClient().newCall(requestBuilder.build()).execute()
                 try {
                     when (
                         classifyRevalidationResponse(
@@ -134,11 +114,9 @@ class StaleWhileRevalidateCacheStrategy(
                     response.close()
                 }
             } catch (e: Exception) {
-                if (e !is kotlinx.coroutines.CancellationException) {
-                    Log.w(TAG, "Revalidation error: ${url.take(80)} - ${e.message}")
-                }
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.w(TAG, "Revalidation error: ${url.take(80)} - ${e.message}")
             } finally {
-                revalidatingUrls.remove(url)
                 revalidatedAt[url] = System.currentTimeMillis()
             }
         }
