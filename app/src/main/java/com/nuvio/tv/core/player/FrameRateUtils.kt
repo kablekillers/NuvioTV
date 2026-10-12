@@ -789,7 +789,7 @@ object FrameRateUtils {
         }
 
         val tempFile = try {
-            java.io.File.createTempFile("afr_probe_", ".tmp", context.cacheDir)
+            com.nuvio.tv.ManagedProbeFiles.create(context.cacheDir)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to create temp file for AFR probe: ${e.message}")
             return null
@@ -924,7 +924,7 @@ object FrameRateUtils {
         } catch (e: Throwable) {
             Log.w(TAG, "OkHttp AFR probe failed: ${e.message}")
         } finally {
-            runCatching { tempFile.delete() }
+            runCatching { com.nuvio.tv.ManagedProbeFiles.release(tempFile) }
         }
         return null
     }
