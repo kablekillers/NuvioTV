@@ -1,0 +1,43 @@
+name: Kable Killers TV - Sidebar Branding Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - kable-killers-branding
+    paths:
+      - .github/workflows/sidebar-branding-test.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import exact mobile wordmark into TV artwork
+        run: |
+          set -euo pipefail
+          url="https://raw.githubusercontent.com/kablekillers/NuvioMobile/cmp-rewrite/composeApp/src/commonMain/composeResources/drawable/app_logo_wordmark.png"
+          curl --fail --location --retry 3 --output /tmp/kable-killers-mobile-wordmark.png "$url"
+          file /tmp/kable-killers-mobile-wordmark.png
+          for asset in app/src/main/res/drawable/app_logo_wordmark*.png; do
+            cp /tmp/kable-killers-mobile-wordmark.png "$asset"
+          done
+          cp /tmp/kable-killers-mobile-wordmark.png assets/brand/app_logo_wordmark.png
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Build test APK
+        run: bash ./gradlew :app:assembleFullDebug --no-daemon --stacktrace
+      - name: Upload APK for device testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kable-Killers-TV-Sidebar-Branding-Test
+          path: app/build/outputs/apk/full/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
