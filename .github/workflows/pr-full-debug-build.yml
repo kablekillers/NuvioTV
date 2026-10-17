@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - kable-killers-branding
+      - nuvio-beta-2026-10-16-test
   workflow_dispatch:
 
 permissions:
