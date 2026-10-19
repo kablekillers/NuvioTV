@@ -1038,7 +1038,9 @@ class FolderDetailViewModel @Inject constructor(
             rebuildFollowLayoutState()
         }
         viewModelScope.launch {
+            android.util.Log.d("FolderCatalog", "TMDB start tab=$tabIndex source=${source.title} page=$page")
             tmdbCollectionSourceResolver.resolve(source, page).collect { result ->
+                android.util.Log.d("FolderCatalog", "TMDB result tab=$tabIndex source=${source.title} status=${result::class.simpleName}")
                 when (result) {
                     is NetworkResult.Success -> {
                         val posterPattern = layoutPreferenceDataStore.customPosterUrlPattern.first()
