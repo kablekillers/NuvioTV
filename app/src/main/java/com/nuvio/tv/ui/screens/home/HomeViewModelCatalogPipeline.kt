@@ -467,15 +467,10 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         // eager catalogs have completed, or let the debounce
                         // in scheduleUpdateCatalogRows coalesce intermediate
                         // arrivals.  When pending == 0 we always flush.
-                        if (pendingCatalogLoads == 0) {
-                            scheduleUpdateCatalogRows()
-                        } else if (!hasRenderedFirstCatalog) {
-                            // First content arriving — show it quickly so the
-                            // user sees something beyond placeholders.
-                            scheduleUpdateCatalogRows()
-                        }
-                        // Otherwise, let the next completion or the final
-                        // pendingCatalogLoads==0 trigger the update.
+                        // Always publish completed rows. Waiting for the final eager
+                        // catalog can leave already-loaded rows showing placeholders
+                        // indefinitely when another addon never finishes.
+                        scheduleUpdateCatalogRows()
                     }
                     is NetworkResult.Error -> {
                         val errorKey = catalogKey(
@@ -499,9 +494,8 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             catalogsLoadInProgress = false
                         }
                         // Same batching logic as success path.
-                        if (pendingCatalogLoads == 0 || !hasRenderedFirstCatalog) {
-                            scheduleUpdateCatalogRows()
-                        }
+                        // Publish the removal even when another catalog is stalled.
+                        scheduleUpdateCatalogRows()
                     }
                     NetworkResult.Loading -> {
                         /* Handled by individual row */
