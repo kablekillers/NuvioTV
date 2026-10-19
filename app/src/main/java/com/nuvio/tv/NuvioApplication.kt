@@ -43,6 +43,7 @@ import javax.inject.Inject
 @HiltAndroidApp
 class NuvioApplication : Application(), SingletonImageLoader.Factory {
 
+    @Inject lateinit var cacheCleaner: CacheCleaner
     @Inject lateinit var startupSyncService: StartupSyncService
     @Inject lateinit var androidTvChannelSyncService: AndroidTvChannelSyncService
     @Inject lateinit var sentrySettingsDataStore: SentrySettingsDataStore
@@ -83,6 +84,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        cacheCleaner.runStartupCleanup()
         SentryInitializer.start(this, sentrySettingsDataStore)
         PluginRuntimeHooks.onApplicationCreate(this)
         androidTvChannelSyncService.start()
