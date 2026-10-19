@@ -1,28 +1,32 @@
-name: PR Full Debug Build
+
+name: Kable Killers TV - Build APK
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [dev]
+  push:
+    branches:
+      - kable-killers-branding
+      - nuvio-beta-2026-10-16-test
+      - watch-party-integration-stage
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-full-debug-build-${{ github.event.pull_request.number || github.ref }}
+  group: kable-killers-tv-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  full-debug-build:
-    name: Build fullDebug APK
+  build:
+    name: Build Kable Killers TV
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -39,26 +43,27 @@ jobs:
           else
             touch local.properties
           fi
-
           if [ -n "$LOCAL_DEV_PROPERTIES_BASE64" ]; then
             printf '%s' "$LOCAL_DEV_PROPERTIES_BASE64" | base64 --decode > local.dev.properties
           else
             touch local.dev.properties
           fi
 
-      - name: Prepare CI signing config
+      - name: Configure public Nuvio Cloud client
         run: |
-          keytool -genkeypair \
-            -v \
+          for file in local.properties local.dev.properties; do
+            printf '\nNUVIO_SUPABASE_URL=https://api.nuvio.tv\nNUVIO_SUPABASE_ANON_KEY=sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN\n' >> "$file"
+          done
+
+      - name: Prepare test signing
+        run: |
+          keytool -genkeypair -v \
             -keystore "$RUNNER_TEMP/ci-debug.jks" \
             -storepass android \
             -alias androiddebugkey \
             -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000
-
+            -dname "CN=Kable Killers Test,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000
           {
             echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/ci-debug.jks"
             echo "NUVIO_RELEASE_KEY_ALIAS=androiddebugkey"
@@ -66,13 +71,17 @@ jobs:
             echo "NUVIO_RELEASE_STORE_PASSWORD=android"
           } >> "$GITHUB_ENV"
 
-      - name: Test updater and build fullDebug APK
-        run: ./gradlew :app:testFullDebugUnitTest --tests 'com.nuvio.tv.updater.*' :app:assembleFullDebug --stacktrace
+      - name: Verify cache and image refresh safety
+        run: bash ./gradlew :app:testFullDebugUnitTest --tests com.nuvio.tv.ManagedProbeFilesTest --tests com.nuvio.tv.HttpCacheCleanupTest --tests com.nuvio.tv.core.image.ImageRevalidationSchedulerTest --tests com.nuvio.tv.core.image.StaleRevalidationTest --stacktrace --no-daemon
 
-      - name: Upload fullDebug APK
-        uses: actions/upload-artifact@v7
+      - name: Build test APK
+        run: bash ./gradlew :app:assembleFullDebug --stacktrace --no-daemon
+
+      - name: Upload test APKs
+        uses: actions/upload-artifact@v4
         with:
-          path: app/build/outputs/apk/full/debug/app-full-universal-debug.apk
-          archive: false
+          name: Kable-Killers-TV-Test-APKs
+          path: app/build/outputs/apk/full/debug/*.apk
           if-no-files-found: error
           retention-days: 7
+  
