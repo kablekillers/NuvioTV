@@ -1207,6 +1207,7 @@ private fun PlaybackNavHost(
                 onNavigateToAddons = { navController.navigate(Screen.AddonManager.route) },
                 onNavigateToPlugins = { navController.navigate(Screen.Plugins.route) },
                 onNavigateToAuthQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
+                onNavigateToWatchParty = { navController.navigate(Screen.WatchParty.createRoute()) },
                 onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
                 onNavigateToSupportersContributors = {
                     navController.navigate(Screen.SupportersContributors.route)
