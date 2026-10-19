@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withPermit
 import com.nuvio.tv.core.util.filterReleasedItems
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 
 private data class CatalogUpdateResult(
@@ -425,6 +426,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                 HomeViewModel.TAG,
                 "Loading home catalog addonId=${addon.id} addonName=${addon.name} type=${catalog.apiType} catalogId=${catalog.id} catalogName=${catalog.name} supportsSkip=$supportsSkip skipStep=$skipStep"
             )
+            val finished = withTimeoutOrNull(25_000L) {
             catalogRepository.getCatalog(
                 addonBaseUrl = addon.baseUrl,
                 addonId = addon.id,
@@ -502,6 +504,25 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         /* Handled by individual row */
                     }
                 }
+            }
+            true
+            }
+            if (finished == null && generation == catalogLoadGeneration) {
+                val timedOutKey = catalogKey(
+                    addonId = addon.id,
+                    type = catalog.apiType,
+                    catalogId = catalog.id
+                )
+                synchronized(catalogStateLock) {
+                    placeholderDescriptors.removeAll { it.catalogKey == timedOutKey }
+                }
+                if (!hasCountedCompletion) {
+                    pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
+                    hasCountedCompletion = true
+                }
+                if (pendingCatalogLoads == 0) catalogsLoadInProgress = false
+                Log.w(HomeViewModel.TAG, "Home catalog TIMEOUT after 25s addonId=${addon.id} type=${catalog.apiType} catalogId=${catalog.id} name=${catalog.name}")
+                scheduleUpdateCatalogRows()
             }
         }
     }
