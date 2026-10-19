@@ -19,6 +19,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
+import com.nuvio.tv.ui.screens.party.PartyScreen
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
@@ -1212,6 +1213,35 @@ private fun PlaybackNavHost(
                 },
                 onNavigateToLicensesAttributions = {
                     navController.navigate(Screen.LicensesAttributions.route)
+                }
+            )
+        }
+
+        composable(
+            route = Screen.WatchParty.route,
+            arguments = listOf(navArgument("code") {
+                type = NavType.StringType
+                defaultValue = ""
+            })
+        ) { entry ->
+            PartyScreen(
+                initialCode = entry.arguments?.getString("code").orEmpty(),
+                onBackPress = { navController.popBackStack() },
+                onWatch = { media ->
+                    navController.navigate(Screen.Stream.createRoute(
+                        videoId = media.videoId ?: media.metaId,
+                        contentType = media.type,
+                        title = media.title,
+                        poster = media.poster,
+                        backdrop = media.background,
+                        logo = media.logo,
+                        season = media.season,
+                        episode = media.episode,
+                        episodeName = media.episodeTitle,
+                        contentId = media.metaId,
+                        contentName = media.title,
+                        manualSelection = true
+                    ))
                 }
             )
         }
