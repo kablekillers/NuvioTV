@@ -1,5 +1,6 @@
 
 name: Kable Killers TV - Build APK
+# Rebuild TV beta after configuring TMDB local.properties secret.
 
 on:
   push:
