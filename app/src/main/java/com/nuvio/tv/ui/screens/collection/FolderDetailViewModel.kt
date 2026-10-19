@@ -1227,6 +1227,8 @@ class FolderDetailViewModel @Inject constructor(
     }
 
     fun onItemFocused(item: MetaPreview) {
+        // Shimmer items are visual placeholders, not resolvable movie IDs.
+        if (item.id.startsWith("__placeholder_")) return
         // Clear enriching for previous item immediately.
         if (_enrichingItemId.value != null && _enrichingItemId.value != item.id) {
             _enrichingItemId.value = null
