@@ -7,6 +7,7 @@ on:
       - kable-killers-branding
       - nuvio-beta-2026-10-16-test
       - watch-party-integration-stage
+      - watch-party-upstream-compat-test
   workflow_dispatch:
 
 permissions:
