@@ -296,8 +296,9 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             _uiState.first { it.layoutPreferencesReady }
         }
         val isGridLayout = _uiState.value.homeLayout == HomeLayout.GRID
-        val eagerHomeCatalogs = if (isGridLayout) catalogsToLoad else catalogsToLoad.take(eagerCatalogLoadCount)
-        val lazyHomeCatalogs = if (isGridLayout) emptyList() else catalogsToLoad.drop(eagerCatalogLoadCount)
+        // Diagnostic: request every home catalog immediately to isolate TV lazy-load stalls.
+        val eagerHomeCatalogs = catalogsToLoad
+        val lazyHomeCatalogs = emptyList<Pair<Addon, CatalogDescriptor>>()
 
         // Build placeholder descriptors for lazy catalogs
         synchronized(catalogStateLock) {
