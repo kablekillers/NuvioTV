@@ -868,23 +868,13 @@ class HomeViewModel @Inject constructor(
         loadMoreCatalogItemsPipeline(catalogId, addonId, type)
 
     internal fun scheduleUpdateCatalogRows() {
+        // Display each catalog as soon as data is available; do not hold
+        // the home screen behind the previous 80–300 ms batching delay.
         catalogUpdateJob?.cancel()
         catalogUpdateJob = viewModelScope.launch {
-            val debounceMs = when {
-                // First render: use a moderate debounce so near-simultaneous
-                // catalog arrivals are batched into a single heavy update pass.
-                !hasRenderedFirstCatalog && hasAnyCatalogRows() -> {
-                    hasRenderedFirstCatalog = true
-                    150L
-                }
-                // During bulk loading, batch aggressively — placeholders are
-                // already visible so the user won't notice the delay.
-                pendingCatalogLoads > 8 -> 300L
-                pendingCatalogLoads > 3 -> 250L
-                pendingCatalogLoads > 0 -> 200L
-                else -> 80L
+            if (!hasRenderedFirstCatalog && hasAnyCatalogRows()) {
+                hasRenderedFirstCatalog = true
             }
-            delay(debounceMs)
             updateCatalogRows()
         }
     }
