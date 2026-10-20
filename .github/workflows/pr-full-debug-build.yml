@@ -9,6 +9,7 @@ on:
       - nuvio-beta-2026-10-16-test
       - watch-party-integration-stage
       - watch-party-upstream-compat-test
+      - tv-1.1.1-release-candidate
   workflow_dispatch:
 
 permissions:
