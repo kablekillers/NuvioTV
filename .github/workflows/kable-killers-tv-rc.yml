@@ -6,6 +6,10 @@ on:
       - tv-1.1.1-release-candidate
     paths:
       - app/build.gradle.kts
+      - app/src/main/java/com/nuvio/tv/MainActivity.kt
+      - app/src/main/java/com/nuvio/tv/ui/components/BrandWordmark.kt
+      - app/src/main/java/com/nuvio/tv/ui/components/StartupSplashScreen.kt
+      - app/src/main/res/values/strings.xml
       - .github/workflows/kable-killers-tv-rc.yml
   workflow_dispatch:
 
