@@ -16,7 +16,7 @@ fun BrandWordmark(
     drawableOverride: Int? = null
 ) {
     Image(
-        painter = painterResource(id = drawableOverride ?: R.mipmap.banner),
+        painter = painterResource(id = R.mipmap.banner),
         contentDescription = contentDescription,
         modifier = modifier,
         contentScale = contentScale,
