@@ -1590,7 +1590,8 @@ private fun LegacySidebarScaffold(
                                     contentDescription = stringResource(R.string.app_name),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(42.dp)
+                                        .height(42.dp),
+                                    drawableOverride = R.mipmap.banner
                                 )
                             }
                         }
