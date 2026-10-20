@@ -5,8 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import com.nuvio.tv.ui.theme.NuvioTheme
-import com.nuvio.tv.ui.theme.brandWordmarkResource
+import com.nuvio.tv.R
 
 @Composable
 fun BrandWordmark(
@@ -17,7 +16,7 @@ fun BrandWordmark(
     drawableOverride: Int? = null
 ) {
     Image(
-        painter = painterResource(id = drawableOverride ?: NuvioTheme.currentTheme.brandWordmarkResource),
+        painter = painterResource(id = drawableOverride ?: R.mipmap.banner),
         contentDescription = contentDescription,
         modifier = modifier,
         contentScale = contentScale,
