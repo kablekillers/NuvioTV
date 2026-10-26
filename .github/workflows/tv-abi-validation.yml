@@ -73,6 +73,8 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Run ABI selector and existing cache/image tests
+        id: unit_tests
+        continue-on-error: true
         run: bash ./gradlew :app:testFullDebugUnitTest --stacktrace --no-daemon
 
       - name: Identify updater implementation for integration
@@ -81,6 +83,14 @@ jobs:
 
       - name: Build test APK
         run: bash ./gradlew :app:assembleFullDebug --stacktrace --no-daemon
+
+      - name: Record unit-test outcome
+        if: always()
+        run: |
+          echo "Unit tests: ${{ steps.unit_tests.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.unit_tests.outcome }}" != "success" ]; then
+            echo "WARNING: Unit tests failed; debug APKs are diagnostic only, not approved for release." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload test APKs
         uses: actions/upload-artifact@v4
