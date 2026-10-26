@@ -1,5 +1,9 @@
 package com.nuvio.tv.ui.screens.settings
 
+import android.content.Context
+import com.nuvio.tv.CacheCleaner
+import com.nuvio.tv.CachePreferences
+import dagger.hilt.android.qualifiers.ApplicationContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.runtime.AppRestarter
@@ -24,10 +28,17 @@ data class AdvancedSettingsUiState(
     val playbackIssueReportsEnabled: Boolean = false,
     val playerStatsHudEnabled: Boolean = false,
     val rgb565Enabled: Boolean = true,
+    val autoClearCacheOnStartup: Boolean = false,
+    val smartCacheCleanup: Boolean = true,
+    val clearingCache: Boolean = false,
+    val cacheClearSucceeded: Boolean? = null,
     val sentryEnabled: Boolean = true
 )
 
 sealed class AdvancedSettingsEvent {
+    data class SetAutoClearCacheOnStartup(val enabled: Boolean) : AdvancedSettingsEvent()
+    data class SetSmartCacheCleanup(val enabled: Boolean) : AdvancedSettingsEvent()
+    data object ClearCacheNow : AdvancedSettingsEvent()
     data class SetFastHorizontalNavigationEnabled(val enabled: Boolean) : AdvancedSettingsEvent()
     data class SetSmoothBringIntoViewEnabled(val enabled: Boolean) : AdvancedSettingsEvent()
     data class SetComposeHighlighterEnabled(val enabled: Boolean) : AdvancedSettingsEvent()
@@ -44,12 +55,20 @@ class AdvancedSettingsViewModel @Inject constructor(
     private val deviceLocalPlayerPreferences: DeviceLocalPlayerPreferences,
     private val sentrySettingsDataStore: SentrySettingsDataStore,
     private val imagePerformancePreferences: ImagePerformancePreferences,
+    @ApplicationContext private val context: Context,
+    private val cacheCleaner: CacheCleaner,
     private val appRestarter: AppRestarter
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(AdvancedSettingsUiState())
     val uiState: StateFlow<AdvancedSettingsUiState> = _uiState.asStateFlow()
 
     init {
+        _uiState.update {
+            it.copy(
+                autoClearCacheOnStartup = CachePreferences.autoClearOnStartup(context),
+                smartCacheCleanup = CachePreferences.smartCleanupEnabled(context)
+            )
+        }
         _uiState.update { it.copy(rgb565Enabled = imagePerformancePreferences.rgb565Enabled) }
         viewModelScope.launch {
             layoutPreferenceDataStore.fastHorizontalNavigationEnabled.collectLatest { enabled ->
@@ -85,6 +104,21 @@ class AdvancedSettingsViewModel @Inject constructor(
 
     fun onEvent(event: AdvancedSettingsEvent) {
         when (event) {
+            is AdvancedSettingsEvent.SetAutoClearCacheOnStartup -> {
+                CachePreferences.setAutoClearOnStartup(context, event.enabled)
+                _uiState.update { it.copy(autoClearCacheOnStartup = event.enabled) }
+            }
+            is AdvancedSettingsEvent.SetSmartCacheCleanup -> {
+                CachePreferences.setSmartCleanupEnabled(context, event.enabled)
+                _uiState.update { it.copy(smartCacheCleanup = event.enabled) }
+            }
+            AdvancedSettingsEvent.ClearCacheNow -> {
+                if (_uiState.value.clearingCache) return
+                _uiState.update { it.copy(clearingCache = true, cacheClearSucceeded = null) }
+                cacheCleaner.clearNow { success ->
+                    _uiState.update { it.copy(clearingCache = false, cacheClearSucceeded = success) }
+                }
+            }
             is AdvancedSettingsEvent.SetFastHorizontalNavigationEnabled -> {
                 viewModelScope.launch {
                     layoutPreferenceDataStore.setFastHorizontalNavigationEnabled(event.enabled)
