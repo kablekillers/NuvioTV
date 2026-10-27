@@ -14,6 +14,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.data.local.ExperienceModeDataStore
 import com.nuvio.tv.data.local.PluginDataStore
@@ -185,6 +186,11 @@ class ProfileSettingsSyncService @Inject constructor(
     private val metaRepository: MetaRepository,
     private val cwEnrichmentCache: ContinueWatchingEnrichmentCache
 ) {
+    // Off until local-profile migration and all remote writers are audited.
+    private val deviceLocalProfilesEnabled = false
+    private fun maySyncProfileSettings(profileId: Int): Boolean =
+        ProfileSyncBoundary.maySyncProfileMetadata(profileId, deviceLocalProfilesEnabled)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
 
@@ -229,6 +235,7 @@ class ProfileSettingsSyncService @Inject constructor(
         syncMutex.withLock {
             try {
                 val profileId = profileManager.activeProfileId.value
+                if (!maySyncProfileSettings(profileId)) return@withLock Result.success(Unit)
                 pushProfileToRemote(profileId)
                 Log.d(TAG, "Pushed profile settings blob for profile $profileId")
                 Result.success(Unit)
@@ -243,6 +250,7 @@ class ProfileSettingsSyncService @Inject constructor(
         syncMutex.withLock {
             try {
                 val profileId = profileManager.activeProfileId.value
+                if (!maySyncProfileSettings(profileId)) return@withLock Result.success(false)
                 val inheritedPluginSettingsApplied = pullInheritedPluginSettings(profileId)
                 val blob = pullProfileFromRemote(profileId)
                 lastForegroundPullAtMs = SystemClock.elapsedRealtime()
