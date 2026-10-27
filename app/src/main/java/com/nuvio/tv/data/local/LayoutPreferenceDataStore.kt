@@ -450,36 +450,42 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setMemoryOnlyVerticalScroll(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[memoryOnlyVerticalScrollKey] = enabled
         }
     }
 
     suspend fun setSmoothBringIntoViewEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[smoothBringIntoViewEnabledKey] = enabled
         }
     }
 
     suspend fun setFastHorizontalNavigationEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[fastHorizontalNavigationEnabledKey] = enabled
         }
     }
 
     suspend fun setFollowAddonsOrder(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[followAddonsOrderKey] = enabled
         }
     }
 
     suspend fun setComposeHighlighterEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[composeHighlighterEnabledKey] = enabled
         }
     }
 
     suspend fun setCustomPosterUrlPattern(pattern: String) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             if (pattern.isBlank()) {
                 prefs.remove(customPosterUrlPatternKey)
@@ -490,6 +496,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun clearCustomPosterSettings() {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs.remove(customPosterUrlPatternKey)
             prefs.remove(customPosterEnabledScreensKey)
@@ -497,6 +504,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setCustomPosterEnabledScreens(screens: Set<com.nuvio.tv.core.poster.CustomPosterScreen>) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             val stored = com.nuvio.tv.core.poster.CustomPosterScreen.toStorageValue(screens)
             if (stored == null) {
@@ -539,6 +547,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setHeroCatalogKey(catalogKey: String) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         setHeroCatalogKeys(listOf(catalogKey))
     }
 
@@ -610,6 +619,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setDiscoverLocation(location: DiscoverLocation) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[discoverLocationKey] = location.name
             if (location != DiscoverLocation.OFF) {
@@ -620,30 +630,35 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setPosterLabelsEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[posterLabelsEnabledKey] = enabled
         }
     }
 
     suspend fun setCatalogAddonNameEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[catalogAddonNameEnabledKey] = enabled
         }
     }
 
     suspend fun setCatalogTypeSuffixEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[catalogTypeSuffixEnabledKey] = enabled
         }
     }
 
     suspend fun setClassicFocusGradientEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[classicFocusGradientEnabledKey] = enabled
         }
     }
 
     suspend fun setFocusedPosterBackdropExpandEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[focusedPosterBackdropExpandEnabledKey] = enabled
             if (!enabled) {
@@ -654,6 +669,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setFocusedPosterBackdropExpandDelaySeconds(seconds: Int) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[focusedPosterBackdropExpandDelaySecondsKey] =
                 seconds.coerceAtLeast(MIN_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS)
@@ -661,6 +677,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setFocusedPosterBackdropTrailerEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[focusedPosterBackdropTrailerEnabledKey] = enabled
             if (!enabled) {
@@ -670,6 +687,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setFocusedPosterBackdropTrailerMuted(muted: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[focusedPosterBackdropTrailerMutedKey] = muted
         }
@@ -678,54 +696,63 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setFocusedPosterBackdropTrailerPlaybackTarget(
         target: FocusedPosterTrailerPlaybackTarget
     ) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[focusedPosterBackdropTrailerPlaybackTargetKey] = target.name
         }
     }
 
     suspend fun setPosterCardWidthDp(widthDp: Int) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[posterCardWidthDpKey] = positiveOrDefault(widthDp, DEFAULT_POSTER_CARD_WIDTH_DP)
         }
     }
 
     suspend fun setPosterCardHeightDp(heightDp: Int) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[posterCardHeightDpKey] = positiveOrDefault(heightDp, DEFAULT_POSTER_CARD_HEIGHT_DP)
         }
     }
 
     suspend fun setPosterCardCornerRadiusDp(cornerRadiusDp: Int) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[posterCardCornerRadiusDpKey] = cornerRadiusDp
         }
     }
 
     suspend fun setCardDepthEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[cardDepthEnabledKey] = enabled
         }
     }
 
     suspend fun setCardDepthEdgeStrength(strength: Int) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[cardDepthEdgeStrengthKey] = strength.coerceIn(0, 100)
         }
     }
 
     suspend fun setCardDepthSheenStrength(strength: Int) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[cardDepthSheenStrengthKey] = strength.coerceIn(0, 100)
         }
     }
 
     suspend fun setCardDepthEdgeCoverage(coverage: Int) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[cardDepthEdgeCoverageKey] = coverage.coerceIn(0, 100)
         }
     }
 
     suspend fun setCardDepthSurfaceEnabled(surface: CardDepthSurface, enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             val key = when (surface) {
                 CardDepthSurface.POSTERS -> cardDepthPostersEnabledKey
@@ -739,6 +766,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun resetCardDepthStyle() {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs.remove(cardDepthEnabledKey)
             prefs.remove(cardDepthEdgeStrengthKey)
@@ -753,108 +781,126 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setBlurUnwatchedEpisodes(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[blurUnwatchedEpisodesKey] = enabled
         }
     }
 
     suspend fun setRandomEpisodeEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[randomEpisodeEnabledKey] = enabled
         }
     }
 
     suspend fun setStartupSplashEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[startupSplashEnabledKey] = enabled
         }
     }
 
     suspend fun setAlwaysShowLandscapeClearlogo(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[alwaysShowLandscapeClearlogoKey] = enabled
         }
     }
 
     suspend fun setEpisodeOptionsOverlayStyle(style: EpisodeOptionsOverlayStyle) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[episodeOptionsOverlayStyleKey] = style.name
         }
     }
 
     suspend fun setHomeImdbRatingsVisibility(visibility: HomeImdbRatingsVisibility) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[homeImdbRatingsVisibilityKey] = visibility.name
         }
     }
 
     suspend fun setDetailImdbRatingsVisibility(visibility: DetailImdbRatingsVisibility) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[detailImdbRatingsVisibilityKey] = visibility.asEpisodeVisibility().name
         }
     }
 
     suspend fun setUseEpisodeThumbnailsInCw(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[useEpisodeThumbnailsInCwKey] = enabled
         }
     }
 
     suspend fun setContinueWatchingEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[continueWatchingEnabledKey] = enabled
         }
     }
 
     suspend fun setContinueWatchingCardStyle(style: ContinueWatchingCardStyle) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[continueWatchingCardStyleKey] = style.name
         }
     }
 
     suspend fun setShowUnairedNextUp(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[showUnairedNextUpKey] = enabled
         }
     }
 
     suspend fun setNextUpFromFurthestEpisode(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[nextUpFromFurthestEpisodeKey] = enabled
         }
     }
 
     suspend fun setBlurContinueWatchingNextUp(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[blurContinueWatchingNextUpKey] = enabled
         }
     }
 
     suspend fun setContinueWatchingSortMode(mode: ContinueWatchingSortMode) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[continueWatchingSortModeKey] = mode.name
         }
     }
 
     suspend fun setDetailPageTrailerButtonEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[detailPageTrailerButtonEnabledKey] = enabled
         }
     }
 
     suspend fun setPreferExternalMetaAddonDetail(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[preferExternalMetaAddonDetailKey] = enabled
         }
     }
 
     suspend fun setHideUnreleasedContent(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[hideUnreleasedContentKey] = enabled
         }
     }
 
     suspend fun setShowFullReleaseDate(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[showFullReleaseDateKey] = enabled
         }
