@@ -71,6 +71,13 @@ class ProfileSyncService @Inject constructor(
 
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            // The legacy sync_push_profiles RPC may treat omitted profiles as deletions.
+            // Until a verified Main-only upsert RPC exists, never send a filtered
+            // profile list: that could erase existing server-side secondary profiles.
+            if (deviceLocalProfilesEnabled) {
+                Log.w(TAG, "Skipping legacy profile-list push in device-local mode; Main-only upsert pending")
+                return@withContext Result.success(Unit)
+            }
             val profiles = profileManager.profiles.value.filter {
                 ProfileSyncBoundary.maySyncProfileMetadata(it.id, deviceLocalProfilesEnabled)
             }
