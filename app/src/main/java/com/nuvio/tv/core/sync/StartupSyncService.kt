@@ -1,5 +1,7 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+
 import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
@@ -71,7 +73,7 @@ class StartupSyncService @Inject constructor(
     private val cwEnrichmentCache: com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 ) {
     // Remains off until all direct and background viewing-state writers are isolated.
-    private val deviceLocalProfilesEnabled = false
+    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
     private fun maySyncViewingState(profileId: Int): Boolean =
         ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)
 
