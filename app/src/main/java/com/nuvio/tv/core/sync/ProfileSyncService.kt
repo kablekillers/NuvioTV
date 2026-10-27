@@ -195,6 +195,9 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun pullProfileLockStates(): Result<Map<Int, Boolean>> = withContext(Dispatchers.IO) {
+        // PIN migration is out of scope for device-only profiles. Never expose
+        // shared-account secondary lock states to local customer profiles.
+        if (deviceLocalProfilesEnabled) return@withContext Result.success(emptyMap())
         try {
             val response = withJwtRefreshRetry {
                 postgrest.rpc("sync_pull_profile_locks")
@@ -209,6 +212,9 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun setProfilePin(profileId: Int, pin: String, currentPin: String? = null): SetProfilePinResult = withContext(Dispatchers.IO) {
+        if (deviceLocalProfilesEnabled && profileId != 1) {
+            return@withContext SetProfilePinResult.Failure(IllegalStateException("Device-local profile PIN sync is disabled"))
+        }
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
@@ -235,6 +241,9 @@ class ProfileSyncService @Inject constructor(
         e.message?.contains("Current PIN is required", ignoreCase = true) == true
 
     suspend fun clearProfilePin(profileId: Int, currentPin: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        if (deviceLocalProfilesEnabled && profileId != 1) {
+            return@withContext Result.failure(IllegalStateException("Device-local profile PIN sync is disabled"))
+        }
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
@@ -253,6 +262,9 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun verifyProfilePin(profileId: Int, pin: String): Result<SupabaseProfilePinVerifyResult> = withContext(Dispatchers.IO) {
+        if (deviceLocalProfilesEnabled && profileId != 1) {
+            return@withContext Result.failure(IllegalStateException("Device-local profile PIN sync is disabled"))
+        }
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
