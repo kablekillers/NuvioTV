@@ -1,5 +1,7 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
@@ -51,7 +53,7 @@ class WatchProgressSyncService @Inject constructor(
     private val mutationStore: WatchStateMutationStore
 ) {
     // Disabled until the complete local-profile migration is ready.
-    private val deviceLocalProfilesEnabled = false
+    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
     private fun canSync(profileId: Int): Boolean =
         ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)
 
