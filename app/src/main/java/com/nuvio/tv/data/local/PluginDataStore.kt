@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.SharedLayoutScope
 import com.nuvio.tv.domain.model.PluginRepository
 import com.nuvio.tv.domain.model.ScraperInfo
 import com.squareup.moshi.Moshi
@@ -34,7 +35,11 @@ class PluginDataStore @Inject constructor(
         internal const val GROUP_STREAMS_BY_REPOSITORY = "group_streams_by_repository"
     }
 
+    // Disabled until the complete local-profile migration is verified.
+    private val deviceLocalProfilesEnabled = false
+
     private fun effectiveProfileId(): Int {
+        if (deviceLocalProfilesEnabled) return SharedLayoutScope.MAIN_PROFILE_ID
         val active = profileManager.activeProfile
         return if (active != null && active.usesPrimaryPlugins) 1 else profileManager.activeProfileId.value
     }
@@ -47,7 +52,7 @@ class PluginDataStore @Inject constructor(
         profileManager.profiles
     ) { activeProfileId, profiles ->
         val activeProfile = profiles.firstOrNull { it.id == activeProfileId }
-        if (activeProfile?.usesPrimaryPlugins == true) 1 else activeProfileId
+        if (deviceLocalProfilesEnabled || activeProfile?.usesPrimaryPlugins == true) 1 else activeProfileId
     }.distinctUntilChanged()
 
     private val repositoriesKey = stringPreferencesKey("repositories")
