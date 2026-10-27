@@ -325,6 +325,11 @@ class StartupSyncService @Inject constructor(
         if (authManager.authState.value !is AuthState.FullAccount) return false
 
         val profileId = profileManager.activeProfileId.value
+        if (!maySyncViewingState(profileId)) {
+            watchProgressRepository.hasCompletedInitialPull = true
+            watchProgressRepository.hasCompletedInitialWatchedItemsPull = true
+            return true
+        }
         val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync(profileId)
         Log.d(
             TAG,
@@ -474,7 +479,7 @@ class StartupSyncService @Inject constructor(
                 TAG,
                 "Watch progress sync: shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
             )
-            if (shouldUseSupabaseWatchProgressSync) {
+            if (shouldUseSupabaseWatchProgressSync && maySyncViewingState(profileId)) {
                 pullWatchedItemsSnapshot(profileId)
                 syncWatchProgressSnapshot(
                     profileId = profileId,
@@ -516,7 +521,7 @@ class StartupSyncService @Inject constructor(
                 TAG,
                 "Warm watch progress sync: shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
             )
-            if (shouldUseSupabaseWatchProgressSync) {
+            if (shouldUseSupabaseWatchProgressSync && maySyncViewingState(profileId)) {
                 pullWatchedItemsDelta(profileId)
                 syncWatchProgressDelta(
                     profileId = profileId,
