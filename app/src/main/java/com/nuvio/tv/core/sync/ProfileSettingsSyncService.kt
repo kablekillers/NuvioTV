@@ -580,6 +580,11 @@ class ProfileSettingsSyncService @Inject constructor(
         scope.launch {
             profileManager.activeProfileId
                 .flatMapLatest { profileId ->
+                    // Local-only profiles must not observe or trigger account-wide
+                    // settings pushes. Main remains the sole cloud settings owner.
+                    if (!maySyncProfileSettings(profileId)) {
+                        return@flatMapLatest kotlinx.coroutines.flow.flowOf("device-local-profile")
+                    }
                     val featureFlows = syncedFeatures.map { feature ->
                         profileDataStoreFactory.get(profileId, feature).data
                             .map { prefs ->
