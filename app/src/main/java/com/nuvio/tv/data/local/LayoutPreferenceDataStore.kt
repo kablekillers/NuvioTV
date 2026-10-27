@@ -508,6 +508,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setLayout(layout: HomeLayout) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             val hadChosenLayout = prefs[hasChosenKey] ?: false
             prefs[layoutKey] = layout.name
@@ -524,6 +525,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setHeroCatalogKeys(catalogKeys: List<String>) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         val normalizedKeys = normalizeCatalogOrderKeys(catalogKeys)
         store().edit { prefs ->
             if (normalizedKeys.isEmpty()) {
@@ -541,6 +543,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setHomeCatalogOrderKeys(keys: List<String>) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         val normalizedKeys = normalizeCatalogOrderKeys(keys)
         store().edit { prefs ->
             if (normalizedKeys.isEmpty()) {
@@ -552,6 +555,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setDisabledHomeCatalogKeys(keys: List<String>) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         val normalizedKeys = normalizeCatalogOrderKeys(keys)
         store().edit { prefs ->
             if (normalizedKeys.isEmpty()) {
@@ -563,12 +567,14 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setSidebarCollapsedByDefault(collapsed: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[sidebarCollapsedKey] = collapsed
         }
     }
 
     suspend fun setModernSidebarEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[modernSidebarEnabledKey] = enabled
             prefs.remove(legacyModernSidebarEnabledKey)
@@ -576,24 +582,28 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setModernSidebarBlurEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[modernSidebarBlurEnabledKey] = enabled
         }
     }
 
     suspend fun setModernLandscapePostersEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[modernLandscapePostersEnabledKey] = enabled
         }
     }
 
     suspend fun setModernHeroFullScreenBackdropEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[modernHeroFullScreenBackdropKey] = enabled
         }
     }
 
     suspend fun setHeroSectionEnabled(enabled: Boolean) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             prefs[heroSectionEnabledKey] = enabled
         }
@@ -880,6 +890,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setCustomCatalogTitles(titles: Map<String, String>) {
+        if (deviceLocalProfilesEnabled && !SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, true)) return
         store().edit { prefs ->
             val filtered = titles.filterValues { it.isNotBlank() }
             if (filtered.isEmpty()) {
