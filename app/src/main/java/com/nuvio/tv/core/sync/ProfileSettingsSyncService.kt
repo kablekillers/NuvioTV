@@ -1,5 +1,7 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+
 import android.os.SystemClock
 import android.util.Log
 import androidx.datastore.preferences.core.MutablePreferences
@@ -187,7 +189,7 @@ class ProfileSettingsSyncService @Inject constructor(
     private val cwEnrichmentCache: ContinueWatchingEnrichmentCache
 ) {
     // Off until local-profile migration and all remote writers are audited.
-    private val deviceLocalProfilesEnabled = false
+    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
     private fun maySyncProfileSettings(profileId: Int): Boolean =
         ProfileSyncBoundary.maySyncProfileMetadata(profileId, deviceLocalProfilesEnabled)
 
