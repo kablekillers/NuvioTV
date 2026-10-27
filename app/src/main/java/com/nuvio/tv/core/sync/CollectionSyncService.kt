@@ -3,6 +3,7 @@ package com.nuvio.tv.core.sync
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.remote.supabase.SupabaseCollectionBlob
 import io.github.jan.supabase.postgrest.Postgrest
@@ -30,6 +31,9 @@ class CollectionSyncService @Inject constructor(
     private val profileManager: ProfileManager,
     private val syncClientIdentity: SyncClientIdentity
 ) {
+    // Keep disabled until device-local profile migration is fully wired.
+    private val deviceLocalProfilesEnabled = false
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
@@ -53,6 +57,9 @@ class CollectionSyncService @Inject constructor(
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val profileId = profileManager.activeProfileId.value
+            if (!ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)) {
+                return@withContext Result.success(Unit)
+            }
             val json = collectionsDataStore.exportCurrentProfileJson()
 
             val collectionsJsonElement = if (json.isNullOrBlank()) {
@@ -86,6 +93,9 @@ class CollectionSyncService @Inject constructor(
     suspend fun pullFromRemote(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val profileId = profileManager.activeProfileId.value
+            if (!ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)) {
+                return@withContext Result.success(false)
+            }
 
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
