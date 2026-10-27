@@ -5,6 +5,7 @@ import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.data.local.StartupSyncPreferences
 import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.data.repository.AddonRepositoryImpl
@@ -69,6 +70,11 @@ class StartupSyncService @Inject constructor(
     private val startupSyncPreferences: StartupSyncPreferences,
     private val cwEnrichmentCache: com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 ) {
+    // Remains off until all direct and background viewing-state writers are isolated.
+    private val deviceLocalProfilesEnabled = false
+    private fun maySyncViewingState(profileId: Int): Boolean =
+        ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var startupPullJob: Job? = null
     private var activityPullJob: Job? = null
@@ -706,6 +712,7 @@ class StartupSyncService @Inject constructor(
         profileId: Int,
         pushUnsynced: Boolean = true
     ): Boolean {
+        if (!maySyncViewingState(profileId)) return true
         return try {
             Log.d(TAG, "Starting watched items delta sync for profile $profileId")
             val watchedItemsResult = watchedItemsSyncService.syncDeltaFromRemote(profileId).getOrElse { throw it }
@@ -726,6 +733,7 @@ class StartupSyncService @Inject constructor(
     }
 
     private suspend fun pullWatchedItemsSnapshot(profileId: Int) {
+        if (!maySyncViewingState(profileId)) return
         try {
             Log.d(TAG, "Starting watched items snapshot sync for profile $profileId")
             val watchedItemsResult = watchedItemsSyncService.syncSnapshotFromRemote(profileId).getOrElse { throw it }
@@ -775,6 +783,7 @@ class StartupSyncService @Inject constructor(
         failureMessage: String,
         useSnapshot: Boolean
     ): Result<Unit> {
+        if (!maySyncViewingState(profileId)) return Result.success(Unit)
         watchProgressRepository.isSyncingFromRemote = true
         try {
             val syncResult = if (useSnapshot) {
