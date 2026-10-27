@@ -63,8 +63,15 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // Migration gate: only enable once local profile cloud isolation is complete.
+    // Until then, existing customers retain their current per-profile layout.
+    private val deviceLocalProfilesEnabled = false
+
+    private fun layoutProfileId(activeProfileId: Int): Int =
+        if (deviceLocalProfilesEnabled) 1 else activeProfileId
+
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
-        factory.get(profileId, FEATURE)
+        factory.get(layoutProfileId(profileId), FEATURE)
 
     private val gson = Gson()
 
@@ -133,7 +140,7 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
         profileManager.activeProfileId.flatMapLatest { pid ->
-            factory.get(pid, FEATURE).data.map { prefs -> extract(prefs) }
+            factory.get(layoutProfileId(pid), FEATURE).data.map { prefs -> extract(prefs) }
         }
 
     private fun Preferences.getStringOrMigrateSet(key: Preferences.Key<String>): String? {
@@ -201,7 +208,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     val homeCatalogOrderKeys: Flow<List<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
         val profile = profileManager.profiles.value.find { it.id == pid }
         val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
-        val effectivePid = if (usePrimary) 1 else pid
+        val effectivePid = if (deviceLocalProfilesEnabled || usePrimary) 1 else pid
         factory.get(effectivePid, FEATURE).data.map { prefs ->
             parseCatalogKeys(prefs.getStringOrMigrateSet(homeCatalogOrderKeysKey))
         }
@@ -210,7 +217,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     val disabledHomeCatalogKeys: Flow<List<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
         val profile = profileManager.profiles.value.find { it.id == pid }
         val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
-        val effectivePid = if (usePrimary) 1 else pid
+        val effectivePid = if (deviceLocalProfilesEnabled || usePrimary) 1 else pid
         factory.get(effectivePid, FEATURE).data.map { prefs ->
             parseCatalogKeys(prefs.getStringOrMigrateSet(disabledHomeCatalogKeysKey))
         }
@@ -219,7 +226,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     val customCatalogTitles: Flow<Map<String, String>> = profileManager.activeProfileId.flatMapLatest { pid ->
         val profile = profileManager.profiles.value.find { it.id == pid }
         val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
-        val effectivePid = if (usePrimary) 1 else pid
+        val effectivePid = if (deviceLocalProfilesEnabled || usePrimary) 1 else pid
         factory.get(effectivePid, FEATURE).data.map { prefs ->
             parseCustomTitles(prefs.getStringOrMigrateSet(customCatalogTitlesKey))
         }
