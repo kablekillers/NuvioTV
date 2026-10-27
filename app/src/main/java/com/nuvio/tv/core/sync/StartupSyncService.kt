@@ -688,6 +688,13 @@ class StartupSyncService @Inject constructor(
     }
 
     private suspend fun pullRealtimePlugins(profileId: Int) {
+        // Until Main-backed addon/plugin storage is fully verified, never
+        // reconcile a shared remote snapshot while a local secondary is active.
+        // A destructive removeMissingLocal pass could otherwise erase local data.
+        if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
+            Log.d(TAG, "Deferring shared plugin reconciliation until Main is active")
+            return
+        }
         pluginManager.isSyncingFromRemote = true
         try {
             val remotePlugins = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
@@ -705,6 +712,13 @@ class StartupSyncService @Inject constructor(
     }
 
     private suspend fun pullRealtimeAddons(profileId: Int) {
+        // Until Main-backed addon/plugin storage is fully verified, never
+        // reconcile a shared remote snapshot while a local secondary is active.
+        // A destructive removeMissingLocal pass could otherwise erase local data.
+        if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
+            Log.d(TAG, "Deferring shared addon reconciliation until Main is active")
+            return
+        }
         addonRepository.isSyncingFromRemote = true
         try {
             val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
