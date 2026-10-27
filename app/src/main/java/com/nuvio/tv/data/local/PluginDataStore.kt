@@ -38,6 +38,14 @@ class PluginDataStore @Inject constructor(
     // Disabled until the complete local-profile migration is verified.
     private val deviceLocalProfilesEnabled = false
 
+    private fun canEditSharedPlugins(): Boolean {
+        if (deviceLocalProfilesEnabled) {
+            return profileManager.activeProfileId.value == SharedLayoutScope.MAIN_PROFILE_ID
+        }
+        val active = profileManager.activeProfile
+        return active == null || active.isPrimary || !active.usesPrimaryPlugins
+    }
+
     private fun effectiveProfileId(): Int {
         if (deviceLocalProfilesEnabled) return SharedLayoutScope.MAIN_PROFILE_ID
         val active = profileManager.activeProfile
@@ -95,8 +103,7 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun saveRepositories(repos: List<PluginRepository>) {
-            val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+        if (!canEditSharedPlugins()) return
         val json = moshi.adapter<List<PluginRepository>>(repoListType).toJson(repos)
         store().edit { prefs ->
             prefs[repositoriesKey] = json
@@ -104,8 +111,7 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun addRepository(repo: PluginRepository) {
-            val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+        if (!canEditSharedPlugins()) return
         val current = repositories.first().toMutableList()
         current.removeAll { it.id == repo.id }
         current.add(repo)
@@ -113,14 +119,14 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun removeRepository(repoId: String) {
-            val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+        if (!canEditSharedPlugins()) return
         val current = repositories.first().toMutableList()
         current.removeAll { it.id == repoId }
         saveRepositories(current)
     }
 
     suspend fun updateRepository(repo: PluginRepository) {
+        if (!canEditSharedPlugins()) return
         val current = repositories.first().toMutableList()
         val index = current.indexOfFirst { it.id == repo.id }
         if (index >= 0) {
@@ -146,8 +152,7 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun saveScrapers(scrapers: List<ScraperInfo>) {
-            val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+        if (!canEditSharedPlugins()) return
         val json = moshi.adapter<List<ScraperInfo>>(scraperListType).toJson(scrapers)
         store().edit { prefs ->
             prefs[scrapersKey] = json
@@ -174,8 +179,7 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun setPluginsEnabled(enabled: Boolean) {
-            val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+        if (!canEditSharedPlugins()) return
         store().edit { prefs ->
             prefs[pluginsEnabledKey] = enabled
         }
@@ -188,8 +192,7 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun setGroupStreamsByRepository(enabled: Boolean) {
-            val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+        if (!canEditSharedPlugins()) return
         store().edit { prefs ->
             prefs[groupStreamsByRepositoryKey] = enabled
         }
@@ -201,6 +204,7 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun saveScraperCode(scraperId: String, code: String) {
+        if (!canEditSharedPlugins()) return
         val dir = ensureCodeDir()
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             File(dir, "$scraperId.js").writeText(code)
@@ -215,12 +219,14 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun deleteScraperCode(scraperId: String) {
+        if (!canEditSharedPlugins()) return
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             File(codeDir, "$scraperId.js").delete()
         }
     }
 
     suspend fun clearAllScraperCode() {
+        if (!canEditSharedPlugins()) return
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             codeDir.listFiles()?.forEach { it.delete() }
         }
@@ -243,6 +249,7 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun setScraperSettings(scraperId: String, settings: Map<String, Any>) {
+        if (!canEditSharedPlugins()) return
         val prefs = store().data.first()
         val allSettings = prefs[scraperSettingsKey]?.let { json ->
             try {
