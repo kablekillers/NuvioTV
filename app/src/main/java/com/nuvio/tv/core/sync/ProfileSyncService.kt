@@ -138,8 +138,14 @@ class ProfileSyncService @Inject constructor(
                 }
 
                 if (profiles.isNotEmpty()) {
-                    profileDataStore.replaceAllProfiles(profiles)
-                    Log.d(TAG, "Merged ${profiles.size} remote profiles into local store")
+                    if (deviceLocalProfilesEnabled) {
+                        profiles.firstOrNull { it.id == 1 }?.let { main ->
+                            profileDataStore.mergeRemoteMainProfile(main)
+                        }
+                    } else {
+                        profileDataStore.replaceAllProfiles(profiles)
+                    }
+                    Log.d(TAG, "Applied remote profile metadata (deviceLocalMode=$deviceLocalProfilesEnabled)")
                 }
 
                 val currentUserId = (authManager.authState.value as? AuthState.FullAccount)?.userId
