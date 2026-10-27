@@ -1,5 +1,7 @@
 package com.nuvio.tv.data.local
 
+import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -36,7 +38,7 @@ class PluginDataStore @Inject constructor(
     }
 
     // Disabled until the complete local-profile migration is verified.
-    private val deviceLocalProfilesEnabled = false
+    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
 
     private fun canEditSharedPlugins(): Boolean {
         if (deviceLocalProfilesEnabled) {
