@@ -29,3 +29,11 @@ PIN entry, administrator credential changes, and server-enforced permission chan
 
 ## Privacy invariant
 For any two distinct devices A and B sharing the same main account, creating, viewing, or changing local profile P on A must not cause any profile P data to appear on B or in server account state.
+
+## Required shared home-screen layout (2026-10-27)
+- The Main Profile is the authoritative configuration for **all home-screen rows, catalog order, row visibility, custom catalog titles, hero/catalog selection, and home layout/display settings**. Every local personal profile uses this configuration live; do not snapshot/copy it once on profile creation.
+- Continue Watching occupies the same configured row position in every profile but its **contents** are device-local and profile-specific. Likewise, favorites and history contents remain private.
+- Main-profile layout changes must synchronize across devices using the existing account sync path, then apply to every local profile. Secondary profiles must not overwrite shared layout.
+- Current `LayoutPreferenceDataStore` uses per-profile `profileFlow`, and only catalog order/disabled/custom title reads conditionally inherit primary data when `usesPrimaryAddons` is true. This is insufficient for the exact shared layout. Audit all layout reads and writes before implementing.
+- `HomeCatalogSettingsSyncService` currently syncs by active profile ID; the shared layout must be synchronized from primary profile scope, not each local profile.
+- Tests: newly created local profile shows exact main layout, switching profiles preserves row placement, main reorder/visibility/title edits appear in existing profiles on another device, and Continue Watching items remain private.
