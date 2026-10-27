@@ -1,5 +1,7 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
@@ -81,7 +83,7 @@ class HomeCatalogSettingsSyncService @Inject constructor(
     private val syncClientIdentity: SyncClientIdentity
 ) {
     // Disabled until local-profile mode is migrated and verified end to end.
-    private val deviceLocalProfilesEnabled = false
+    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
     private fun sharedLayoutProfileId(activeId: Int): Int =
         SharedLayoutScope.configurationProfileId(activeId, deviceLocalProfilesEnabled)
 
