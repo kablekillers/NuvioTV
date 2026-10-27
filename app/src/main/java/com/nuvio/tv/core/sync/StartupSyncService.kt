@@ -559,6 +559,7 @@ class StartupSyncService @Inject constructor(
                 }
         }
 
+        if (!deviceLocalProfilesEnabled || profileId == 1) {
         providerCredentialSyncService.syncFromRemote(profileId)
             .onSuccess { applied ->
                 Log.d(TAG, "Provider credential sync completed for profile $profileId applied=$applied")
@@ -566,11 +567,12 @@ class StartupSyncService @Inject constructor(
             .onFailure { error ->
                 Log.e(TAG, "Failed to sync provider credentials, keeping local credentials", error)
             }
+        }
 
         coroutineScope {
             val libraryJob = async {
                 val isTrackingLibrary = libraryRepository.sourceMode.first() != LibrarySourceMode.LOCAL
-                if (!isTrackingLibrary) {
+                if (!isTrackingLibrary && maySyncViewingState(profileId)) {
                     libraryRepository.isSyncingFromRemote = true
                     try {
                         val result = librarySyncService.syncFromRemote(profileId).getOrElse { throw it }
@@ -592,6 +594,7 @@ class StartupSyncService @Inject constructor(
             }
 
             val pluginJob = async {
+                if (deviceLocalProfilesEnabled && profileId != 1) return@async
                 pluginManager.isSyncingFromRemote = true
                 try {
                     val remotePlugins = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
@@ -609,6 +612,7 @@ class StartupSyncService @Inject constructor(
             }
 
             val addonJob = async {
+                if (deviceLocalProfilesEnabled && profileId != 1) return@async
                 addonRepository.isSyncingFromRemote = true
                 try {
                     val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
@@ -661,6 +665,10 @@ class StartupSyncService @Inject constructor(
     }
 
     private suspend fun pullNuvioLibrary(profileId: Int): Boolean {
+        if (!maySyncViewingState(profileId)) {
+            libraryRepository.hasCompletedInitialPull = true
+            return true
+        }
         val isTrackingLibrary = libraryRepository.sourceMode.first() != LibrarySourceMode.LOCAL
         if (isTrackingLibrary) {
             libraryRepository.hasCompletedInitialPull = true
