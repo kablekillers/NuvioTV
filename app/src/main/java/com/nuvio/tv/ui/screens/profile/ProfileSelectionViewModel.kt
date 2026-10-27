@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.screens.profile
 
+import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -55,7 +57,7 @@ class ProfileSelectionViewModel @Inject constructor(
     private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore
 ) : ViewModel() {
     // Migration gate: retain existing behavior until private profiles are fully isolated.
-    private val deviceLocalProfilesEnabled = false
+    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
 
     val activeProfileId: StateFlow<Int> = profileManager.activeProfileId
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
