@@ -289,8 +289,10 @@ class ProfileSettingsSyncService @Inject constructor(
                     // Shared layout and plugins are inherited, not copied to a
                     // cloud-backed secondary profile. Never invoke the remote copy
                     // RPC for a device-only target (it creates remote profile data).
-                    if (deviceLocalProfilesEnabled && targetProfileId != 1) {
-                        Log.i(TAG, "Skipping profile setup copy for device-local profile $targetProfileId")
+                    if (deviceLocalProfilesEnabled &&
+                        (sourceProfileId != 1 || targetProfileId != 1)
+                    ) {
+                        Log.i(TAG, "Skipping cloud profile setup copy involving device-local profile: $sourceProfileId -> $targetProfileId")
                         return@withLock Result.success(Unit)
                     }
                     require(sourceProfileId != targetProfileId)
