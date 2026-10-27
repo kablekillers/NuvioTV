@@ -203,6 +203,16 @@ class StartupSyncService @Inject constructor(
 
     fun requestRealtimeSurfacePull(profileId: Int, surface: String) {
         if (!authManager.isAuthenticated) return
+        // A remote event for a shared-account secondary profile must never
+        // trigger a local customer's viewing-state or credential pull.
+        // Shared addon/catalog updates are handled separately through Main.
+        if (deviceLocalProfilesEnabled && profileId != 1) {
+            Log.d(TAG, "Ignoring remote event for cloud secondary profile $profileId: $surface")
+            return
+        }
+        if (deviceLocalProfilesEnabled && !maySyncViewingState(profileId) &&
+            surface in setOf("library", "watch_progress", "watched_items", "collections")
+        ) return
         if (surface != "profiles" && profileManager.activeProfileId.value != profileId) {
             Log.d(TAG, "Ignoring realtime surface=$surface for inactive profile $profileId")
             return
