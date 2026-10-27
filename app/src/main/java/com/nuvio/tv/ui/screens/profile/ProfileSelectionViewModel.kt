@@ -240,6 +240,15 @@ class ProfileSelectionViewModel @Inject constructor(
         onComplete: (Result<Unit>) -> Unit
     ) {
         if (_isCopyingSettings.value) return
+        // Secondary profiles inherit shared configuration from Main. Copying
+        // another profile's settings could import private credentials or
+        // overwrite the shared layout while migration mode is enabled.
+        if (deviceLocalProfilesEnabled && (sourceProfileId != 1 || targetProfileId != 1)) {
+            onComplete(Result.failure(IllegalStateException(
+                "Device-only profiles inherit Main settings; profile settings copy is unavailable"
+            )))
+            return
+        }
         viewModelScope.launch {
             _isCopyingSettings.value = true
             val result = try {
