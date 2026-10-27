@@ -195,15 +195,16 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun pullProfileLockStates(): Result<Map<Int, Boolean>> = withContext(Dispatchers.IO) {
-        // PIN migration is out of scope for device-only profiles. Never expose
-        // shared-account secondary lock states to local customer profiles.
-        if (deviceLocalProfilesEnabled) return@withContext Result.success(emptyMap())
+        // Keep Main's existing lock intact, but never expose remote secondary
+        // PIN flags as if they belonged to device-only customer profiles.
         try {
             val response = withJwtRefreshRetry {
                 postgrest.rpc("sync_pull_profile_locks")
             }
             val remote = response.decodeList<SupabaseProfileLockState>()
-            val result = remote.associate { it.profileIndex to it.pinEnabled }
+            val result = remote
+                .filter { !deviceLocalProfilesEnabled || it.profileIndex == 1 }
+                .associate { it.profileIndex to it.pinEnabled }
             Result.success(result)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to pull profile lock states", e)
