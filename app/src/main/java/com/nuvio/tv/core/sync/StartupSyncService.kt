@@ -176,8 +176,20 @@ class StartupSyncService @Inject constructor(
 
     fun requestAddonSyncNow() {
         val profileId = profileManager.activeProfileId.value
+        // Manual refresh also performs removeMissingLocal reconciliation.
+        // Never run it under a local secondary until Main-backed addon storage
+        // and remote account scoping have been verified end-to-end.
+        if (deviceLocalProfilesEnabled && profileId != 1) {
+            Log.d(TAG, "Deferring manual addon sync until Main is active")
+            return
+        }
         Log.d(TAG, "Manual addon sync enqueued for profile $profileId")
         scope.launch {
+            // The selected profile may change while the request is queued.
+            if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
+                Log.d(TAG, "Skipping queued addon sync after profile switch")
+                return@launch
+            }
             Log.d(TAG, "Manual addon sync starting for profile $profileId")
 
             addonRepository.isSyncingFromRemote = true
