@@ -1,5 +1,7 @@
 package com.nuvio.tv.data.local
 
+import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+
 import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -66,7 +68,7 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     // Migration gate: only enable once local profile cloud isolation is complete.
     // Until then, existing customers retain their current per-profile layout.
-    private val deviceLocalProfilesEnabled = false
+    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
 
     private fun layoutProfileId(activeProfileId: Int): Int =
         SharedLayoutScope.configurationProfileId(activeProfileId, deviceLocalProfilesEnabled)
