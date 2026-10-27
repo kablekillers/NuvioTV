@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.SharedLayoutScope
 import com.nuvio.tv.core.sync.LocalHomeCatalogSettingsState
 import com.nuvio.tv.core.sync.SyncHomeCatalogPayload
 import com.nuvio.tv.core.sync.buildHomeCatalogSyncPayload
@@ -68,7 +69,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val deviceLocalProfilesEnabled = false
 
     private fun layoutProfileId(activeProfileId: Int): Int =
-        if (deviceLocalProfilesEnabled) 1 else activeProfileId
+        SharedLayoutScope.configurationProfileId(activeProfileId, deviceLocalProfilesEnabled)
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
         factory.get(layoutProfileId(profileId), FEATURE)
