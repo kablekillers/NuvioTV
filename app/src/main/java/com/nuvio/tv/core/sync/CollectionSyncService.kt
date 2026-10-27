@@ -1,5 +1,7 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
@@ -32,7 +34,7 @@ class CollectionSyncService @Inject constructor(
     private val syncClientIdentity: SyncClientIdentity
 ) {
     // Keep disabled until device-local profile migration is fully wired.
-    private val deviceLocalProfilesEnabled = false
+    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
