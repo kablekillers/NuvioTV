@@ -20,7 +20,10 @@ internal object CustomerProfileMigrationGate {
         existingDeviceProfileIds: List<Int>,
         mainProfilePresent: Boolean = true,
         localProfileCountLimit: Int = 5,
-        migrationStatePersisted: Boolean = false
+        migrationStatePersisted: Boolean = false,
+        personalStateIsolationVerified: Boolean = false,
+        sharedMainLayoutVerified: Boolean = false,
+        cloudProfileDeletionDisabled: Boolean = false
     ): Decision {
         if (mode != AccountProfileMode.CUSTOMER_DEVICE_LOCAL) {
             return Decision(false, "Customer migration applies only to customer accounts")
@@ -29,6 +32,15 @@ internal object CustomerProfileMigrationGate {
         if (!migrationApproved) return Decision(false, "Migration has not been approved")
         if (!migrationStatePersisted) return Decision(false, "Migration state has not been durably recorded")
         if (!syncAuditComplete) return Decision(false, "Personal-data sync audit is incomplete")
+        if (!personalStateIsolationVerified) {
+            return Decision(false, "Personal viewing data isolation is not verified")
+        }
+        if (!sharedMainLayoutVerified) {
+            return Decision(false, "Main layout propagation is not verified")
+        }
+        if (!cloudProfileDeletionDisabled) {
+            return Decision(false, "Legacy cloud profile deletion must be disabled")
+        }
         if (!mainProfilePresent || 1 !in existingDeviceProfileIds || 1 !in existingCloudProfileIds) {
             return Decision(false, "Main profile must be present in both local and cloud state")
         }
