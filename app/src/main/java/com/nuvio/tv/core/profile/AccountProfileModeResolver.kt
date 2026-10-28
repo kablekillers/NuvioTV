@@ -15,6 +15,9 @@ internal object AccountProfileModeResolver {
         migrationEnabled: Boolean
     ): AccountProfileMode {
         val matches = !authenticatedAccountId.isNullOrBlank() &&
+            authenticatedAccountId == authenticatedAccountId.trim() &&
+            !storedAccountId.isNullOrBlank() &&
+            storedAccountId == storedAccountId.trim() &&
             authenticatedAccountId == storedAccountId
         // A mode assignment for a different login must not leak across accounts,
         // including an explicitly selected family-cloud assignment.
