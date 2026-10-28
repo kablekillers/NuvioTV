@@ -13,6 +13,30 @@ internal object DeviceProfileMigrationPlanner {
         val collidingSecondaryIds: List<Int>
     )
 
+    /**
+     * Produces a deterministic, non-mutating remap proposal. The caller must
+     * migrate every local profile-scoped data store atomically before applying it.
+     * Cloud IDs are never rewritten, and Main (1) always remains Main.
+     */
+    fun proposeLocalRemap(
+        existingCloudProfileIds: List<Int>,
+        existingDeviceProfileIds: List<Int>
+    ): Map<Int, Int> {
+        val plan = inspect(existingCloudProfileIds, existingDeviceProfileIds)
+        val occupied = (plan.preservedCloudIds + plan.reservedLocalIds).toMutableSet()
+        val result = linkedMapOf<Int, Int>()
+        var candidate = 2
+        for (id in plan.collidingSecondaryIds) {
+            while (candidate in occupied) {
+                check(candidate < Int.MAX_VALUE) { "No available local profile identifier" }
+                candidate++
+            }
+            result[id] = candidate
+            occupied.add(candidate)
+        }
+        return result
+    }
+
     fun inspect(
         existingCloudProfileIds: List<Int>,
         existingDeviceProfileIds: List<Int>
