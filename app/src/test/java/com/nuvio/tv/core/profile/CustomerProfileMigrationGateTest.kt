@@ -11,8 +11,11 @@ class CustomerProfileMigrationGateTest {
         approved: Boolean = true,
         audited: Boolean = true,
         cloud: List<Int> = listOf(1, 2, 3),
-        local: List<Int> = listOf(1, 4, 5)
-    ) = CustomerProfileMigrationGate.evaluate(mode, verified, approved, audited, cloud, local)
+        local: List<Int> = listOf(1, 4, 5),
+        persisted: Boolean = true
+    ) = CustomerProfileMigrationGate.evaluate(
+        mode, verified, approved, audited, cloud, local, migrationStatePersisted = persisted
+    )
 
     @Test fun allowsOnlyVerifiedAuditedNonCollidingCustomerMigration() {
         assertTrue(check().mayActivate)
@@ -25,6 +28,10 @@ class CustomerProfileMigrationGateTest {
     @Test fun blocksUnverifiedOrUnapprovedMigration() {
         assertFalse(check(verified = false).mayActivate)
         assertFalse(check(approved = false).mayActivate)
+    }
+
+    @Test fun blocksActivationWithoutDurableMigrationRecord() {
+        assertFalse(check(persisted = false).mayActivate)
     }
 
     @Test fun blocksMigrationUntilSyncAuditIsComplete() {
