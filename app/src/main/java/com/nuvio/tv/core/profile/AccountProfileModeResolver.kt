@@ -4,8 +4,8 @@ package com.nuvio.tv.core.profile
  * Prevents account-specific mode settings from leaking between shared-device
  * logins. A selection belongs to the exact authenticated account identifier.
  *
- * This pure boundary is not yet wired into authentication; rollout remains
- * disabled until the caller verifies account identity and migration safety.
+ * The authenticated provider uses this boundary; rollout remains disabled
+ * until account-specific migration and synchronization are verified.
  */
 internal object AccountProfileModeResolver {
     fun resolve(
