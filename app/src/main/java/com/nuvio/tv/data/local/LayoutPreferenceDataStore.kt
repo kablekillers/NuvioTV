@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.local
 
-import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 
 import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -52,7 +53,8 @@ import javax.inject.Singleton
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class LayoutPreferenceDataStore @Inject constructor(
     private val factory: ProfileDataStoreFactory,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider
 ) {
     companion object {
         private const val TAG = "LayoutPreferenceDS"
@@ -68,7 +70,8 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     // Migration gate: only enable once local profile cloud isolation is complete.
     // Until then, existing customers retain their current per-profile layout.
-    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
 
     private fun layoutProfileId(activeProfileId: Int): Int =
         SharedLayoutScope.configurationProfileId(activeProfileId, deviceLocalProfilesEnabled)
