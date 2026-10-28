@@ -20,6 +20,7 @@ class AccountProfilePolicyTest {
         assertFalse(AccountProfilePolicy.maySyncProfileMetadata(3, mode))
         assertFalse(AccountProfilePolicy.maySyncViewingState(3, mode))
         assertTrue(AccountProfilePolicy.maySyncProfileMetadata(1, mode))
+        assertFalse(AccountProfilePolicy.maySyncViewingState(1, mode))
         assertEquals(listOf(1), AccountProfilePolicy.visibleRemoteProfileIds(listOf(1, 2, 3), mode))
         assertFalse(AccountProfilePolicy.canEditSharedConfiguration(2, mode))
         assertTrue(AccountProfilePolicy.canEditSharedConfiguration(1, mode))
