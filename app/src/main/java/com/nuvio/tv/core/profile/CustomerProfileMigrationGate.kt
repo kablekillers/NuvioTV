@@ -45,7 +45,7 @@ internal object CustomerProfileMigrationGate {
             return Decision(false, "Main profile must be present in both local and cloud state")
         }
         if (localProfileCountLimit < 0) {
-            return Decision(false, "Invalid customer profile limit")
+            return Decision(false, "Customer profile limit must be between one and five")
         }
         if (existingDeviceProfileIds.size != existingDeviceProfileIds.distinct().size ||
             existingCloudProfileIds.size != existingCloudProfileIds.distinct().size
@@ -54,6 +54,9 @@ internal object CustomerProfileMigrationGate {
         }
         if (existingDeviceProfileIds.distinct().size > localProfileCountLimit + 1) {
             return Decision(false, "Local profile count exceeds the customer profile limit")
+        }
+        if (existingCloudProfileIds.any { it <= 0 } || existingDeviceProfileIds.any { it <= 0 }) {
+            return Decision(false, "Invalid profile IDs require data repair before migration")
         }
         val plan = DeviceProfileMigrationPlanner.inspect(existingCloudProfileIds, existingDeviceProfileIds)
         if (plan.requiresLocalIdRemapping) {
