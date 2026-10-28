@@ -51,6 +51,11 @@ class CustomerProfileMigrationGateTest {
         assertFalse(check(deletionDisabled = false).mayActivate)
     }
 
+    @Test fun invalidIdsReturnBlockedDecisionRatherThanThrowing() {
+        assertFalse(check(cloud = listOf(1, -2)).mayActivate)
+        assertFalse(check(local = listOf(1, 0)).mayActivate)
+    }
+
     @Test fun blocksDuplicateIdentifiersBeforeMigration() {
         assertFalse(check(cloud = listOf(1, 2, 2)).mayActivate)
         assertFalse(check(local = listOf(1, 4, 4)).mayActivate)
