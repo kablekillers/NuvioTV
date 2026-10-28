@@ -22,7 +22,16 @@ internal object DeviceProfileMigrationPlanner {
         existingCloudProfileIds: List<Int>,
         existingDeviceProfileIds: List<Int>
     ): Map<Int, Int> {
+        require(existingCloudProfileIds.size == existingCloudProfileIds.distinct().size) {
+            "Duplicate cloud profile IDs must be repaired before remapping"
+        }
+        require(existingDeviceProfileIds.size == existingDeviceProfileIds.distinct().size) {
+            "Duplicate device profile IDs must be repaired before remapping"
+        }
         val plan = inspect(existingCloudProfileIds, existingDeviceProfileIds)
+        require(1 in plan.preservedCloudIds && 1 in plan.reservedLocalIds) {
+            "Main must exist in both cloud and device profiles"
+        }
         val occupied = (plan.preservedCloudIds + plan.reservedLocalIds).toMutableSet()
         val result = linkedMapOf<Int, Int>()
         var candidate = 2
