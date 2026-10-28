@@ -28,6 +28,7 @@ internal object AccountProfileModeCodec {
         assignmentVerifiedForCurrentAccount: Boolean,
         migrationEnabled: Boolean
     ): AccountProfileMode {
+        if (!assignmentVerifiedForCurrentAccount) return AccountProfileMode.LEGACY_CLOUD
         val requested = decode(storedValue)
         return if (requested == AccountProfileMode.CUSTOMER_DEVICE_LOCAL &&
             !migrationEnabled
