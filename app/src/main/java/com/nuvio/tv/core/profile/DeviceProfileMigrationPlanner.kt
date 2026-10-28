@@ -32,6 +32,9 @@ internal object DeviceProfileMigrationPlanner {
         require(1 in plan.preservedCloudIds && 1 in plan.reservedLocalIds) {
             "Main must exist in both cloud and device profiles"
         }
+        require(plan.reservedLocalIds.size <= 6) {
+            "Device has more than five personal profiles"
+        }
         val occupied = (plan.preservedCloudIds + plan.reservedLocalIds).toMutableSet()
         val result = linkedMapOf<Int, Int>()
         var candidate = 2
