@@ -29,12 +29,14 @@ private const val TAG = "CollectionSyncService"
 class CollectionSyncService @Inject constructor(
     private val postgrest: Postgrest,
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val collectionsDataStore: CollectionsDataStore,
     private val profileManager: ProfileManager,
     private val syncClientIdentity: SyncClientIdentity
 ) {
     // Keep disabled until device-local profile migration is fully wired.
-    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
