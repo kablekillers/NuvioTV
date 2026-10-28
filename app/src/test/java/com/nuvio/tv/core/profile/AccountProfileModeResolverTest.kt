@@ -40,6 +40,17 @@ class AccountProfileModeResolverTest {
         )
     }
 
+    @Test fun whitespacePaddedIdentityCannotActivateCustomerMode() {
+        assertEquals(
+            AccountProfileMode.LEGACY_CLOUD,
+            AccountProfileModeResolver.resolve(" customer-account ", " customer-account ", "customer_device_local", true)
+        )
+        assertEquals(
+            AccountProfileMode.LEGACY_CLOUD,
+            AccountProfileModeResolver.resolve("customer-account", "customer-account ", "customer_device_local", true)
+        )
+    }
+
     @Test fun migrationGateOverridesMatchingCustomerAssignment() {
         assertEquals(
             AccountProfileMode.LEGACY_CLOUD,
