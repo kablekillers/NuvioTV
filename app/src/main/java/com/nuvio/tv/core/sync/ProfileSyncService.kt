@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.sync
 
-import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 
 import android.os.SystemClock
 import android.util.Log
@@ -49,6 +50,7 @@ sealed class SetProfilePinResult {
 @Singleton
 class ProfileSyncService @Inject constructor(
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val postgrest: Postgrest,
     private val profileDataStore: ProfileDataStore,
     private val profileManager: ProfileManager,
@@ -56,7 +58,8 @@ class ProfileSyncService @Inject constructor(
 ) {
     // Migration gate remains disabled until every personal viewing-state sync path
     // is isolated. Legacy shared-account behavior must not change yet.
-    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
 
     private val pullMutex = Mutex()
     private var pullFreshness = ProfilePullFreshness()
