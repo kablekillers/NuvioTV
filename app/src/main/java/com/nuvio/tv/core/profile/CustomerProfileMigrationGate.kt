@@ -47,6 +47,9 @@ internal object CustomerProfileMigrationGate {
         if (localProfileCountLimit !in 1..5) {
             return Decision(false, "Customer profile limit must be between one and five")
         }
+        if (existingCloudProfileIds.size > 1 && existingCloudProfileIds.none { it != 1 }) {
+            return Decision(false, "Cloud secondary profile identifiers are invalid")
+        }
         if (existingDeviceProfileIds.size != existingDeviceProfileIds.distinct().size ||
             existingCloudProfileIds.size != existingCloudProfileIds.distinct().size
         ) {
