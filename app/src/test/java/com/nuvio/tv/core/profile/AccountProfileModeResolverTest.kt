@@ -29,6 +29,17 @@ class AccountProfileModeResolverTest {
         )
     }
 
+    @Test fun familyAssignmentAlsoCannotLeakToDifferentLogin() {
+        assertEquals(
+            AccountProfileMode.LEGACY_CLOUD,
+            AccountProfileModeResolver.resolve("customer-account", "family-account", "family_cloud", true)
+        )
+        assertEquals(
+            AccountProfileMode.FAMILY_CLOUD,
+            AccountProfileModeResolver.resolve("family-account", "family-account", "family_cloud", false)
+        )
+    }
+
     @Test fun migrationGateOverridesMatchingCustomerAssignment() {
         assertEquals(
             AccountProfileMode.LEGACY_CLOUD,
