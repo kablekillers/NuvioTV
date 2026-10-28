@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.sync
 
-import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
