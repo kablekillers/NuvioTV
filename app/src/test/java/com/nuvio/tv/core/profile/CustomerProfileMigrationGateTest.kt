@@ -12,9 +12,16 @@ class CustomerProfileMigrationGateTest {
         audited: Boolean = true,
         cloud: List<Int> = listOf(1, 2, 3),
         local: List<Int> = listOf(1, 4, 5),
-        persisted: Boolean = true
+        persisted: Boolean = true,
+        isolated: Boolean = true,
+        layoutVerified: Boolean = true,
+        deletionDisabled: Boolean = true
     ) = CustomerProfileMigrationGate.evaluate(
-        mode, verified, approved, audited, cloud, local, migrationStatePersisted = persisted
+        mode, verified, approved, audited, cloud, local,
+        migrationStatePersisted = persisted,
+        personalStateIsolationVerified = isolated,
+        sharedMainLayoutVerified = layoutVerified,
+        cloudProfileDeletionDisabled = deletionDisabled
     )
 
     @Test fun allowsOnlyVerifiedAuditedNonCollidingCustomerMigration() {
@@ -36,6 +43,12 @@ class CustomerProfileMigrationGateTest {
 
     @Test fun blocksMigrationUntilSyncAuditIsComplete() {
         assertFalse(check(audited = false).mayActivate)
+    }
+
+    @Test fun blocksActivationWithoutPrivacyAndSharedLayoutVerification() {
+        assertFalse(check(isolated = false).mayActivate)
+        assertFalse(check(layoutVerified = false).mayActivate)
+        assertFalse(check(deletionDisabled = false).mayActivate)
     }
 
     @Test fun blocksMigrationWithoutMainProfileOnBothSides() {
