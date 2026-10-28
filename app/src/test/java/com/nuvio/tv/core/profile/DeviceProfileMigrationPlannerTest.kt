@@ -40,6 +40,14 @@ class DeviceProfileMigrationPlannerTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun remapRejectsMoreThanFivePersonalProfiles() {
+        DeviceProfileMigrationPlanner.proposeLocalRemap(
+            listOf(1, 2),
+            listOf(1, 2, 3, 4, 5, 6, 7)
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun remapRejectsDuplicateDeviceIds() {
         DeviceProfileMigrationPlanner.proposeLocalRemap(listOf(1, 2), listOf(1, 2, 2))
     }
