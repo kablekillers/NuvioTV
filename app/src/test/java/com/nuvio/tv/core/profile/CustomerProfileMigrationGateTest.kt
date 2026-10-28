@@ -51,6 +51,11 @@ class CustomerProfileMigrationGateTest {
         assertFalse(check(deletionDisabled = false).mayActivate)
     }
 
+    @Test fun blocksDuplicateIdentifiersBeforeMigration() {
+        assertFalse(check(cloud = listOf(1, 2, 2)).mayActivate)
+        assertFalse(check(local = listOf(1, 4, 4)).mayActivate)
+    }
+
     @Test fun blocksMigrationWithoutMainProfileOnBothSides() {
         assertFalse(check(cloud = listOf(2, 3)).mayActivate)
         assertFalse(check(local = listOf(4, 5)).mayActivate)
