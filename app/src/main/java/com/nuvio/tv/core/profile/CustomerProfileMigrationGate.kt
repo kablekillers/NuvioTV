@@ -44,6 +44,14 @@ internal object CustomerProfileMigrationGate {
         if (!mainProfilePresent || 1 !in existingDeviceProfileIds || 1 !in existingCloudProfileIds) {
             return Decision(false, "Main profile must be present in both local and cloud state")
         }
+        if (localProfileCountLimit < 0) {
+            return Decision(false, "Invalid customer profile limit")
+        }
+        if (existingDeviceProfileIds.size != existingDeviceProfileIds.distinct().size ||
+            existingCloudProfileIds.size != existingCloudProfileIds.distinct().size
+        ) {
+            return Decision(false, "Duplicate profile IDs require data repair before migration")
+        }
         if (existingDeviceProfileIds.distinct().size > localProfileCountLimit + 1) {
             return Decision(false, "Local profile count exceeds the customer profile limit")
         }
