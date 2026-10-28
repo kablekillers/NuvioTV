@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.local
 
-import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -30,7 +31,8 @@ class PluginDataStore @Inject constructor(
     @ApplicationContext private val context: Context,
     private val moshi: Moshi,
     private val factory: ProfileDataStoreFactory,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider
 ) {
     companion object {
         internal const val FEATURE = "plugin_settings"
@@ -38,7 +40,8 @@ class PluginDataStore @Inject constructor(
     }
 
     // Disabled until the complete local-profile migration is verified.
-    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
 
     private fun canEditSharedPlugins(): Boolean {
         if (deviceLocalProfilesEnabled) {
