@@ -23,7 +23,7 @@ class AuthenticatedProfileModeProvider @Inject constructor(
         Context.MODE_PRIVATE
     )
 
-    fun currentMode(): AccountProfileMode {
+    internal fun currentMode(): AccountProfileMode {
         if (!DeviceLocalProfilesFeature.ENABLED) return AccountProfileMode.LEGACY_CLOUD
         val accountId = authManager.verifiedProfileAccountId
             ?: return AccountProfileMode.LEGACY_CLOUD
