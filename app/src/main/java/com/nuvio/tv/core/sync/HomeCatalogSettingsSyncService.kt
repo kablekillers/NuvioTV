@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.sync
 
-import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
@@ -76,6 +77,7 @@ internal fun mergeHomeCatalogSettingsJson(
 class HomeCatalogSettingsSyncService @Inject constructor(
     private val postgrest: Postgrest,
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val profileManager: ProfileManager,
     private val addonRepository: AddonRepository,
@@ -83,7 +85,8 @@ class HomeCatalogSettingsSyncService @Inject constructor(
     private val syncClientIdentity: SyncClientIdentity
 ) {
     // Disabled until local-profile mode is migrated and verified end to end.
-    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
     private fun sharedLayoutProfileId(activeId: Int): Int =
         SharedLayoutScope.configurationProfileId(activeId, deviceLocalProfilesEnabled)
 
