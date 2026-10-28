@@ -237,6 +237,13 @@ class StartupSyncService @Inject constructor(
         }
 
         scope.launch {
+            // Realtime events can be queued while the user changes profiles.
+            // Do not apply the previous profile's remote state to the newly
+            // selected local profile.
+            if (surface != "profiles" && profileManager.activeProfileId.value != profileId) {
+                Log.d(TAG, "Skipping queued realtime surface=$surface after profile switch")
+                return@launch
+            }
             Log.i(TAG, "Realtime surface pull requested profile=$profileId surface=$surface")
             when (surface) {
                 "addons" -> pullRealtimeAddons(profileId)
