@@ -70,6 +70,24 @@ class CustomerProfileMigrationGateTest {
         assertFalse(check(local = listOf(1, 4, 5, 6, 7, 8, 9)).mayActivate)
     }
 
+    @Test fun rejectsInvalidConfiguredProfileLimits() {
+        for (limit in listOf(-1, 0, 6, 100)) {
+            assertFalse(CustomerProfileMigrationGate.evaluate(
+                mode = AccountProfileMode.CUSTOMER_DEVICE_LOCAL,
+                assignmentVerified = true,
+                migrationApproved = true,
+                syncAuditComplete = true,
+                existingCloudProfileIds = listOf(1, 2),
+                existingDeviceProfileIds = listOf(1, 3),
+                localProfileCountLimit = limit,
+                migrationStatePersisted = true,
+                personalStateIsolationVerified = true,
+                sharedMainLayoutVerified = true,
+                cloudProfileDeletionDisabled = true
+            ).mayActivate)
+        }
+    }
+
     @Test fun blocksCloudLocalIdCollisions() {
         assertFalse(check(local = listOf(1, 2, 4)).mayActivate)
     }
