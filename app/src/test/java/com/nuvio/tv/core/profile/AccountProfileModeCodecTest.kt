@@ -12,7 +12,7 @@ class AccountProfileModeCodecTest {
     @Test fun familyModeRemainsCloudSynced() {
         assertEquals(
             AccountProfileMode.FAMILY_CLOUD,
-            AccountProfileModeCodec.effectiveMode("family_cloud", false, false)
+            AccountProfileModeCodec.effectiveMode("family_cloud", true, false)
         )
     }
 
