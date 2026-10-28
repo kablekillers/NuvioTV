@@ -20,6 +20,8 @@ internal object DeviceProfileMigrationPlanner {
         require(existingDeviceProfileIds.all { it > 0 })
         val cloud = existingCloudProfileIds.distinct().sorted()
         val local = existingDeviceProfileIds.distinct().sorted()
+        // Local and cloud secondary IDs must never be conflated, even when
+        // the same numeric ID refers to unrelated people on different devices.
         val collisions = local.any { it != 1 && it in cloud }
         return Plan(
             preservedCloudIds = cloud,
