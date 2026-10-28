@@ -27,6 +27,9 @@ class AuthenticatedProfileModeProvider @Inject constructor(
         if (!DeviceLocalProfilesFeature.ENABLED) return AccountProfileMode.LEGACY_CLOUD
         val accountId = authManager.verifiedProfileAccountId
             ?: return AccountProfileMode.LEGACY_CLOUD
+        if (accountId.isBlank() || accountId != accountId.trim()) {
+            return AccountProfileMode.LEGACY_CLOUD
+        }
         val storedAccountId = preferences.getString("assigned_account_id", null)
         val storedMode = preferences.getString("assigned_mode", null)
         val migrationComplete = preferences.getBoolean("migration_complete", false)
