@@ -24,7 +24,7 @@ internal object AccountProfilePolicy {
 
     fun maySyncViewingState(profileId: Int, mode: AccountProfileMode): Boolean {
         require(profileId > 0)
-        return !usesDeviceOnlySecondaries(mode) || profileId == 1
+        return !usesDeviceOnlySecondaries(mode)
     }
 
     fun visibleRemoteProfileIds(ids: List<Int>, mode: AccountProfileMode): List<Int> =
