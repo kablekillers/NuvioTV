@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.sync
 
-import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 
 import android.os.SystemClock
 import android.util.Log
@@ -178,6 +179,7 @@ internal fun shouldExcludePreferenceFromProfileSettingsSync(feature: String, key
 @Singleton
 class ProfileSettingsSyncService @Inject constructor(
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val postgrest: Postgrest,
     private val profileManager: ProfileManager,
     private val profileDataStoreFactory: ProfileDataStoreFactory,
@@ -188,8 +190,9 @@ class ProfileSettingsSyncService @Inject constructor(
     private val metaRepository: MetaRepository,
     private val cwEnrichmentCache: ContinueWatchingEnrichmentCache
 ) {
-    // Off until local-profile migration and all remote writers are audited.
-    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
+    // Resolve on access so switching logins cannot retain the previous account's mode.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
     private fun maySyncProfileSettings(profileId: Int): Boolean =
         ProfileSyncBoundary.maySyncProfileMetadata(profileId, deviceLocalProfilesEnabled)
 
