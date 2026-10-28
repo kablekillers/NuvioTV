@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.sync
 
-import com.nuvio.tv.core.profile.DeviceLocalProfilesFeature
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 
 import android.os.SystemClock
 import android.util.Log
@@ -53,6 +54,7 @@ internal data class SurfacePullFreshness(
 @Singleton
 class StartupSyncService @Inject constructor(
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val pluginSyncService: PluginSyncService,
     private val addonSyncService: AddonSyncService,
     private val collectionSyncService: CollectionSyncService,
@@ -73,7 +75,8 @@ class StartupSyncService @Inject constructor(
     private val cwEnrichmentCache: com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 ) {
     // Remains off until all direct and background viewing-state writers are isolated.
-    private val deviceLocalProfilesEnabled = DeviceLocalProfilesFeature.ENABLED
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
     private fun maySyncViewingState(profileId: Int): Boolean =
         ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)
 
