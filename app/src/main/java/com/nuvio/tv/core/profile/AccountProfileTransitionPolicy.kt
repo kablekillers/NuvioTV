@@ -9,18 +9,21 @@ internal object AccountProfileTransitionPolicy {
     enum class Action {
         KEEP_CURRENT,
         APPLY_CLOUD_MODE,
-        REQUIRE_CUSTOMER_MIGRATION
+        REQUIRE_CUSTOMER_MIGRATION,
+        REQUIRE_CLOUD_RECONCILIATION
     }
 
     fun plan(current: AccountProfileMode, requested: AccountProfileMode): Action {
         if (current == requested) return Action.KEEP_CURRENT
-        return if (requested == AccountProfileMode.CUSTOMER_DEVICE_LOCAL) {
-            Action.REQUIRE_CUSTOMER_MIGRATION
-        } else {
-            Action.APPLY_CLOUD_MODE
+        return when {
+            requested == AccountProfileMode.CUSTOMER_DEVICE_LOCAL ->
+                Action.REQUIRE_CUSTOMER_MIGRATION
+            current == AccountProfileMode.CUSTOMER_DEVICE_LOCAL ->
+                Action.REQUIRE_CLOUD_RECONCILIATION
+            else -> Action.APPLY_CLOUD_MODE
         }
     }
 
     fun mayApplyWithoutMigration(current: AccountProfileMode, requested: AccountProfileMode): Boolean =
-        plan(current, requested) != Action.REQUIRE_CUSTOMER_MIGRATION
+        plan(current, requested) in setOf(Action.KEEP_CURRENT, Action.APPLY_CLOUD_MODE)
 }
