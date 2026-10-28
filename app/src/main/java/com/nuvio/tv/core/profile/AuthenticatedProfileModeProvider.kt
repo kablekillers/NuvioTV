@@ -14,7 +14,7 @@ import javax.inject.Singleton
  * Until rollout is enabled, every account retains legacy cloud behavior.
  */
 @Singleton
-internal class AuthenticatedProfileModeProvider @Inject constructor(
+class AuthenticatedProfileModeProvider @Inject constructor(
     @ApplicationContext context: Context,
     private val authManager: AuthManager
 ) {
