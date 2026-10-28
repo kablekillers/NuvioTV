@@ -611,10 +611,11 @@ class StartupSyncService @Inject constructor(
             }
 
             val pluginJob = async {
-                if (deviceLocalProfilesEnabled && profileId != 1) return@async
+                if (deviceLocalProfilesEnabled && (profileId != 1 || profileManager.activeProfileId.value != 1)) return@async
                 pluginManager.isSyncingFromRemote = true
                 try {
                     val remotePlugins = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
+                    if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) return@async
                     pluginManager.reconcileWithRemoteRepoUrls(
                         remotePlugins = remotePlugins,
                         removeMissingLocal = true
@@ -629,10 +630,11 @@ class StartupSyncService @Inject constructor(
             }
 
             val addonJob = async {
-                if (deviceLocalProfilesEnabled && profileId != 1) return@async
+                if (deviceLocalProfilesEnabled && (profileId != 1 || profileManager.activeProfileId.value != 1)) return@async
                 addonRepository.isSyncingFromRemote = true
                 try {
                     val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
+                    if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) return@async
                     addonRepository.reconcileWithRemoteAddonUrls(
                         remoteUrls = remoteAddonUrls,
                         removeMissingLocal = true
@@ -723,6 +725,7 @@ class StartupSyncService @Inject constructor(
         pluginManager.isSyncingFromRemote = true
         try {
             val remotePlugins = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
+            if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) return
             pluginManager.reconcileWithRemoteRepoUrls(
                 remotePlugins = remotePlugins,
                 removeMissingLocal = true
@@ -747,6 +750,7 @@ class StartupSyncService @Inject constructor(
         addonRepository.isSyncingFromRemote = true
         try {
             val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
+            if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) return
             addonRepository.reconcileWithRemoteAddonUrls(
                 remoteUrls = remoteAddonUrls,
                 removeMissingLocal = true
