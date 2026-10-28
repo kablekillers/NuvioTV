@@ -16,6 +16,13 @@ class AccountProfileModeCodecTest {
         )
     }
 
+    @Test fun unverifiedFamilyAssignmentFallsBackToLegacy() {
+        assertEquals(
+            AccountProfileMode.LEGACY_CLOUD,
+            AccountProfileModeCodec.effectiveMode("family_cloud", false, false)
+        )
+    }
+
     @Test fun customerModeRequiresVerifiedAccountAndEnabledMigration() {
         assertEquals(
             AccountProfileMode.LEGACY_CLOUD,
