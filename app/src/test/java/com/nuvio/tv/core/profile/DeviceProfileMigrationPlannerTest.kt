@@ -40,6 +40,16 @@ class DeviceProfileMigrationPlannerTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun remapRejectsDuplicateDeviceIds() {
+        DeviceProfileMigrationPlanner.proposeLocalRemap(listOf(1, 2), listOf(1, 2, 2))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun remapRejectsMissingCloudMain() {
+        DeviceProfileMigrationPlanner.proposeLocalRemap(listOf(2, 3), listOf(1, 2))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun rejectsInvalidProfileIds() {
         DeviceProfileMigrationPlanner.inspect(listOf(1, 0), listOf(1, 2))
     }
