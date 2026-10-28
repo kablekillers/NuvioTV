@@ -24,7 +24,7 @@ internal object ProfileSyncBoundary {
         !deviceLocalModeEnabled || profileId == 1
 
     fun maySyncPersonalViewingState(profileId: Int, deviceLocalModeEnabled: Boolean): Boolean =
-        !deviceLocalModeEnabled || profileId == 1
+        !deviceLocalModeEnabled
 
     fun maySyncSharedAddonConfiguration(deviceLocalModeEnabled: Boolean): Boolean = true
 
