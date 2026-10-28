@@ -195,6 +195,12 @@ class StartupSyncService @Inject constructor(
             addonRepository.isSyncingFromRemote = true
             try {
                 val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
+                // Fetch is asynchronous: the customer may have selected a
+                // personal profile while the remote request was in flight.
+                if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
+                    Log.d(TAG, "Skipping manual addon reconciliation after profile switch")
+                    return@launch
+                }
 
                 addonRepository.reconcileWithRemoteAddonUrls(
                     remoteUrls = remoteAddonUrls,
