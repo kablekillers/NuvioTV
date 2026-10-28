@@ -30,7 +30,7 @@ internal object AccountProfileModeCodec {
     ): AccountProfileMode {
         val requested = decode(storedValue)
         return if (requested == AccountProfileMode.CUSTOMER_DEVICE_LOCAL &&
-            (!assignmentVerifiedForCurrentAccount || !migrationEnabled)
+            !migrationEnabled
         ) AccountProfileMode.LEGACY_CLOUD else requested
     }
 }
