@@ -19,13 +19,15 @@ internal object CustomerProfileMigrationGate {
         existingCloudProfileIds: List<Int>,
         existingDeviceProfileIds: List<Int>,
         mainProfilePresent: Boolean = true,
-        localProfileCountLimit: Int = 5
+        localProfileCountLimit: Int = 5,
+        migrationStatePersisted: Boolean = false
     ): Decision {
         if (mode != AccountProfileMode.CUSTOMER_DEVICE_LOCAL) {
             return Decision(false, "Customer migration applies only to customer accounts")
         }
         if (!assignmentVerified) return Decision(false, "Account identity is not verified")
         if (!migrationApproved) return Decision(false, "Migration has not been approved")
+        if (!migrationStatePersisted) return Decision(false, "Migration state has not been durably recorded")
         if (!syncAuditComplete) return Decision(false, "Personal-data sync audit is incomplete")
         if (!mainProfilePresent || 1 !in existingDeviceProfileIds || 1 !in existingCloudProfileIds) {
             return Decision(false, "Main profile must be present in both local and cloud state")
