@@ -16,6 +16,7 @@ class DeviceProfileMigrationPlannerTest {
     @Test fun mainProfileIdIsIntentionallyShared() {
         val plan = DeviceProfileMigrationPlanner.inspect(listOf(1, 2), listOf(1, 5))
         assertFalse(plan.requiresLocalIdRemapping)
+        assertEquals(emptyList<Int>(), plan.collidingSecondaryIds)
     }
 
     @Test fun deduplicatesIdentifiersWithoutModifyingSource() {
