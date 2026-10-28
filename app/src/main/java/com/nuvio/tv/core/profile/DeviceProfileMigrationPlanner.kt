@@ -9,7 +9,8 @@ internal object DeviceProfileMigrationPlanner {
     data class Plan(
         val preservedCloudIds: List<Int>,
         val reservedLocalIds: List<Int>,
-        val requiresLocalIdRemapping: Boolean
+        val requiresLocalIdRemapping: Boolean,
+        val collidingSecondaryIds: List<Int>
     )
 
     fun inspect(
@@ -22,11 +23,12 @@ internal object DeviceProfileMigrationPlanner {
         val local = existingDeviceProfileIds.distinct().sorted()
         // Local and cloud secondary IDs must never be conflated, even when
         // the same numeric ID refers to unrelated people on different devices.
-        val collisions = local.any { it != 1 && it in cloud }
+        val collisions = local.filter { it != 1 && it in cloud }
         return Plan(
             preservedCloudIds = cloud,
             reservedLocalIds = local,
-            requiresLocalIdRemapping = collisions
+            requiresLocalIdRemapping = collisions.isNotEmpty(),
+            collidingSecondaryIds = collisions
         )
     }
 }
