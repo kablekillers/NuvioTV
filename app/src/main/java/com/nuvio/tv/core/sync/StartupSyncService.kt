@@ -276,6 +276,10 @@ class StartupSyncService @Inject constructor(
                         }
                 }
                 "provider_credentials" -> {
+                    if (deviceLocalProfilesEnabled && (profileId != 1 || profileManager.activeProfileId.value != 1)) {
+                        Log.d(TAG, "Skipping customer secondary profile credential pull")
+                        return@launch
+                    }
                     providerCredentialSyncService.syncFromRemote(profileId)
                         .onSuccess { applied ->
                             Log.d(TAG, "Realtime provider credential pull completed profile=$profileId applied=$applied")
