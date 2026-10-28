@@ -25,6 +25,20 @@ class DeviceProfileMigrationPlannerTest {
         assertEquals(listOf(1, 4), plan.reservedLocalIds)
     }
 
+    @Test fun proposesCollisionFreeLocalIdsWithoutChangingCloudIds() {
+        val cloud = listOf(1, 2, 3, 6)
+        val local = listOf(1, 2, 3, 4)
+        val proposal = DeviceProfileMigrationPlanner.proposeLocalRemap(cloud, local)
+        assertEquals(mapOf(2 to 5, 3 to 7), proposal)
+        assertEquals(listOf(1, 2, 3, 6), cloud)
+        assertEquals(listOf(1, 2, 3, 4), local)
+        assertFalse(proposal.values.any { it in cloud || it in local })
+    }
+
+    @Test fun noCollisionsProduceNoRemapping() {
+        assertTrue(DeviceProfileMigrationPlanner.proposeLocalRemap(listOf(1, 2), listOf(1, 5)).isEmpty())
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun rejectsInvalidProfileIds() {
         DeviceProfileMigrationPlanner.inspect(listOf(1, 0), listOf(1, 2))
