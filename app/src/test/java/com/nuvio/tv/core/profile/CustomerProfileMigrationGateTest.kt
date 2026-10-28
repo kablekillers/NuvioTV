@@ -31,6 +31,15 @@ class CustomerProfileMigrationGateTest {
         assertFalse(check(audited = false).mayActivate)
     }
 
+    @Test fun blocksMigrationWithoutMainProfileOnBothSides() {
+        assertFalse(check(cloud = listOf(2, 3)).mayActivate)
+        assertFalse(check(local = listOf(4, 5)).mayActivate)
+    }
+
+    @Test fun blocksMoreThanFivePersonalProfiles() {
+        assertFalse(check(local = listOf(1, 4, 5, 6, 7, 8, 9)).mayActivate)
+    }
+
     @Test fun blocksCloudLocalIdCollisions() {
         assertFalse(check(local = listOf(1, 2, 4)).mayActivate)
     }
