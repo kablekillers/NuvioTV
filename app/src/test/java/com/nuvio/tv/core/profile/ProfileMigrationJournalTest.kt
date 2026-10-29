@@ -37,6 +37,21 @@ class ProfileMigrationJournalTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun newlineInAccountIdCannotCorruptJournalFormat() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            assertTrue(runCatching {
+                ProfileMigrationJournal.write(
+                    directory,
+                    ProfileMigrationJournal.Entry(
+                        "account\\nother", 2, 7, ProfileMigrationJournal.Phase.PREPARED
+                    )
+                )
+            }.isFailure)
+            assertFalse(directory.resolve("profile_migration_journal").exists())
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun invalidJournalFailsClosed() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
