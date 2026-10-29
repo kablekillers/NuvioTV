@@ -95,6 +95,33 @@ class ProfileMigrationCopyCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun completedJournalStillRequiresExplicitReconciliation() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            ProfileMigrationJournal.write(
+                dir,
+                ProfileMigrationJournal.Entry(
+                    "account-a", 2, 7, ProfileMigrationJournal.Phase.COMPLETED
+                )
+            )
+            val assessment = ProfileMigrationCopyCoordinator.assessRecovery(dir, "account-a")
+            assertTrue(assessment.requiresManualReconciliation)
+            assertTrue(assessment.accountMatches)
+            assertEquals(ProfileMigrationJournal.Phase.COMPLETED, assessment.phase)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun interruptedTemporaryJournalCannotBeSilentlyIgnored() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            dir.resolve("profile_migration_journal.tmp").writeText("partial")
+            val assessment = ProfileMigrationCopyCoordinator.assessRecovery(dir, "account-a")
+            assertTrue(assessment.requiresManualReconciliation)
+            assertTrue(!assessment.accountMatches)
+            assertTrue(assessment.phase == null)
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun failedCopyLeavesRecoveryJournalAndPreservesSource() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
