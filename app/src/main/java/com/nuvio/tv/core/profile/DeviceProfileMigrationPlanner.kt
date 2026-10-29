@@ -28,6 +28,9 @@ internal object DeviceProfileMigrationPlanner {
         require(existingDeviceProfileIds.size == existingDeviceProfileIds.distinct().size) {
             "Duplicate device profile IDs must be repaired before remapping"
         }
+        require(existingCloudProfileIds.all { it > 0 } && existingDeviceProfileIds.all { it > 0 }) {
+            "Invalid profile IDs must be repaired before remapping"
+        }
         val plan = inspect(existingCloudProfileIds, existingDeviceProfileIds)
         require(1 in plan.preservedCloudIds && 1 in plan.reservedLocalIds) {
             "Main must exist in both cloud and device profiles"
