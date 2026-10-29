@@ -56,6 +56,8 @@ internal object ProfileFileCopyTransaction {
                     digest(source).contentEquals(digest(destination))) {
                     "Profile copy verification failed"
                 }
+                // A copy that survives process death must have durable file contents.
+                java.io.RandomAccessFile(destination, "rw").use { it.fd.sync() }
             }
             return Result(created.map { it.name })
         } catch (failure: Exception) {
