@@ -36,8 +36,12 @@ internal object ProfileFileCopyTransaction {
             source to destination
         }
         require(pairs.all { (source, destination) ->
-            source.isFile && source.length() > 0L && !destination.exists()
-        }) { "Missing source or occupied destination" }
+            source.isFile && source.length() > 0L && !destination.exists() &&
+                source.name != destination.name
+        }) { "Missing source, self-copy, or occupied destination" }
+        val sourceDigests = pairs.associate { (source, _) ->
+            source.name to digest(source)
+        }
 
         val created = mutableListOf<File>()
         try {
@@ -53,7 +57,7 @@ internal object ProfileFileCopyTransaction {
                     output.flush()
                 }
                 require(source.length() == destination.length() &&
-                    digest(source).contentEquals(digest(destination))) {
+                    sourceDigests.getValue(source.name).contentEquals(digest(destination))) {
                     "Profile copy verification failed"
                 }
                 // A copy that survives process death must have durable file contents.
