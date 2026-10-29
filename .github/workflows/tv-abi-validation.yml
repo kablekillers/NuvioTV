@@ -77,6 +77,30 @@ jobs:
         continue-on-error: true
         run: bash ./gradlew :app:testFullDebugUnitTest --stacktrace --no-daemon
 
+      - name: Report failed unit-test details
+        if: always() && steps.unit_tests.outcome == 'failure'
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          for path in sorted(glob.glob('app/build/test-results/testFullDebugUnitTest/TEST-*.xml')):
+              root = ET.parse(path).getroot()
+              for case in root.iter('testcase'):
+                  for failure in case.findall('failure') + case.findall('error'):
+                      print('FAILED:', case.get('classname'), case.get('name'))
+                      print((failure.get('message') or '')[:1500])
+                      print((failure.text or '')[:5000])
+          PY
+
+      - name: Upload unit-test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kable-Killers-TV-1.1.2-Unit-Test-Reports
+          path: app/build/test-results/testFullDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Identify updater implementation for integration
         run: |
           grep -RInE 'GITHUB_REPO|releases/latest|browser_download_url|github.com/.*/releases' app/src/main/java --include='*.kt' | head -80 || true
