@@ -11,6 +11,37 @@ import java.io.File
  * destinations from a prior attempt automatically: ownership cannot be proven.
  */
 internal object ProfileMigrationCopyCoordinator {
+    /**
+     * Read-only recovery assessment. Never deletes copied files or advances
+     * journal state. A verified copy still requires metadata reconciliation.
+     */
+    data class RecoveryAssessment(
+        val phase: ProfileMigrationJournal.Phase?,
+        val requiresManualReconciliation: Boolean,
+        val accountMatches: Boolean
+    )
+
+    fun assessRecovery(directory: File, verifiedAccountId: String): RecoveryAssessment {
+        if (ProfileMigrationJournal.hasUnresolvedMigration(directory)) {
+            val journal = runCatching { ProfileMigrationJournal.read(directory) }.getOrNull()
+            return RecoveryAssessment(
+                phase = journal?.phase,
+                requiresManualReconciliation = true,
+                accountMatches = journal != null &&
+                    verifiedAccountId.isNotBlank() &&
+                    journal.accountId == verifiedAccountId
+            )
+        }
+        val journal = ProfileMigrationJournal.read(directory)
+        return RecoveryAssessment(
+            phase = journal?.phase,
+            requiresManualReconciliation = journal != null,
+            accountMatches = journal != null &&
+                verifiedAccountId.isNotBlank() &&
+                journal.accountId == verifiedAccountId
+        )
+    }
+
     fun copyWithJournal(
         directory: File,
         accountId: String,
