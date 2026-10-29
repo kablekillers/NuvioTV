@@ -29,6 +29,9 @@ internal object ProfileMigrationJournal {
             "Migration journal directory must not be a symbolic link"
         }
         val journal = File(directory, JOURNAL_NAME)
+        require(!Files.isSymbolicLink(directory.toPath())) {
+            "Migration journal directory must not be a symbolic link"
+        }
         require(!Files.isSymbolicLink(journal.toPath())) {
             "Migration journal must not be a symbolic link"
         }
@@ -87,6 +90,8 @@ internal object ProfileMigrationJournal {
     }
 
     fun hasUnresolvedMigration(directory: File): Boolean {
+        if (Files.isSymbolicLink(directory.toPath()) ||
+            Files.isSymbolicLink(File(directory, "$JOURNAL_NAME.tmp").toPath())) return true
         if (File(directory, "$JOURNAL_NAME.tmp").exists()) return true
         val entry = read(directory) ?: return false
         return entry.phase != Phase.COMPLETED
