@@ -24,7 +24,8 @@ internal object CustomerProfileMigrationGate {
         personalStateIsolationVerified: Boolean = false,
         sharedMainLayoutVerified: Boolean = false,
         cloudProfileDeletionDisabled: Boolean = false,
-        historicalCloudProfilesPreserved: Boolean = false
+        historicalCloudProfilesPreserved: Boolean = false,
+        recoveryJournalClear: Boolean = false
     ): Decision {
         if (mode != AccountProfileMode.CUSTOMER_DEVICE_LOCAL) {
             return Decision(false, "Customer migration applies only to customer accounts")
@@ -32,6 +33,7 @@ internal object CustomerProfileMigrationGate {
         if (!assignmentVerified) return Decision(false, "Account identity is not verified")
         if (!migrationApproved) return Decision(false, "Migration has not been approved")
         if (!migrationStatePersisted) return Decision(false, "Migration state has not been durably recorded")
+        if (!recoveryJournalClear) return Decision(false, "Profile migration recovery is unresolved")
         if (!syncAuditComplete) return Decision(false, "Personal-data sync audit is incomplete")
         if (!personalStateIsolationVerified) {
             return Decision(false, "Personal viewing data isolation is not verified")
