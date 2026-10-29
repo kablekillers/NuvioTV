@@ -22,7 +22,7 @@ internal object ProfileMigrationJournal {
     )
 
     fun write(directory: File, entry: Entry) {
-        require(entry.accountId.isNotBlank() && entry.accountId == entry.accountId.trim())
+        require(isValidAccountId(entry.accountId))
         require(entry.sourceId > 1 && entry.targetId > 1 && entry.sourceId != entry.targetId)
         require(directory.isDirectory)
         val journal = File(directory, JOURNAL_NAME)
@@ -64,7 +64,7 @@ internal object ProfileMigrationJournal {
         val sourceId = lines[2].toInt()
         val targetId = lines[3].toInt()
         val phase = Phase.valueOf(lines[4])
-        require(accountId.isNotBlank() && accountId == accountId.trim() &&
+        require(isValidAccountId(accountId) &&
             sourceId > 1 && targetId > 1 && sourceId != targetId) {
             "Invalid migration journal identity"
         }
@@ -76,6 +76,10 @@ internal object ProfileMigrationJournal {
         val entry = read(directory) ?: return false
         return entry.phase != Phase.COMPLETED
     }
+
+    private fun isValidAccountId(value: String): Boolean =
+        value.isNotBlank() && value == value.trim() &&
+            value.none { it == '\\n' || it == '\\r' || it.isISOControl() }
 
     private const val VERSION = "profile-migration-v1"
     private const val JOURNAL_NAME = "profile_migration_journal"
