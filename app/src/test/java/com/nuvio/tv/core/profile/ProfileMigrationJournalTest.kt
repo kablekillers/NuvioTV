@@ -52,6 +52,40 @@ class ProfileMigrationJournalTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun unresolvedTemporaryJournalBlocksFurtherWrites() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            directory.resolve("profile_migration_journal.tmp").writeText("interrupted")
+            assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory))
+            assertTrue(runCatching {
+                ProfileMigrationJournal.write(
+                    directory,
+                    ProfileMigrationJournal.Entry(
+                        "account-a", 2, 7, ProfileMigrationJournal.Phase.PREPARED
+                    )
+                )
+            }.isFailure)
+            assertEquals("interrupted",
+                directory.resolve("profile_migration_journal.tmp").readText())
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun journalPhaseCannotMoveBackwards() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            val verified = ProfileMigrationJournal.Entry(
+                "account-a", 2, 7, ProfileMigrationJournal.Phase.VERIFIED
+            )
+            ProfileMigrationJournal.write(directory, verified)
+            assertTrue(runCatching {
+                ProfileMigrationJournal.write(
+                    directory, verified.copy(phase = ProfileMigrationJournal.Phase.COPYING)
+                )
+            }.isFailure)
+            assertEquals(verified, ProfileMigrationJournal.read(directory))
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun invalidJournalFailsClosed() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
