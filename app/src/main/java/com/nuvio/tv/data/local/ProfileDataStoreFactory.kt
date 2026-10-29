@@ -198,6 +198,9 @@ class ProfileDataStoreFactory @Inject constructor(
             "Multiple source stores map to the same destination"
         }
         val directory = File(context.filesDir, "datastore")
+        check(manifest.keys.all { File(directory, it).isFile }) {
+            "Source store disappeared after inventory; refusing remap"
+        }
         check(manifest.values.none { File(directory, it).exists() }) {
             "Destination store appeared after inventory; refusing remap"
         }
