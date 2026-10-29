@@ -90,7 +90,8 @@ internal object ProfileMigrationJournal {
     }
 
     fun hasUnresolvedMigration(directory: File): Boolean {
-        if (Files.isSymbolicLink(directory.toPath()) ||
+        if (!directory.isDirectory ||
+            Files.isSymbolicLink(directory.toPath()) ||
             Files.isSymbolicLink(File(directory, "$JOURNAL_NAME.tmp").toPath())) return true
         if (File(directory, "$JOURNAL_NAME.tmp").exists()) return true
         val entry = read(directory) ?: return false
