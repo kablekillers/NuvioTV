@@ -26,6 +26,9 @@ internal object ProfileMigrationJournal {
         require(entry.sourceId > 1 && entry.targetId > 1 && entry.sourceId != entry.targetId)
         require(directory.isDirectory)
         val journal = File(directory, JOURNAL_NAME)
+        check(!File(directory, "$JOURNAL_NAME.tmp").exists()) {
+            "Unresolved migration journal temporary file"
+        }
         val previous = read(directory)
         if (previous != null) {
             require(previous.accountId == entry.accountId &&
