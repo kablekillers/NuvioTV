@@ -2,7 +2,6 @@ package com.nuvio.tv.core.profile
 
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.security.MessageDigest
 
 /**
@@ -28,7 +27,13 @@ internal object ProfileFileCopyTransaction {
                 to.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb"))) {
                 "Unsafe DataStore file name"
             }
-            File(canonicalDirectory, from) to File(canonicalDirectory, to)
+            val source = File(canonicalDirectory, from)
+            val destination = File(canonicalDirectory, to)
+            require(source.canonicalFile.parentFile == canonicalDirectory &&
+                destination.canonicalFile.parentFile == canonicalDirectory) {
+                "Profile store path escapes the DataStore directory"
+            }
+            source to destination
         }
         require(pairs.all { (source, destination) ->
             source.isFile && source.length() > 0L && !destination.exists()
