@@ -23,7 +23,8 @@ internal object CustomerProfileMigrationGate {
         migrationStatePersisted: Boolean = false,
         personalStateIsolationVerified: Boolean = false,
         sharedMainLayoutVerified: Boolean = false,
-        cloudProfileDeletionDisabled: Boolean = false
+        cloudProfileDeletionDisabled: Boolean = false,
+        historicalCloudProfilesPreserved: Boolean = false
     ): Decision {
         if (mode != AccountProfileMode.CUSTOMER_DEVICE_LOCAL) {
             return Decision(false, "Customer migration applies only to customer accounts")
@@ -58,8 +59,10 @@ internal object CustomerProfileMigrationGate {
         if (existingCloudProfileIds.any { it <= 0 } || existingDeviceProfileIds.any { it <= 0 }) {
             return Decision(false, "Invalid profile IDs require data repair before migration")
         }
-        // A cloud-only secondary may still hold historical customer viewing data.
-        // Do not activate until its preservation and isolation are explicitly verified.
+        // Cloud-only secondaries may still contain historical customer viewing data.
+        if (!historicalCloudProfilesPreserved) {
+            return Decision(false, "Historical cloud profiles have not been preserved")
+        }
         val plan = DeviceProfileMigrationPlanner.inspect(existingCloudProfileIds, existingDeviceProfileIds)
         if (plan.requiresLocalIdRemapping) {
             return Decision(false, "Legacy cloud and device profile IDs conflict; remapping required")
