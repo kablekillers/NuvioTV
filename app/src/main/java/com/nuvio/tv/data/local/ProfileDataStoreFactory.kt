@@ -120,6 +120,26 @@ class ProfileDataStoreFactory @Inject constructor(
         }
     }
 
+    /**
+     * Read-only inventory for a future profile-ID migration.
+     *
+     * Includes stores that are not currently cached/open. A migration must
+     * account for every returned file before changing any profile identifier.
+     * Never rename DataStore files while their instances are active.
+     */
+    fun inventoryProfileScopedFiles(profileId: Int): List<String> {
+        require(profileId > 1) { "Only secondary profiles can be remapped" }
+        val suffix = "_p$profileId.preferences_pb"
+        val directory = File(context.filesDir, "datastore")
+        return directory.listFiles()
+            ?.asSequence()
+            ?.filter { it.isFile && it.name.endsWith(suffix) }
+            ?.map { it.name }
+            ?.sorted()
+            ?.toList()
+            ?: emptyList()
+    }
+
     fun isProfileDeleted(profileId: Int): Boolean = profileId in deletedProfileIds
 
     fun markProfileCreated(profileId: Int) {
