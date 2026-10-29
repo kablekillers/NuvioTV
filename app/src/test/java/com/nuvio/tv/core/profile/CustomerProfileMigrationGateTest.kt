@@ -16,18 +16,41 @@ class CustomerProfileMigrationGateTest {
         isolated: Boolean = true,
         layoutVerified: Boolean = true,
         deletionDisabled: Boolean = true,
-        historyPreserved: Boolean = true
+        historyPreserved: Boolean = true,
+        recoveryClear: Boolean = true
     ) = CustomerProfileMigrationGate.evaluate(
         mode, verified, approved, audited, cloud, local,
         migrationStatePersisted = persisted,
         personalStateIsolationVerified = isolated,
         sharedMainLayoutVerified = layoutVerified,
         cloudProfileDeletionDisabled = deletionDisabled,
-        historicalCloudProfilesPreserved = historyPreserved
+        historicalCloudProfilesPreserved = historyPreserved,
+        recoveryJournalClear = recoveryClear
     )
 
     @Test fun allowsOnlyVerifiedAuditedNonCollidingCustomerMigration() {
         assertTrue(check().mayActivate)
+    }
+
+    @Test fun blocksUnresolvedMigrationRecovery() {
+        assertFalse(check(recoveryClear = false).mayActivate)
+    }
+
+    @Test fun defaultsToBlockingWhenRecoveryStatusIsNotProvided() {
+        val decision = CustomerProfileMigrationGate.evaluate(
+            mode = AccountProfileMode.CUSTOMER_DEVICE_LOCAL,
+            assignmentVerified = true,
+            migrationApproved = true,
+            syncAuditComplete = true,
+            existingCloudProfileIds = listOf(1, 2),
+            existingDeviceProfileIds = listOf(1, 3),
+            migrationStatePersisted = true,
+            personalStateIsolationVerified = true,
+            sharedMainLayoutVerified = true,
+            cloudProfileDeletionDisabled = true,
+            historicalCloudProfilesPreserved = true
+        )
+        assertFalse(decision.mayActivate)
     }
 
     @Test fun blocksFamilyAccountConversion() {
