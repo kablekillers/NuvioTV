@@ -74,6 +74,17 @@ internal object ProfileMigrationCopyCoordinator {
         }) {
             "Profile migration manifest does not match the verified source and target IDs"
         }
+        // Reject obvious missing sources and occupied targets before creating a
+        // durable journal. The copy primitive repeats its stronger checksum
+        // and CREATE_NEW checks after journaling to cover concurrent changes.
+        require(manifest.all { (source, target) ->
+            val sourceFile = File(directory, source)
+            val targetFile = File(directory, target)
+            sourceFile.isFile && sourceFile.length() > 0L &&
+                !targetFile.exists() &&
+                !java.nio.file.Files.isSymbolicLink(sourceFile.toPath()) &&
+                !java.nio.file.Files.isSymbolicLink(targetFile.toPath())
+        }) { "Missing source, unsafe link, or occupied migration destination" }
         val entry = ProfileMigrationJournal.Entry(
             accountId, sourceProfileId, targetProfileId,
             ProfileMigrationJournal.Phase.PREPARED
