@@ -158,7 +158,7 @@ class ProfileMigrationCopyCoordinatorTest {
         assertTrue(assessment.phase == null)
     }
 
-    @Test fun failedCopyLeavesRecoveryJournalAndPreservesSource() {
+    @Test fun occupiedDestinationIsRejectedBeforeJournalCreation() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
             dir.resolve("settings_p2.preferences_pb").writeText("original")
@@ -171,7 +171,7 @@ class ProfileMigrationCopyCoordinatorTest {
             }.isFailure)
             assertEquals("original", dir.resolve("settings_p2.preferences_pb").readText())
             assertEquals("existing", dir.resolve("settings_p7.preferences_pb").readText())
-            assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(dir))
+            assertTrue(ProfileMigrationJournal.read(dir) == null)
         } finally { dir.deleteRecursively() }
     }
 }
