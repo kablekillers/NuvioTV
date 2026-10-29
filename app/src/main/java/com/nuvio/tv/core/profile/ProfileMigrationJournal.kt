@@ -25,7 +25,13 @@ internal object ProfileMigrationJournal {
         require(isValidAccountId(entry.accountId))
         require(entry.sourceId > 1 && entry.targetId > 1 && entry.sourceId != entry.targetId)
         require(directory.isDirectory)
+        require(!Files.isSymbolicLink(directory.toPath())) {
+            "Migration journal directory must not be a symbolic link"
+        }
         val journal = File(directory, JOURNAL_NAME)
+        require(!Files.isSymbolicLink(journal.toPath())) {
+            "Migration journal must not be a symbolic link"
+        }
         check(!File(directory, "$JOURNAL_NAME.tmp").exists()) {
             "Unresolved migration journal temporary file"
         }
@@ -40,6 +46,9 @@ internal object ProfileMigrationJournal {
             }
         }
         val temp = File(directory, "$JOURNAL_NAME.tmp")
+        require(!Files.isSymbolicLink(temp.toPath())) {
+            "Migration temporary journal must not be a symbolic link"
+        }
         require(!temp.exists()) { "Unresolved migration journal temporary file" }
         try {
             temp.writeText(
@@ -60,6 +69,9 @@ internal object ProfileMigrationJournal {
 
     fun read(directory: File): Entry? {
         val journal = File(directory, JOURNAL_NAME)
+        require(!Files.isSymbolicLink(journal.toPath())) {
+            "Migration journal must not be a symbolic link"
+        }
         if (!journal.exists()) return null
         val lines = journal.readLines()
         require(lines.size == 5 && lines[0] == VERSION) { "Invalid migration journal" }
