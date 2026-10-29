@@ -78,6 +78,23 @@ class ProfileMigrationCopyCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun recoveryAssessmentNeverClearsJournalForDifferentAccount() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            ProfileMigrationJournal.write(
+                dir,
+                ProfileMigrationJournal.Entry(
+                    "account-a", 2, 7, ProfileMigrationJournal.Phase.COPYING
+                )
+            )
+            val assessment = ProfileMigrationCopyCoordinator.assessRecovery(dir, "account-b")
+            assertTrue(assessment.requiresManualReconciliation)
+            assertTrue(!assessment.accountMatches)
+            assertEquals(ProfileMigrationJournal.Phase.COPYING, assessment.phase)
+            assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(dir))
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun failedCopyLeavesRecoveryJournalAndPreservesSource() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
