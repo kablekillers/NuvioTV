@@ -59,6 +59,9 @@ internal object ProfileMigrationCopyCoordinator {
         require(manifest.values.size == manifest.values.toSet().size) {
             "Duplicate profile migration destinations"
         }
+        require(manifest.keys.intersect(manifest.values.toSet()).isEmpty()) {
+            "Profile migration sources and destinations must not overlap"
+        }
         val expectedSourceSuffix = "_p$sourceProfileId.preferences_pb"
         val expectedTargetSuffix = "_p$targetProfileId.preferences_pb"
         require(manifest.all { (source, target) ->
