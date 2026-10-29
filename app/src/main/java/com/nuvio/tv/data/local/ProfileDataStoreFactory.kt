@@ -150,7 +150,11 @@ class ProfileDataStoreFactory @Inject constructor(
         }
         val source = inventoryProfileScopedFiles(sourceId)
         val target = inventoryProfileScopedFiles(targetId)
+        val sourceSuffix = "_p$sourceId"
         val targetSuffix = "_p$targetId"
+        val cachedSourceStores = synchronized(lock) {
+            cache.keys.filter { it.endsWith(sourceSuffix) }.sorted()
+        }
         val cachedTargetStores = synchronized(lock) {
             cache.keys.filter { it.endsWith(targetSuffix) }.sorted()
         }
@@ -158,10 +162,11 @@ class ProfileDataStoreFactory @Inject constructor(
             sourceId = sourceId,
             targetId = targetId,
             sourceFiles = source,
+            cachedSourceStores = cachedSourceStores,
             existingTargetFiles = target,
             cachedTargetStores = cachedTargetStores,
             mayProceedToSeparateMigrationStep = source.isNotEmpty() &&
-                target.isEmpty() && cachedTargetStores.isEmpty()
+                cachedSourceStores.isEmpty() && target.isEmpty() && cachedTargetStores.isEmpty()
         )
     }
 
@@ -169,6 +174,7 @@ class ProfileDataStoreFactory @Inject constructor(
         val sourceId: Int,
         val targetId: Int,
         val sourceFiles: List<String>,
+        val cachedSourceStores: List<String>,
         val existingTargetFiles: List<String>,
         val cachedTargetStores: List<String>,
         val mayProceedToSeparateMigrationStep: Boolean
