@@ -44,7 +44,7 @@ class ProfileMigrationJournalTest {
                 ProfileMigrationJournal.write(
                     directory,
                     ProfileMigrationJournal.Entry(
-                        "account\\nother", 2, 7, ProfileMigrationJournal.Phase.PREPARED
+                        "account\nother", 2, 7, ProfileMigrationJournal.Phase.PREPARED
                     )
                 )
             }.isFailure)
