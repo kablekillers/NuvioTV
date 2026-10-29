@@ -56,6 +56,9 @@ internal object ProfileMigrationCopyCoordinator {
             "A previous migration journal requires explicit reconciliation"
         }
         require(manifest.isNotEmpty()) { "Empty profile migration manifest" }
+        require(manifest.values.size == manifest.values.toSet().size) {
+            "Duplicate profile migration destinations"
+        }
         val expectedSourceSuffix = "_p$sourceProfileId.preferences_pb"
         val expectedTargetSuffix = "_p$targetProfileId.preferences_pb"
         require(manifest.all { (source, target) ->
