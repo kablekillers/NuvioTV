@@ -72,6 +72,11 @@ jobs:
             echo "NUVIO_RELEASE_STORE_PASSWORD=android"
           } >> "$GITHUB_ENV"
 
+      - name: Configure deterministic Trakt credentials for unit tests
+        run: |
+          # CI-only placeholders exercise credential-gated code without real Trakt secrets.
+          printf '\nTRAKT_CLIENT_ID=ci-unit-test-client\nTRAKT_CLIENT_SECRET=ci-unit-test-secret\n' >> local.properties
+
       - name: Run ABI selector and existing cache/image tests
         id: unit_tests
         continue-on-error: true
