@@ -28,7 +28,9 @@ internal object ProfileMigrationCopyCoordinator {
         val expectedSourceSuffix = "_p$sourceProfileId.preferences_pb"
         val expectedTargetSuffix = "_p$targetProfileId.preferences_pb"
         require(manifest.all { (source, target) ->
-            source.endsWith(expectedSourceSuffix) &&
+            source.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) &&
+                target.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) &&
+                source.endsWith(expectedSourceSuffix) &&
                 target == source.removeSuffix(expectedSourceSuffix) + expectedTargetSuffix
         }) {
             "Profile migration manifest does not match the verified source and target IDs"
