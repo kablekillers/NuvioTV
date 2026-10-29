@@ -80,7 +80,7 @@ jobs:
       - name: Run ABI selector and existing cache/image tests
         id: unit_tests
         continue-on-error: true
-        run: bash ./gradlew :app:testFullDebugUnitTest --stacktrace --no-daemon
+        run: bash ./gradlew :app:testFullDebugUnitTest -PciTraktTestCredentials=true --stacktrace --no-daemon
 
       - name: Report failed unit-test details
         if: always() && steps.unit_tests.outcome == 'failure'
