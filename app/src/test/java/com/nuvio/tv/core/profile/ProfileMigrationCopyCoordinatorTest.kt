@@ -44,6 +44,27 @@ class ProfileMigrationCopyCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun unrelatedFilesCannotBeIncludedInProfileMigration() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            dir.resolve("settings_p2.preferences_pb").writeText("original")
+            dir.resolve("settings.preferences_pb").writeText("shared main data")
+            assertTrue(runCatching {
+                ProfileMigrationCopyCoordinator.copyWithJournal(
+                    dir, "verified-account", 2, 7,
+                    mapOf(
+                        "settings_p2.preferences_pb" to "settings_p7.preferences_pb",
+                        "settings.preferences_pb" to "settings_p9.preferences_pb"
+                    )
+                )
+            }.isFailure)
+            assertEquals("shared main data",
+                dir.resolve("settings.preferences_pb").readText())
+            assertTrue(!dir.resolve("settings_p7.preferences_pb").exists())
+            assertTrue(ProfileMigrationJournal.read(dir) == null)
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun failedCopyLeavesRecoveryJournalAndPreservesSource() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
