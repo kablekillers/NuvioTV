@@ -25,6 +25,14 @@ internal object ProfileMigrationCopyCoordinator {
             "A previous migration journal requires explicit reconciliation"
         }
         require(manifest.isNotEmpty()) { "Empty profile migration manifest" }
+        val expectedSourceSuffix = "_p$sourceProfileId.preferences_pb"
+        val expectedTargetSuffix = "_p$targetProfileId.preferences_pb"
+        require(manifest.all { (source, target) ->
+            source.endsWith(expectedSourceSuffix) &&
+                target == source.removeSuffix(expectedSourceSuffix) + expectedTargetSuffix
+        }) {
+            "Profile migration manifest does not match the verified source and target IDs"
+        }
         val entry = ProfileMigrationJournal.Entry(
             accountId, sourceProfileId, targetProfileId,
             ProfileMigrationJournal.Phase.PREPARED
