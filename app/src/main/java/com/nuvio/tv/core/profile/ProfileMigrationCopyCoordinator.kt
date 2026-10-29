@@ -22,22 +22,24 @@ internal object ProfileMigrationCopyCoordinator {
     )
 
     fun assessRecovery(directory: File, verifiedAccountId: String): RecoveryAssessment {
-        if (ProfileMigrationJournal.hasUnresolvedMigration(directory)) {
-            val journal = runCatching { ProfileMigrationJournal.read(directory) }.getOrNull()
-            return RecoveryAssessment(
-                phase = journal?.phase,
-                requiresManualReconciliation = true,
-                accountMatches = journal != null &&
-                    verifiedAccountId.isNotBlank() &&
-                    journal.accountId == verifiedAccountId
-            )
+        // Invalid or partial journals must never be interpreted as a clean
+        // migration. Report a blocked, unknown state without mutating files.
+        val unresolved = runCatching {
+            ProfileMigrationJournal.hasUnresolvedMigration(directory)
+        }.getOrElse {
+            return RecoveryAssessment(null, true, false)
         }
-        val journal = ProfileMigrationJournal.read(directory)
+        val journal = runCatching {
+            ProfileMigrationJournal.read(directory)
+        }.getOrElse {
+            return RecoveryAssessment(null, true, false)
+        }
         return RecoveryAssessment(
             phase = journal?.phase,
-            requiresManualReconciliation = journal != null,
+            requiresManualReconciliation = unresolved || journal != null,
             accountMatches = journal != null &&
                 verifiedAccountId.isNotBlank() &&
+                verifiedAccountId == verifiedAccountId.trim() &&
                 journal.accountId == verifiedAccountId
         )
     }
