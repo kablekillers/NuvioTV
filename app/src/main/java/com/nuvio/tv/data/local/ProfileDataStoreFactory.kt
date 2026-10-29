@@ -198,6 +198,12 @@ class ProfileDataStoreFactory @Inject constructor(
             "Multiple source stores map to the same destination"
         }
         val directory = File(context.filesDir, "datastore")
+        val cachedDuringPreview = synchronized(lock) {
+            cache.keys.any { it.endsWith("_p$sourceId") || it.endsWith("_p$targetId") }
+        }
+        check(!cachedDuringPreview) {
+            "Profile DataStore opened during migration preview; refusing remap"
+        }
         check(manifest.keys.all { File(directory, it).isFile }) {
             "Source store disappeared after inventory; refusing remap"
         }
