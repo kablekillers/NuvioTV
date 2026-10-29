@@ -57,8 +57,9 @@ internal object ProfileFileCopyTransaction {
                     output.flush()
                 }
                 require(source.length() == destination.length() &&
-                    sourceDigests.getValue(source.name).contentEquals(digest(destination))) {
-                    "Profile copy verification failed"
+                    sourceDigests.getValue(source.name).contentEquals(digest(destination)) &&
+                    sourceDigests.getValue(source.name).contentEquals(digest(source))) {
+                    "Profile copy verification failed or source changed during transfer"
                 }
                 // A copy that survives process death must have durable file contents.
                 java.io.RandomAccessFile(destination, "rw").use { it.fd.sync() }
