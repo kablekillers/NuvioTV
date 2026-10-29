@@ -190,10 +190,18 @@ class ProfileDataStoreFactory @Inject constructor(
             "Profile remapping is unsafe: source/target stores are active, missing, or occupied"
         }
         val sourceSuffix = "_p$sourceId.preferences_pb"
-        return audit.sourceFiles.associateWith { sourceFile ->
+        val manifest = audit.sourceFiles.associateWith { sourceFile ->
             check(sourceFile.endsWith(sourceSuffix))
             sourceFile.removeSuffix(sourceSuffix) + "_p$targetId.preferences_pb"
         }
+        check(manifest.values.size == manifest.values.toSet().size) {
+            "Multiple source stores map to the same destination"
+        }
+        val directory = File(context.filesDir, "datastore")
+        check(manifest.values.none { File(directory, it).exists() }) {
+            "Destination store appeared after inventory; refusing remap"
+        }
+        return manifest
     }
 
     fun isProfileDeleted(profileId: Int): Boolean = profileId in deletedProfileIds
