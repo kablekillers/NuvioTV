@@ -70,6 +70,10 @@ internal object ProfileFileCopyTransaction {
                 // A copy that survives process death must have durable file contents.
                 java.io.RandomAccessFile(destination, "rw").use { it.fd.sync() }
             }
+            require(pairs.all { (source, destination) ->
+                sourceDigests.getValue(source.name).contentEquals(digest(source)) &&
+                    sourceDigests.getValue(source.name).contentEquals(digest(destination))
+            }) { "Profile copy changed before transaction completion" }
             return Result(created.map { it.name })
         } catch (failure: Exception) {
             created.asReversed().forEach { it.delete() }
