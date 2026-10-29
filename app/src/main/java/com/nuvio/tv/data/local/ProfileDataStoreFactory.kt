@@ -140,6 +140,40 @@ class ProfileDataStoreFactory @Inject constructor(
             ?: emptyList()
     }
 
+    /**
+     * Non-mutating remap audit. Refuse any target with existing data, including
+     * stores that have not yet been opened during this app session.
+     */
+    fun auditProfileRemapSourceAndTarget(sourceId: Int, targetId: Int): ProfileRemapInventory {
+        require(sourceId > 1 && targetId > 1 && sourceId != targetId) {
+            "Remapping requires distinct secondary profile IDs"
+        }
+        val source = inventoryProfileScopedFiles(sourceId)
+        val target = inventoryProfileScopedFiles(targetId)
+        val targetSuffix = "_p$targetId"
+        val cachedTargetStores = synchronized(lock) {
+            cache.keys.filter { it.endsWith(targetSuffix) }.sorted()
+        }
+        return ProfileRemapInventory(
+            sourceId = sourceId,
+            targetId = targetId,
+            sourceFiles = source,
+            existingTargetFiles = target,
+            cachedTargetStores = cachedTargetStores,
+            mayProceedToSeparateMigrationStep = source.isNotEmpty() &&
+                target.isEmpty() && cachedTargetStores.isEmpty()
+        )
+    }
+
+    data class ProfileRemapInventory(
+        val sourceId: Int,
+        val targetId: Int,
+        val sourceFiles: List<String>,
+        val existingTargetFiles: List<String>,
+        val cachedTargetStores: List<String>,
+        val mayProceedToSeparateMigrationStep: Boolean
+    )
+
     fun isProfileDeleted(profileId: Int): Boolean = profileId in deletedProfileIds
 
     fun markProfileCreated(profileId: Int) {
