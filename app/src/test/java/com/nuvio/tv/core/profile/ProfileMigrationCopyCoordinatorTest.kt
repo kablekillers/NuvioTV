@@ -29,6 +29,21 @@ class ProfileMigrationCopyCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun wrongProfileManifestIsRejectedBeforeJournalCreation() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            dir.resolve("settings_p2.preferences_pb").writeText("original")
+            assertTrue(runCatching {
+                ProfileMigrationCopyCoordinator.copyWithJournal(
+                    dir, "verified-account", 2, 7,
+                    mapOf("settings_p2.preferences_pb" to "settings_p8.preferences_pb")
+                )
+            }.isFailure)
+            assertEquals("original", dir.resolve("settings_p2.preferences_pb").readText())
+            assertTrue(ProfileMigrationJournal.read(dir) == null)
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun failedCopyLeavesRecoveryJournalAndPreservesSource() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
