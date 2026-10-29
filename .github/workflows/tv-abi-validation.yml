@@ -99,4 +99,10 @@ jobs:
           path: app/build/outputs/apk/full/debug/*.apk
           if-no-files-found: error
           retention-days: 7
+
+      - name: Enforce unit-test gate after diagnostic APK upload
+        if: always() && steps.unit_tests.outcome != 'success'
+        run: |
+          echo "::error::Unit tests did not pass. Diagnostic APKs must not be released."
+          exit 1
   
