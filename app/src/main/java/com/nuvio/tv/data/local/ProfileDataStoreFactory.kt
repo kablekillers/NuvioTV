@@ -180,6 +180,22 @@ class ProfileDataStoreFactory @Inject constructor(
         val mayProceedToSeparateMigrationStep: Boolean
     )
 
+    /**
+     * Construct a read-only file move manifest. Every destination must be empty
+     * and both profile stores must be closed before any future executor runs.
+     */
+    fun previewProfileFileMoves(sourceId: Int, targetId: Int): Map<String, String> {
+        val audit = auditProfileRemapSourceAndTarget(sourceId, targetId)
+        check(audit.mayProceedToSeparateMigrationStep) {
+            "Profile remapping is unsafe: source/target stores are active, missing, or occupied"
+        }
+        val sourceSuffix = "_p$sourceId.preferences_pb"
+        return audit.sourceFiles.associateWith { sourceFile ->
+            check(sourceFile.endsWith(sourceSuffix))
+            sourceFile.removeSuffix(sourceSuffix) + "_p$targetId.preferences_pb"
+        }
+    }
+
     fun isProfileDeleted(profileId: Int): Boolean = profileId in deletedProfileIds
 
     fun markProfileCreated(profileId: Int) {
