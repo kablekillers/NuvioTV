@@ -135,6 +135,20 @@ class ProfileMigrationCopyCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun malformedJournalWithTemporaryFileRemainsBlocked() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            dir.resolve("profile_migration_journal").writeText("corrupt")
+            dir.resolve("profile_migration_journal.tmp").writeText("interrupted")
+            val assessment = ProfileMigrationCopyCoordinator.assessRecovery(dir, "account-a")
+            assertTrue(assessment.requiresManualReconciliation)
+            assertTrue(!assessment.accountMatches)
+            assertTrue(assessment.phase == null)
+            assertEquals("corrupt", dir.resolve("profile_migration_journal").readText())
+            assertEquals("interrupted", dir.resolve("profile_migration_journal.tmp").readText())
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun missingRecoveryDirectoryFailsClosed() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         dir.deleteRecursively()
