@@ -41,6 +41,10 @@ class AuthenticatedProfileModeProvider @Inject constructor(
         // a legacy single-slot assignment.
         val hasScopedRecord = preferences.contains(verifiedIdKey) ||
             preferences.contains(modeKey) || preferences.contains(migrationKey)
+        if (hasScopedRecord && (!preferences.contains(verifiedIdKey) ||
+                !preferences.contains(modeKey) || !preferences.contains(migrationKey))) {
+            return AccountProfileMode.LEGACY_CLOUD
+        }
         val storedAccountId = if (hasScopedRecord) {
             preferences.getString(verifiedIdKey, null)
         } else {
