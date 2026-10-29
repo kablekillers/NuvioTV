@@ -15,13 +15,15 @@ class CustomerProfileMigrationGateTest {
         persisted: Boolean = true,
         isolated: Boolean = true,
         layoutVerified: Boolean = true,
-        deletionDisabled: Boolean = true
+        deletionDisabled: Boolean = true,
+        historyPreserved: Boolean = true
     ) = CustomerProfileMigrationGate.evaluate(
         mode, verified, approved, audited, cloud, local,
         migrationStatePersisted = persisted,
         personalStateIsolationVerified = isolated,
         sharedMainLayoutVerified = layoutVerified,
-        cloudProfileDeletionDisabled = deletionDisabled
+        cloudProfileDeletionDisabled = deletionDisabled,
+        historicalCloudProfilesPreserved = historyPreserved
     )
 
     @Test fun allowsOnlyVerifiedAuditedNonCollidingCustomerMigration() {
@@ -49,6 +51,7 @@ class CustomerProfileMigrationGateTest {
         assertFalse(check(isolated = false).mayActivate)
         assertFalse(check(layoutVerified = false).mayActivate)
         assertFalse(check(deletionDisabled = false).mayActivate)
+        assertFalse(check(historyPreserved = false).mayActivate)
     }
 
     @Test fun invalidIdsReturnBlockedDecisionRatherThanThrowing() {
@@ -83,7 +86,8 @@ class CustomerProfileMigrationGateTest {
                 migrationStatePersisted = true,
                 personalStateIsolationVerified = true,
                 sharedMainLayoutVerified = true,
-                cloudProfileDeletionDisabled = true
+                cloudProfileDeletionDisabled = true,
+                historicalCloudProfilesPreserved = true
             ).mayActivate)
         }
     }
