@@ -5,7 +5,6 @@ import com.nuvio.tv.core.auth.AuthManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import java.security.MessageDigest
 
 /**
  * Reads a mode assignment only for the currently authenticated account.
@@ -34,12 +33,10 @@ class AuthenticatedProfileModeProvider @Inject constructor(
         // A per-account namespace avoids one login overwriting another login's
         // verified assignment. Legacy single-slot records remain readable only
         // when their stored account ID exactly matches the authenticated ID.
-        val namespace = MessageDigest.getInstance("SHA-256")
-            .digest(accountId.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
-        val modeKey = "account_${namespace}_mode"
-        val verifiedIdKey = "account_${namespace}_verified_id"
-        val migrationKey = "account_${namespace}_migration_complete"
+        val keys = AccountModeStorageKeys.forVerifiedAccount(accountId)
+        val modeKey = keys.mode
+        val verifiedIdKey = keys.verifiedId
+        val migrationKey = keys.migrationComplete
         val hasScopedRecord = preferences.contains(verifiedIdKey)
         val storedAccountId = if (hasScopedRecord) {
             preferences.getString(verifiedIdKey, null)
