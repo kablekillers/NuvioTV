@@ -122,6 +122,28 @@ class ProfileMigrationCopyCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun malformedJournalIsBlockedWithoutMutation() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            val journal = dir.resolve("profile_migration_journal")
+            journal.writeText("invalid journal contents")
+            val assessment = ProfileMigrationCopyCoordinator.assessRecovery(dir, "account-a")
+            assertTrue(assessment.requiresManualReconciliation)
+            assertTrue(!assessment.accountMatches)
+            assertTrue(assessment.phase == null)
+            assertEquals("invalid journal contents", journal.readText())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun missingRecoveryDirectoryFailsClosed() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        dir.deleteRecursively()
+        val assessment = ProfileMigrationCopyCoordinator.assessRecovery(dir, "account-a")
+        assertTrue(assessment.requiresManualReconciliation)
+        assertTrue(!assessment.accountMatches)
+        assertTrue(assessment.phase == null)
+    }
+
     @Test fun failedCopyLeavesRecoveryJournalAndPreservesSource() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
