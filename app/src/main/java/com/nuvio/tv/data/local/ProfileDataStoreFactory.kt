@@ -204,8 +204,11 @@ class ProfileDataStoreFactory @Inject constructor(
         check(!cachedDuringPreview) {
             "Profile DataStore opened during migration preview; refusing remap"
         }
-        check(manifest.keys.all { File(directory, it).isFile }) {
-            "Source store disappeared after inventory; refusing remap"
+        check(manifest.keys.all { sourceName ->
+            val source = File(directory, sourceName)
+            source.isFile && source.length() > 0L
+        }) {
+            "Source store is missing or empty; refusing remap"
         }
         check(manifest.values.none { File(directory, it).exists() }) {
             "Destination store appeared after inventory; refusing remap"
