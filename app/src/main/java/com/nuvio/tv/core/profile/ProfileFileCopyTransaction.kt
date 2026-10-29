@@ -42,8 +42,11 @@ internal object ProfileFileCopyTransaction {
         val sourceDigests = pairs.associate { (source, _) ->
             source.name to digest(source)
         }
-        require(pairs.all { (source, _) -> source.isFile && source.length() > 0L }) {
-            "Source file disappeared during checksum preflight"
+        require(pairs.all { (source, _) ->
+            source.isFile && source.length() > 0L &&
+                sourceDigests.getValue(source.name).contentEquals(digest(source))
+        }) {
+            "Source file changed during checksum preflight"
         }
 
         val created = mutableListOf<File>()
