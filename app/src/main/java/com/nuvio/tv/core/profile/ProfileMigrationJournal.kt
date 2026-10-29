@@ -82,7 +82,7 @@ internal object ProfileMigrationJournal {
 
     private fun isValidAccountId(value: String): Boolean =
         value.isNotBlank() && value == value.trim() &&
-            value.none { it == '\\n' || it == '\\r' || it.isISOControl() }
+            value.none { it == '\n' || it == '\r' || it.isISOControl() }
 
     private const val VERSION = "profile-migration-v1"
     private const val JOURNAL_NAME = "profile_migration_journal"
