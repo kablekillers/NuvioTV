@@ -37,7 +37,7 @@ class AuthenticatedProfileModeProvider @Inject constructor(
         val modeKey = keys.mode
         val verifiedIdKey = keys.verifiedId
         val migrationKey = keys.migrationComplete
-        val hasScopedRecord = preferences.contains(verifiedIdKey)
+        // Any partial scoped record must fail closed, not silently inherit\n        // a legacy single-slot assignment.\n        val hasScopedRecord = preferences.contains(verifiedIdKey) ||\n            preferences.contains(modeKey) || preferences.contains(migrationKey)
         val storedAccountId = if (hasScopedRecord) {
             preferences.getString(verifiedIdKey, null)
         } else {
