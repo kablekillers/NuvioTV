@@ -86,6 +86,30 @@ class ProfileMigrationJournalTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun symbolicLinkCannotRedirectJournalWrite() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        val external = Files.createTempFile("profile-journal-external", ".txt").toFile()
+        try {
+            external.writeText("preserve")
+            Files.createSymbolicLink(
+                directory.resolve("profile_migration_journal").toPath(),
+                external.toPath()
+            )
+            assertTrue(runCatching {
+                ProfileMigrationJournal.write(
+                    directory,
+                    ProfileMigrationJournal.Entry(
+                        "account-a", 2, 7, ProfileMigrationJournal.Phase.PREPARED
+                    )
+                )
+            }.isFailure)
+            assertEquals("preserve", external.readText())
+        } finally {
+            directory.deleteRecursively()
+            external.delete()
+        }
+    }
+
     @Test fun invalidJournalFailsClosed() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
