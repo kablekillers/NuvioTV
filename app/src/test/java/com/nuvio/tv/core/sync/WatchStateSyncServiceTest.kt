@@ -144,6 +144,7 @@ class WatchStateSyncServiceTest {
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns canRefreshJwt
         return WatchProgressSyncService(
             authManager = authManager,
+            accountProfileModeProvider = mockk(relaxed = true),
             postgrest = postgrest,
             watchProgressPreferences = preferences,
             trackingProviderRegistry = TrackingProgressProviderRegistry(emptySet()),
@@ -163,6 +164,7 @@ class WatchStateSyncServiceTest {
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns false
         return WatchedItemsSyncService(
             authManager = authManager,
+            accountProfileModeProvider = mockk(relaxed = true),
             postgrest = postgrest,
             watchedItemsPreferences = preferences,
             trackingProviderRegistry = TrackingProgressProviderRegistry(emptySet()),

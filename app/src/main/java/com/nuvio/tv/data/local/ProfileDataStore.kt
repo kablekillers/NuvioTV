@@ -134,6 +134,20 @@ class ProfileDataStore @Inject constructor(
         }
     }
 
+    /**
+     * Device-local profile mode: refresh only the shared Main profile.
+     * Never replace local secondary profiles or reset the selected local profile.
+     * The caller must filter remote profiles to Main before invoking this method.
+     */
+    suspend fun mergeRemoteMainProfile(mainProfile: UserProfile) {
+        require(mainProfile.id == 1) { "Only the Main profile may be merged from cloud" }
+        dataStore.edit { prefs ->
+            val local = parseProfiles(prefs[profilesJsonKey])
+            val merged = local.map { if (it.id == 1) mainProfile else it }
+            prefs[profilesJsonKey] = serializeProfiles(normalizeProfiles(merged))
+        }
+    }
+
     suspend fun clearAll() {
         dataStore.edit { prefs ->
             prefs.clear()

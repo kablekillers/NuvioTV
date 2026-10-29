@@ -97,6 +97,15 @@ class AuthManager @Inject constructor(
     private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
+    /**
+     * Authenticated account identity for account-scoped profile policy.
+     * Never use a profile name, cached email, or a prior session's user ID.
+     * A signed-out or transitioning session must not activate customer mode.
+     */
+    val verifiedProfileAccountId: String?
+        get() = (authState.value as? AuthState.FullAccount)?.userId
+
+
     private var cachedEffectiveUserId: String? = null
     private var cachedEffectiveUserSourceUserId: String? = null
     private var startupAuthDiagnostics: AuthDiagnosticsSession? = null

@@ -1102,6 +1102,7 @@ class TraktProgressService @Inject constructor(
             val snapshot = try {
                 progressDeferred.await()
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w(TAG, "fetchAllProgressSnapshot failed, keeping existing snapshot", e)
                 null
             }

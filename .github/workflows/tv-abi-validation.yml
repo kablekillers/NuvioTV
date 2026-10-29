@@ -1,0 +1,139 @@
+
+name: TV 1.1.2 ABI validation
+
+on:
+  push:
+    branches:
+      - tv-1.1.2-performance-test
+  pull_request:
+    branches:
+      - tv-1.1.1-release-candidate
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kable-killers-tv-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Kable Killers TV
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare local properties
+        env:
+          LOCAL_PROPERTIES_BASE64: ${{ secrets.LOCAL_PROPERTIES_BASE64 }}
+          LOCAL_DEV_PROPERTIES_BASE64: ${{ secrets.LOCAL_DEV_PROPERTIES_BASE64 }}
+        run: |
+          if [ -n "$LOCAL_PROPERTIES_BASE64" ]; then
+            printf '%s' "$LOCAL_PROPERTIES_BASE64" | base64 --decode > local.properties
+          else
+            touch local.properties
+          fi
+          if [ -n "$LOCAL_DEV_PROPERTIES_BASE64" ]; then
+            printf '%s' "$LOCAL_DEV_PROPERTIES_BASE64" | base64 --decode > local.dev.properties
+          else
+            touch local.dev.properties
+          fi
+
+      - name: Configure public Nuvio Cloud client
+        run: |
+          for file in local.properties local.dev.properties; do
+            printf '\nNUVIO_SUPABASE_URL=https://api.nuvio.tv\nNUVIO_SUPABASE_ANON_KEY=sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN\n' >> "$file"
+          done
+
+      - name: Prepare test signing
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/ci-debug.jks" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Kable Killers Test,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/ci-debug.jks"
+            echo "NUVIO_RELEASE_KEY_ALIAS=androiddebugkey"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=android"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=android"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure deterministic Trakt credentials for unit tests
+        run: |
+          # CI-only placeholders exercise credential-gated code without real Trakt secrets.
+          printf '\nTRAKT_CLIENT_ID=ci-unit-test-client\nTRAKT_CLIENT_SECRET=ci-unit-test-secret\n' >> local.properties
+
+      - name: Run ABI selector and existing cache/image tests
+        id: unit_tests
+        continue-on-error: true
+        run: bash ./gradlew :app:testFullDebugUnitTest -PciTraktTestCredentials=true --stacktrace --no-daemon
+
+      - name: Report failed unit-test details
+        if: always() && steps.unit_tests.outcome == 'failure'
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          for path in sorted(glob.glob('app/build/test-results/testFullDebugUnitTest/TEST-*.xml')):
+              root = ET.parse(path).getroot()
+              for case in root.iter('testcase'):
+                  for failure in case.findall('failure') + case.findall('error'):
+                      print('FAILED:', case.get('classname'), case.get('name'))
+                      print((failure.get('message') or '')[:1500])
+                      print((failure.text or '')[:5000])
+          PY
+
+      - name: Identify updater implementation for integration
+        run: |
+          grep -RInE 'GITHUB_REPO|releases/latest|browser_download_url|github.com/.*/releases' app/src/main/java --include='*.kt' | head -80 || true
+
+      - name: Build test APK
+        run: bash ./gradlew :app:assembleFullDebug --stacktrace --no-daemon
+
+      - name: Record unit-test outcome
+        if: always()
+        run: |
+          echo "Unit tests: ${{ steps.unit_tests.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.unit_tests.outcome }}" != "success" ]; then
+            echo "WARNING: Unit tests failed; debug APKs are diagnostic only, not approved for release." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload unit-test failure reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kable-Killers-TV-1.1.2-Unit-Test-Reports
+          path: |
+            app/build/test-results/testFullDebugUnitTest/
+            app/build/reports/tests/testFullDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload test APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kable-Killers-TV-1.1.2-Unsigned-Test-APKs
+          path: app/build/outputs/apk/full/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce unit-test gate after diagnostic APK upload
+        if: always() && steps.unit_tests.outcome != 'success'
+        run: |
+          echo "::error::Unit tests did not pass. Diagnostic APKs must not be released."
+          exit 1
+  

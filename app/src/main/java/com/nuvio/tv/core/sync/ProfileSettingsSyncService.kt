@@ -1,5 +1,8 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+
 import android.os.SystemClock
 import android.util.Log
 import androidx.datastore.preferences.core.MutablePreferences
@@ -14,6 +17,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.data.local.ExperienceModeDataStore
 import com.nuvio.tv.data.local.PluginDataStore
@@ -175,6 +179,7 @@ internal fun shouldExcludePreferenceFromProfileSettingsSync(feature: String, key
 @Singleton
 class ProfileSettingsSyncService @Inject constructor(
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val postgrest: Postgrest,
     private val profileManager: ProfileManager,
     private val profileDataStoreFactory: ProfileDataStoreFactory,
@@ -185,6 +190,12 @@ class ProfileSettingsSyncService @Inject constructor(
     private val metaRepository: MetaRepository,
     private val cwEnrichmentCache: ContinueWatchingEnrichmentCache
 ) {
+    // Resolve on access so switching logins cannot retain the previous account's mode.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+    private fun maySyncProfileSettings(profileId: Int): Boolean =
+        ProfileSyncBoundary.maySyncProfileMetadata(profileId, deviceLocalProfilesEnabled)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
 
@@ -229,6 +240,7 @@ class ProfileSettingsSyncService @Inject constructor(
         syncMutex.withLock {
             try {
                 val profileId = profileManager.activeProfileId.value
+                if (!maySyncProfileSettings(profileId)) return@withLock Result.success(Unit)
                 pushProfileToRemote(profileId)
                 Log.d(TAG, "Pushed profile settings blob for profile $profileId")
                 Result.success(Unit)
@@ -243,6 +255,7 @@ class ProfileSettingsSyncService @Inject constructor(
         syncMutex.withLock {
             try {
                 val profileId = profileManager.activeProfileId.value
+                if (!maySyncProfileSettings(profileId)) return@withLock Result.success(false)
                 val inheritedPluginSettingsApplied = pullInheritedPluginSettings(profileId)
                 val blob = pullProfileFromRemote(profileId)
                 lastForegroundPullAtMs = SystemClock.elapsedRealtime()
@@ -278,6 +291,15 @@ class ProfileSettingsSyncService @Inject constructor(
         withContext(Dispatchers.IO) {
             syncMutex.withLock {
                 try {
+                    // Shared layout and plugins are inherited, not copied to a
+                    // cloud-backed secondary profile. Never invoke the remote copy
+                    // RPC for a device-only target (it creates remote profile data).
+                    if (deviceLocalProfilesEnabled &&
+                        (sourceProfileId != 1 || targetProfileId != 1)
+                    ) {
+                        Log.i(TAG, "Skipping cloud profile setup copy involving device-local profile: $sourceProfileId -> $targetProfileId")
+                        return@withLock Result.success(Unit)
+                    }
                     require(sourceProfileId != targetProfileId)
                     require(profileManager.profiles.value.any { it.id == sourceProfileId })
                     require(profileManager.profiles.value.any { it.id == targetProfileId })
@@ -563,6 +585,11 @@ class ProfileSettingsSyncService @Inject constructor(
         scope.launch {
             profileManager.activeProfileId
                 .flatMapLatest { profileId ->
+                    // Local-only profiles must not observe or trigger account-wide
+                    // settings pushes. Main remains the sole cloud settings owner.
+                    if (!maySyncProfileSettings(profileId)) {
+                        return@flatMapLatest kotlinx.coroutines.flow.flowOf("device-local-profile")
+                    }
                     val featureFlows = syncedFeatures.map { feature ->
                         profileDataStoreFactory.get(profileId, feature).data
                             .map { prefs ->

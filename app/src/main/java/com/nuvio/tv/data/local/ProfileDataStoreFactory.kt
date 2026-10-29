@@ -120,6 +120,102 @@ class ProfileDataStoreFactory @Inject constructor(
         }
     }
 
+    /**
+     * Read-only inventory for a future profile-ID migration.
+     *
+     * Includes stores that are not currently cached/open. A migration must
+     * account for every returned file before changing any profile identifier.
+     * Never rename DataStore files while their instances are active.
+     */
+    fun inventoryProfileScopedFiles(profileId: Int): List<String> {
+        require(profileId > 1) { "Only secondary profiles can be remapped" }
+        val suffix = "_p$profileId.preferences_pb"
+        val directory = File(context.filesDir, "datastore")
+        return directory.listFiles()
+            ?.asSequence()
+            ?.filter { it.isFile && it.name.endsWith(suffix) }
+            ?.map { it.name }
+            ?.sorted()
+            ?.toList()
+            ?: emptyList()
+    }
+
+    /**
+     * Non-mutating remap audit. Refuse any target with existing data, including
+     * stores that have not yet been opened during this app session.
+     */
+    fun auditProfileRemapSourceAndTarget(sourceId: Int, targetId: Int): ProfileRemapInventory {
+        require(sourceId > 1 && targetId > 1 && sourceId != targetId) {
+            "Remapping requires distinct secondary profile IDs"
+        }
+        val source = inventoryProfileScopedFiles(sourceId)
+        val target = inventoryProfileScopedFiles(targetId)
+        val sourceSuffix = "_p$sourceId"
+        val targetSuffix = "_p$targetId"
+        val cachedSourceStores = synchronized(lock) {
+            cache.keys.filter { it.endsWith(sourceSuffix) }.sorted()
+        }
+        val cachedTargetStores = synchronized(lock) {
+            cache.keys.filter { it.endsWith(targetSuffix) }.sorted()
+        }
+        return ProfileRemapInventory(
+            sourceId = sourceId,
+            targetId = targetId,
+            sourceFiles = source,
+            cachedSourceStores = cachedSourceStores,
+            existingTargetFiles = target,
+            cachedTargetStores = cachedTargetStores,
+            mayProceedToSeparateMigrationStep = source.isNotEmpty() &&
+                cachedSourceStores.isEmpty() && target.isEmpty() && cachedTargetStores.isEmpty()
+        )
+    }
+
+    data class ProfileRemapInventory(
+        val sourceId: Int,
+        val targetId: Int,
+        val sourceFiles: List<String>,
+        val cachedSourceStores: List<String>,
+        val existingTargetFiles: List<String>,
+        val cachedTargetStores: List<String>,
+        val mayProceedToSeparateMigrationStep: Boolean
+    )
+
+    /**
+     * Construct a read-only file move manifest. Every destination must be empty
+     * and both profile stores must be closed before any future executor runs.
+     */
+    fun previewProfileFileMoves(sourceId: Int, targetId: Int): Map<String, String> {
+        val audit = auditProfileRemapSourceAndTarget(sourceId, targetId)
+        check(audit.mayProceedToSeparateMigrationStep) {
+            "Profile remapping is unsafe: source/target stores are active, missing, or occupied"
+        }
+        val sourceSuffix = "_p$sourceId.preferences_pb"
+        val manifest = audit.sourceFiles.associateWith { sourceFile ->
+            check(sourceFile.endsWith(sourceSuffix))
+            sourceFile.removeSuffix(sourceSuffix) + "_p$targetId.preferences_pb"
+        }
+        check(manifest.values.size == manifest.values.toSet().size) {
+            "Multiple source stores map to the same destination"
+        }
+        val directory = File(context.filesDir, "datastore")
+        val cachedDuringPreview = synchronized(lock) {
+            cache.keys.any { it.endsWith("_p$sourceId") || it.endsWith("_p$targetId") }
+        }
+        check(!cachedDuringPreview) {
+            "Profile DataStore opened during migration preview; refusing remap"
+        }
+        check(manifest.keys.all { sourceName ->
+            val source = File(directory, sourceName)
+            source.isFile && source.length() > 0L
+        }) {
+            "Source store is missing or empty; refusing remap"
+        }
+        check(manifest.values.none { File(directory, it).exists() }) {
+            "Destination store appeared after inventory; refusing remap"
+        }
+        return manifest
+    }
+
     fun isProfileDeleted(profileId: Int): Boolean = profileId in deletedProfileIds
 
     fun markProfileCreated(profileId: Int) {

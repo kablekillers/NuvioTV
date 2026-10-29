@@ -1,8 +1,12 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.SharedLayoutScope
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.remote.supabase.SupabaseHomeCatalogSettingsBlob
@@ -73,12 +77,19 @@ internal fun mergeHomeCatalogSettingsJson(
 class HomeCatalogSettingsSyncService @Inject constructor(
     private val postgrest: Postgrest,
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val profileManager: ProfileManager,
     private val addonRepository: AddonRepository,
     private val collectionsDataStore: CollectionsDataStore,
     private val syncClientIdentity: SyncClientIdentity
 ) {
+    // Disabled until local-profile mode is migrated and verified end to end.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+    private fun sharedLayoutProfileId(activeId: Int): Int =
+        SharedLayoutScope.configurationProfileId(activeId, deviceLocalProfilesEnabled)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json {
         ignoreUnknownKeys = true
@@ -103,7 +114,11 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
     suspend fun pushToRemote(reason: String = "unspecified"): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val profileId = profileManager.activeProfileId.value
+            val activeId = profileManager.activeProfileId.value
+            if (!SharedLayoutScope.canEditConfiguration(activeId, deviceLocalProfilesEnabled)) {
+                return@withContext Result.success(Unit)
+            }
+            val profileId = sharedLayoutProfileId(activeId)
             val syncScope = currentScope(profileId)
                 ?: return@withContext Result.success(Unit)
             val payload = loadLocalPayload()
@@ -120,7 +135,7 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
     suspend fun pullFromRemote(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val profileId = profileManager.activeProfileId.value
+            val profileId = sharedLayoutProfileId(profileManager.activeProfileId.value)
             val syncScope = currentScope(profileId)
                 ?: return@withContext Result.success(false)
             val localState = layoutPreferenceDataStore.getHomeCatalogSettingsState()
@@ -251,7 +266,7 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
     private fun currentScope(profileId: Int): HomeCatalogSyncScope? {
         val state = authManager.authState.value as? AuthState.FullAccount ?: return null
-        if (profileManager.activeProfileId.value != profileId) return null
+        if (sharedLayoutProfileId(profileManager.activeProfileId.value) != profileId) return null
         return HomeCatalogSyncScope(userId = state.userId, profileId = profileId)
     }
 

@@ -1,8 +1,12 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.core.tracking.TrackingProgressProviderRegistry
 import com.nuvio.tv.core.tracking.providerId
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -43,6 +47,7 @@ data class WatchedItemsRemoteSyncResult(
 @Singleton
 class WatchedItemsSyncService @Inject constructor(
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val postgrest: Postgrest,
     private val watchedItemsPreferences: WatchedItemsPreferences,
     private val trackingProviderRegistry: TrackingProgressProviderRegistry,
@@ -51,6 +56,12 @@ class WatchedItemsSyncService @Inject constructor(
     private val syncClientIdentity: SyncClientIdentity,
     private val mutationStore: WatchStateMutationStore
 ) {
+    // Disabled until the complete local-profile migration is ready.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+    private fun canSync(profileId: Int): Boolean =
+        ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)
+
     private val deltaSyncMutex = Mutex()
     private val outboundSyncMutexes = ConcurrentHashMap<Int, Mutex>()
 
@@ -108,6 +119,7 @@ class WatchedItemsSyncService @Inject constructor(
     }
 
     suspend fun pushToRemote(profileId: Int = profileManager.activeProfileId.value): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!canSync(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             pushToRemoteLocked(profileId)
         }
@@ -134,6 +146,7 @@ class WatchedItemsSyncService @Inject constructor(
         updateLastSuccessfulPush: Boolean = false,
         profileId: Int = profileManager.activeProfileId.value
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!canSync(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             pushItemsToRemoteLocked(items, updateLastSuccessfulPush, profileId)
         }
@@ -185,6 +198,7 @@ class WatchedItemsSyncService @Inject constructor(
     suspend fun pullFromRemote(
         profileId: Int = profileManager.activeProfileId.value
     ): Result<List<WatchedItem>> = withContext(Dispatchers.IO) {
+        if (!canSync(profileId)) return@withContext Result.success(emptyList())
         try {
             Log.d(TAG, "pullFromRemote: starting full watched items snapshot for profile $profileId")
             if (!shouldUseSupabaseWatchProgressSync(profileId)) {
@@ -233,6 +247,7 @@ class WatchedItemsSyncService @Inject constructor(
     suspend fun syncDeltaFromRemote(
         profileId: Int = profileManager.activeProfileId.value
     ): Result<WatchedItemsRemoteSyncResult> = withContext(Dispatchers.IO) {
+        if (!canSync(profileId)) return@withContext Result.success(WatchedItemsRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false))
         deltaSyncMutex.withLock {
             syncDeltaFromRemoteLocked(profileId)
         }
@@ -241,6 +256,7 @@ class WatchedItemsSyncService @Inject constructor(
     suspend fun syncSnapshotFromRemote(
         profileId: Int = profileManager.activeProfileId.value
     ): Result<WatchedItemsRemoteSyncResult> = withContext(Dispatchers.IO) {
+        if (!canSync(profileId)) return@withContext Result.success(WatchedItemsRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false))
         deltaSyncMutex.withLock {
             syncSnapshotFromRemoteLocked(profileId)
         }
@@ -407,6 +423,7 @@ class WatchedItemsSyncService @Inject constructor(
         episode: Int?,
         profileId: Int = profileManager.activeProfileId.value
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!canSync(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             deleteKeysFromRemoteLocked(
                 keys = listOf(WatchedMutationKey(contentId, season, episode)),
@@ -420,6 +437,7 @@ class WatchedItemsSyncService @Inject constructor(
         episodes: List<Pair<Int, Int>>,
         profileId: Int = profileManager.activeProfileId.value
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!canSync(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             deleteKeysFromRemoteLocked(
                 keys = episodes.map { (season, episode) ->

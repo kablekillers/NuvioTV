@@ -1,10 +1,14 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+
 import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.data.local.StartupSyncPreferences
 import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.data.repository.AddonRepositoryImpl
@@ -50,6 +54,7 @@ internal data class SurfacePullFreshness(
 @Singleton
 class StartupSyncService @Inject constructor(
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val pluginSyncService: PluginSyncService,
     private val addonSyncService: AddonSyncService,
     private val collectionSyncService: CollectionSyncService,
@@ -69,6 +74,12 @@ class StartupSyncService @Inject constructor(
     private val startupSyncPreferences: StartupSyncPreferences,
     private val cwEnrichmentCache: com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 ) {
+    // Remains off until all direct and background viewing-state writers are isolated.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+    private fun maySyncViewingState(profileId: Int): Boolean =
+        ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var startupPullJob: Job? = null
     private var activityPullJob: Job? = null
@@ -168,13 +179,31 @@ class StartupSyncService @Inject constructor(
 
     fun requestAddonSyncNow() {
         val profileId = profileManager.activeProfileId.value
+        // Manual refresh also performs removeMissingLocal reconciliation.
+        // Never run it under a local secondary until Main-backed addon storage
+        // and remote account scoping have been verified end-to-end.
+        if (deviceLocalProfilesEnabled && profileId != 1) {
+            Log.d(TAG, "Deferring manual addon sync until Main is active")
+            return
+        }
         Log.d(TAG, "Manual addon sync enqueued for profile $profileId")
         scope.launch {
+            // The selected profile may change while the request is queued.
+            if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
+                Log.d(TAG, "Skipping queued addon sync after profile switch")
+                return@launch
+            }
             Log.d(TAG, "Manual addon sync starting for profile $profileId")
 
             addonRepository.isSyncingFromRemote = true
             try {
                 val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
+                // Fetch is asynchronous: the customer may have selected a
+                // personal profile while the remote request was in flight.
+                if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
+                    Log.d(TAG, "Skipping manual addon reconciliation after profile switch")
+                    return@launch
+                }
 
                 addonRepository.reconcileWithRemoteAddonUrls(
                     remoteUrls = remoteAddonUrls,
@@ -195,12 +224,29 @@ class StartupSyncService @Inject constructor(
 
     fun requestRealtimeSurfacePull(profileId: Int, surface: String) {
         if (!authManager.isAuthenticated) return
+        // A remote event for a shared-account secondary profile must never
+        // trigger a local customer's viewing-state or credential pull.
+        // Shared addon/catalog updates are handled separately through Main.
+        if (deviceLocalProfilesEnabled && profileId != 1) {
+            Log.d(TAG, "Ignoring remote event for cloud secondary profile $profileId: $surface")
+            return
+        }
+        if (deviceLocalProfilesEnabled && !maySyncViewingState(profileId) &&
+            surface in setOf("library", "watch_progress", "watched_items", "collections")
+        ) return
         if (surface != "profiles" && profileManager.activeProfileId.value != profileId) {
             Log.d(TAG, "Ignoring realtime surface=$surface for inactive profile $profileId")
             return
         }
 
         scope.launch {
+            // Realtime events can be queued while the user changes profiles.
+            // Do not apply the previous profile's remote state to the newly
+            // selected local profile.
+            if (surface != "profiles" && profileManager.activeProfileId.value != profileId) {
+                Log.d(TAG, "Skipping queued realtime surface=$surface after profile switch")
+                return@launch
+            }
             Log.i(TAG, "Realtime surface pull requested profile=$profileId surface=$surface")
             when (surface) {
                 "addons" -> pullRealtimeAddons(profileId)
@@ -230,6 +276,10 @@ class StartupSyncService @Inject constructor(
                         }
                 }
                 "provider_credentials" -> {
+                    if (deviceLocalProfilesEnabled && (profileId != 1 || profileManager.activeProfileId.value != 1)) {
+                        Log.d(TAG, "Skipping customer secondary profile credential pull")
+                        return@launch
+                    }
                     providerCredentialSyncService.syncFromRemote(profileId)
                         .onSuccess { applied ->
                             Log.d(TAG, "Realtime provider credential pull completed profile=$profileId applied=$applied")
@@ -307,6 +357,11 @@ class StartupSyncService @Inject constructor(
         if (authManager.authState.value !is AuthState.FullAccount) return false
 
         val profileId = profileManager.activeProfileId.value
+        if (!maySyncViewingState(profileId)) {
+            watchProgressRepository.hasCompletedInitialPull = true
+            watchProgressRepository.hasCompletedInitialWatchedItemsPull = true
+            return true
+        }
         val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync(profileId)
         Log.d(
             TAG,
@@ -456,7 +511,7 @@ class StartupSyncService @Inject constructor(
                 TAG,
                 "Watch progress sync: shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
             )
-            if (shouldUseSupabaseWatchProgressSync) {
+            if (shouldUseSupabaseWatchProgressSync && maySyncViewingState(profileId)) {
                 pullWatchedItemsSnapshot(profileId)
                 syncWatchProgressSnapshot(
                     profileId = profileId,
@@ -498,7 +553,7 @@ class StartupSyncService @Inject constructor(
                 TAG,
                 "Warm watch progress sync: shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
             )
-            if (shouldUseSupabaseWatchProgressSync) {
+            if (shouldUseSupabaseWatchProgressSync && maySyncViewingState(profileId)) {
                 pullWatchedItemsDelta(profileId)
                 syncWatchProgressDelta(
                     profileId = profileId,
@@ -541,6 +596,7 @@ class StartupSyncService @Inject constructor(
                 }
         }
 
+        if (!deviceLocalProfilesEnabled || profileId == 1) {
         providerCredentialSyncService.syncFromRemote(profileId)
             .onSuccess { applied ->
                 Log.d(TAG, "Provider credential sync completed for profile $profileId applied=$applied")
@@ -548,11 +604,12 @@ class StartupSyncService @Inject constructor(
             .onFailure { error ->
                 Log.e(TAG, "Failed to sync provider credentials, keeping local credentials", error)
             }
+        }
 
         coroutineScope {
             val libraryJob = async {
                 val isTrackingLibrary = libraryRepository.sourceMode.first() != LibrarySourceMode.LOCAL
-                if (!isTrackingLibrary) {
+                if (!isTrackingLibrary && maySyncViewingState(profileId)) {
                     libraryRepository.isSyncingFromRemote = true
                     try {
                         val result = librarySyncService.syncFromRemote(profileId).getOrElse { throw it }
@@ -574,9 +631,11 @@ class StartupSyncService @Inject constructor(
             }
 
             val pluginJob = async {
+                if (deviceLocalProfilesEnabled && (profileId != 1 || profileManager.activeProfileId.value != 1)) return@async
                 pluginManager.isSyncingFromRemote = true
                 try {
                     val remotePlugins = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
+                    if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) return@async
                     pluginManager.reconcileWithRemoteRepoUrls(
                         remotePlugins = remotePlugins,
                         removeMissingLocal = true
@@ -591,9 +650,11 @@ class StartupSyncService @Inject constructor(
             }
 
             val addonJob = async {
+                if (deviceLocalProfilesEnabled && (profileId != 1 || profileManager.activeProfileId.value != 1)) return@async
                 addonRepository.isSyncingFromRemote = true
                 try {
                     val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
+                    if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) return@async
                     addonRepository.reconcileWithRemoteAddonUrls(
                         remoteUrls = remoteAddonUrls,
                         removeMissingLocal = true
@@ -643,6 +704,10 @@ class StartupSyncService @Inject constructor(
     }
 
     private suspend fun pullNuvioLibrary(profileId: Int): Boolean {
+        if (!maySyncViewingState(profileId)) {
+            libraryRepository.hasCompletedInitialPull = true
+            return true
+        }
         val isTrackingLibrary = libraryRepository.sourceMode.first() != LibrarySourceMode.LOCAL
         if (isTrackingLibrary) {
             libraryRepository.hasCompletedInitialPull = true
@@ -670,9 +735,17 @@ class StartupSyncService @Inject constructor(
     }
 
     private suspend fun pullRealtimePlugins(profileId: Int) {
+        // Until Main-backed addon/plugin storage is fully verified, never
+        // reconcile a shared remote snapshot while a local secondary is active.
+        // A destructive removeMissingLocal pass could otherwise erase local data.
+        if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
+            Log.d(TAG, "Deferring shared plugin reconciliation until Main is active")
+            return
+        }
         pluginManager.isSyncingFromRemote = true
         try {
             val remotePlugins = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
+            if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) return
             pluginManager.reconcileWithRemoteRepoUrls(
                 remotePlugins = remotePlugins,
                 removeMissingLocal = true
@@ -687,9 +760,17 @@ class StartupSyncService @Inject constructor(
     }
 
     private suspend fun pullRealtimeAddons(profileId: Int) {
+        // Until Main-backed addon/plugin storage is fully verified, never
+        // reconcile a shared remote snapshot while a local secondary is active.
+        // A destructive removeMissingLocal pass could otherwise erase local data.
+        if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
+            Log.d(TAG, "Deferring shared addon reconciliation until Main is active")
+            return
+        }
         addonRepository.isSyncingFromRemote = true
         try {
             val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
+            if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) return
             addonRepository.reconcileWithRemoteAddonUrls(
                 remoteUrls = remoteAddonUrls,
                 removeMissingLocal = true
@@ -706,6 +787,7 @@ class StartupSyncService @Inject constructor(
         profileId: Int,
         pushUnsynced: Boolean = true
     ): Boolean {
+        if (!maySyncViewingState(profileId)) return true
         return try {
             Log.d(TAG, "Starting watched items delta sync for profile $profileId")
             val watchedItemsResult = watchedItemsSyncService.syncDeltaFromRemote(profileId).getOrElse { throw it }
@@ -726,6 +808,7 @@ class StartupSyncService @Inject constructor(
     }
 
     private suspend fun pullWatchedItemsSnapshot(profileId: Int) {
+        if (!maySyncViewingState(profileId)) return
         try {
             Log.d(TAG, "Starting watched items snapshot sync for profile $profileId")
             val watchedItemsResult = watchedItemsSyncService.syncSnapshotFromRemote(profileId).getOrElse { throw it }
@@ -775,6 +858,7 @@ class StartupSyncService @Inject constructor(
         failureMessage: String,
         useSnapshot: Boolean
     ): Result<Unit> {
+        if (!maySyncViewingState(profileId)) return Result.success(Unit)
         watchProgressRepository.isSyncingFromRemote = true
         try {
             val syncResult = if (useSnapshot) {
