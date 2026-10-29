@@ -97,15 +97,6 @@ jobs:
                       print((failure.text or '')[:5000])
           PY
 
-      - name: Upload unit-test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kable-Killers-TV-1.1.2-Unit-Test-Reports
-          path: app/build/test-results/testFullDebugUnitTest/
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Identify updater implementation for integration
         run: |
           grep -RInE 'GITHUB_REPO|releases/latest|browser_download_url|github.com/.*/releases' app/src/main/java --include='*.kt' | head -80 || true
