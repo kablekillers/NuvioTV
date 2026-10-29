@@ -29,9 +29,6 @@ internal object ProfileMigrationJournal {
             "Migration journal directory must not be a symbolic link"
         }
         val journal = File(directory, JOURNAL_NAME)
-        require(!Files.isSymbolicLink(directory.toPath())) {
-            "Migration journal directory must not be a symbolic link"
-        }
         require(!Files.isSymbolicLink(journal.toPath())) {
             "Migration journal must not be a symbolic link"
         }
@@ -71,6 +68,9 @@ internal object ProfileMigrationJournal {
     }
 
     fun read(directory: File): Entry? {
+        require(!Files.isSymbolicLink(directory.toPath())) {
+            "Migration journal directory must not be a symbolic link"
+        }
         val journal = File(directory, JOURNAL_NAME)
         require(!Files.isSymbolicLink(journal.toPath())) {
             "Migration journal must not be a symbolic link"
