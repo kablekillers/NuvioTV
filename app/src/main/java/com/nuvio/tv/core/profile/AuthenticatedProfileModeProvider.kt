@@ -5,6 +5,7 @@ import com.nuvio.tv.core.auth.AuthManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.security.MessageDigest
 
 /**
  * Reads a mode assignment only for the currently authenticated account.
@@ -30,9 +31,31 @@ class AuthenticatedProfileModeProvider @Inject constructor(
         if (accountId.isBlank() || accountId != accountId.trim()) {
             return AccountProfileMode.LEGACY_CLOUD
         }
-        val storedAccountId = preferences.getString("assigned_account_id", null)
-        val storedMode = preferences.getString("assigned_mode", null)
-        val migrationComplete = preferences.getBoolean("migration_complete", false)
+        // A per-account namespace avoids one login overwriting another login's
+        // verified assignment. Legacy single-slot records remain readable only
+        // when their stored account ID exactly matches the authenticated ID.
+        val namespace = MessageDigest.getInstance("SHA-256")
+            .digest(accountId.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val modeKey = "account_${namespace}_mode"
+        val verifiedIdKey = "account_${namespace}_verified_id"
+        val migrationKey = "account_${namespace}_migration_complete"
+        val hasScopedRecord = preferences.contains(verifiedIdKey)
+        val storedAccountId = if (hasScopedRecord) {
+            preferences.getString(verifiedIdKey, null)
+        } else {
+            preferences.getString("assigned_account_id", null)
+        }
+        val storedMode = if (hasScopedRecord) {
+            preferences.getString(modeKey, null)
+        } else {
+            preferences.getString("assigned_mode", null)
+        }
+        val migrationComplete = if (hasScopedRecord) {
+            preferences.getBoolean(migrationKey, false)
+        } else {
+            preferences.getBoolean("migration_complete", false)
+        }
         return AccountProfileModeResolver.resolve(
             authenticatedAccountId = accountId,
             storedAccountId = storedAccountId,
