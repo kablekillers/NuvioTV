@@ -52,4 +52,23 @@ class ProfileFileCopyTransactionTest {
             assertFalse(directory.resolve("history_p7.preferences_pb").exists())
         } finally { directory.deleteRecursively() }
     }
+
+    @Test fun symlinkedSourceIsRejectedWithoutCreatingDestination() {
+        val directory = Files.createTempDirectory("profile-copy").toFile()
+        try {
+            val realSource = directory.resolve("real_p2.preferences_pb")
+            realSource.writeText("private profile data")
+            val link = directory.resolve("history_p2.preferences_pb")
+            Files.createSymbolicLink(link.toPath(), realSource.toPath())
+            val destination = directory.resolve("history_p7.preferences_pb")
+            assertTrue(runCatching {
+                ProfileFileCopyTransaction.copy(
+                    directory, mapOf(link.name to destination.name)
+                )
+            }.isFailure)
+            assertFalse(destination.exists())
+            assertTrue(realSource.readText() == "private profile data")
+        } finally { directory.deleteRecursively() }
+    }
+
 }
