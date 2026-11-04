@@ -1,6 +1,8 @@
 package com.nuvio.tv.core.sync
 
 import android.util.Log
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 import com.nuvio.tv.core.sync.library.LIBRARY_DELTA_PAGE_SIZE
 import com.nuvio.tv.core.sync.library.LIBRARY_SNAPSHOT_PAGE_SIZE
 import com.nuvio.tv.core.sync.library.LibrarySyncLocalStore
@@ -29,12 +31,21 @@ data class LibraryRemoteSyncResult(
 @Singleton
 class LibrarySyncService @Inject constructor(
     private val remoteDataSource: LibrarySyncRemoteDataSource,
-    private val localStore: LibrarySyncLocalStore
+    private val localStore: LibrarySyncLocalStore,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider
 ) {
     private val syncMutex = Mutex()
 
+    private fun mayCloudSync(profileId: Int): Boolean =
+        profileId > 0 && AccountProfilePolicy.maySyncViewingState(profileId, accountProfileModeProvider.currentMode())
+
+    private fun requireCloudSync(profileId: Int) {
+        check(mayCloudSync(profileId)) { "Cloud library sync is disabled for this profile" }
+    }
+
     suspend fun pushToRemote(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
+            if (!mayCloudSync(profileId)) return@withLock Result.success(Unit)
             try {
                 var state = localStore.getSyncState(profileId)
                 if (!state.deltaInitialized) {
@@ -55,6 +66,9 @@ class LibrarySyncService @Inject constructor(
         profileId: Int
     ): Result<LibraryRemoteSyncResult> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
+            if (!mayCloudSync(profileId)) return@withLock Result.failure(
+                IllegalStateException("Cloud library sync is disabled for this profile")
+            )
             try {
                 var state = localStore.getSyncState(profileId)
                 var usedSnapshot = false
@@ -63,6 +77,7 @@ class LibrarySyncService @Inject constructor(
                 var appliedDeletes = 0
 
                 if (!state.deltaInitialized) {
+                    requireCloudSync(profileId)
                     val cursorBeforeSnapshot = remoteDataSource.getDeltaCursor(profileId)
                     val remoteItems = remoteDataSource.pullSnapshot(
                         profileId = profileId,
@@ -82,6 +97,7 @@ class LibrarySyncService @Inject constructor(
                     initialCursor = state.deltaCursorEventId,
                     pageSize = LIBRARY_DELTA_PAGE_SIZE,
                     fetchPage = { cursor, limit ->
+                        requireCloudSync(profileId)
                         remoteDataSource.pullDelta(
                             profileId = profileId,
                             sinceEventId = cursor,
@@ -133,7 +149,9 @@ class LibrarySyncService @Inject constructor(
 
         val upsertItems = LibrarySyncReducer.pendingUpsertItems(state).filterNot { ServerItemRef.isServerId(it.id) }
         val deleteKeys = state.pendingDeleteKeys.filterNot { ServerItemRef.isServerId(it.contentId) }
+        requireCloudSync(profileId)
         remoteDataSource.pushItems(profileId, upsertItems)
+        requireCloudSync(profileId)
         remoteDataSource.deleteItems(profileId, deleteKeys)
         val acknowledged = localStore.acknowledgePush(
             profileId = profileId,
