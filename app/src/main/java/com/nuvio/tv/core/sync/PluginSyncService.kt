@@ -3,6 +3,8 @@ package com.nuvio.tv.core.sync
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 import com.nuvio.tv.data.local.PluginDataStore
 import com.nuvio.tv.data.remote.supabase.SupabasePlugin
 import com.nuvio.tv.domain.model.RemotePluginInfo
@@ -25,6 +27,7 @@ class PluginSyncService @Inject constructor(
     private val authManager: AuthManager,
     private val pluginDataStore: PluginDataStore,
     private val profileManager: ProfileManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val syncClientIdentity: SyncClientIdentity
 ) {
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
@@ -46,6 +49,9 @@ class PluginSyncService @Inject constructor(
             val profileId = profileManager.activeProfileId.value
             Log.d(TAG, "pushToRemote: activeProfile=${activeProfile?.id} isPrimary=${activeProfile?.isPrimary} usesPrimaryPlugins=${activeProfile?.usesPrimaryPlugins} profileId=$profileId")
 
+            if (!AccountProfilePolicy.canEditSharedConfiguration(profileId, accountProfileModeProvider.currentMode())) {
+                return@withContext Result.success(Unit)
+            }
             if (activeProfile != null && !activeProfile.isPrimary && activeProfile.usesPrimaryPlugins) {
                 Log.d(TAG, "Profile ${activeProfile.id} uses primary plugins, skipping push")
                 return@withContext Result.success(Unit)
@@ -90,7 +96,8 @@ class PluginSyncService @Inject constructor(
                 )
 
             val activeProfile = profileManager.activeProfile
-            val profileId = if (activeProfile != null && !activeProfile.isPrimary && activeProfile.usesPrimaryPlugins) 1
+            val profileId = if (AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())) 1
+                            else if (activeProfile != null && !activeProfile.isPrimary && activeProfile.usesPrimaryPlugins) 1
                             else profileManager.activeProfileId.value
 
             val remotePlugins = withJwtRefreshRetry {
