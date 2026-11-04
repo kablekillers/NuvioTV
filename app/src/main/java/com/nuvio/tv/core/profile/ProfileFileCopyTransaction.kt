@@ -37,6 +37,8 @@ internal object ProfileFileCopyTransaction {
         }
         require(pairs.all { (source, destination) ->
             source.isFile && source.length() > 0L && !destination.exists() &&
+                !java.nio.file.Files.isSymbolicLink(source.toPath()) &&
+                !java.nio.file.Files.isSymbolicLink(destination.toPath()) &&
                 source.name != destination.name
         }) { "Missing source, self-copy, or occupied destination" }
         val sourceDigests = pairs.associate { (source, _) ->
