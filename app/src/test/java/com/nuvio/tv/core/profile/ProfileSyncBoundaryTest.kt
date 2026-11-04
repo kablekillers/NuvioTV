@@ -24,4 +24,33 @@ class ProfileSyncBoundaryTest {
         assertTrue(ProfileSyncBoundary.maySyncSharedAddonConfiguration(false))
         assertTrue(ProfileSyncBoundary.maySyncSharedAddonConfiguration(true))
     }
+
+    @Test fun customerAccountBlocksPersonalSyncForMainAndAllSecondaries() {
+        val mode = AccountProfileMode.CUSTOMER_DEVICE_LOCAL
+        for (profileId in 1..6) {
+            assertFalse(ProfileSyncBoundary.maySyncPersonalViewingState(profileId, mode))
+        }
+        assertTrue(ProfileSyncBoundary.maySyncProfileMetadata(1, mode))
+        for (profileId in 2..6) {
+            assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(profileId, mode))
+        }
+        assertEquals(
+            listOf(1),
+            ProfileSyncBoundary.visibleRemoteProfileIds(listOf(1, 2, 3, 4, 5, 6), mode)
+        )
+    }
+
+    @Test fun familyAndUnmigratedAccountsRetainAllExistingCloudSync() {
+        for (mode in listOf(AccountProfileMode.FAMILY_CLOUD, AccountProfileMode.LEGACY_CLOUD)) {
+            for (profileId in 1..6) {
+                assertTrue(ProfileSyncBoundary.maySyncPersonalViewingState(profileId, mode))
+                assertTrue(ProfileSyncBoundary.maySyncProfileMetadata(profileId, mode))
+            }
+            assertEquals(
+                listOf(1, 2, 3, 4, 5, 6),
+                ProfileSyncBoundary.visibleRemoteProfileIds(listOf(1, 2, 3, 4, 5, 6), mode)
+            )
+        }
+    }
+
 }
