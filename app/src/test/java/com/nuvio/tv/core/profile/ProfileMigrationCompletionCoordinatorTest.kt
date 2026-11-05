@@ -33,10 +33,14 @@ class ProfileMigrationCompletionCoordinatorTest {
         return dir
     }
 
-    private suspend fun attempt(dir: File, store: ProfileDataStore, account: String = "customer-a") =
-        ProfileMigrationCompletionCoordinator.completeVerifiedRemap(
-            dir, account, 2, 5, originals, 2, manifest, store
-        )
+    private suspend fun attempt(
+        dir: File,
+        store: ProfileDataStore,
+        account: String = "customer-a",
+        currentAccount: () -> String? = { "customer-a" }
+    ) = ProfileMigrationCompletionCoordinator.completeVerifiedRemap(
+        dir, account, 2, 5, originals, 2, manifest, store, currentAccount
+    )
 
     @Test fun completesOnlyAfterReadbackMetadataMatches() = runBlocking {
         val dir = preparedDirectory()
@@ -53,6 +57,36 @@ class ProfileMigrationCompletionCoordinatorTest {
                 ProfileMigrationJournal.read(dir)?.phase)
             assertEquals("preserve personal history",
                 dir.resolve("history_p2.preferences_pb").readText())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun accountSwitchDuringMetadataReadBlocksCompletion() = runBlocking {
+        val dir = preparedDirectory()
+        try {
+            val store = mockk<ProfileDataStore>()
+            var activeAccount = "customer-a"
+            coEvery {
+                store.verifyPersistedProfileMetadataRemap(
+                    "customer-a", 2, 5, originals, 2, manifest
+                )
+            } coAnswers {
+                activeAccount = "customer-b"
+                true
+            }
+
+            assertFalse(attempt(dir, store, currentAccount = { activeAccount }))
+            assertEquals(ProfileMigrationJournal.Phase.VERIFIED,
+                ProfileMigrationJournal.read(dir)?.phase)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun alreadySwitchedAccountCannotBeginCompletion() = runBlocking {
+        val dir = preparedDirectory()
+        try {
+            val store = mockk<ProfileDataStore>()
+            assertFalse(attempt(dir, store, currentAccount = { "customer-b" }))
+            assertEquals(ProfileMigrationJournal.Phase.VERIFIED,
+                ProfileMigrationJournal.read(dir)?.phase)
         } finally { dir.deleteRecursively() }
     }
 
