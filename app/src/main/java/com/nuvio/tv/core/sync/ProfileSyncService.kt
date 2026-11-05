@@ -133,6 +133,17 @@ class ProfileSyncService @Inject constructor(
 
                 Log.d(TAG, "pullFromRemote: fetched ${remote.size} profiles from Supabase")
 
+                // Authentication can change while the remote request is suspended.
+                // Never apply a previous account's profiles to the new account's
+                // local DataStore, including when the previous account was logged out.
+                val authenticatedUserIdNow =
+                    (authManager.authState.value as? AuthState.FullAccount)?.userId
+                if (userId == null || authenticatedUserIdNow != userId) {
+                    return@withLock Result.failure(
+                        IllegalStateException("Profile pull discarded after account change")
+                    )
+                }
+
                 val profiles = remote.filter { entry ->
                     ProfileSyncBoundary.maySyncProfileMetadata(entry.profileIndex, deviceLocalProfilesEnabled)
                 }.map { entry ->
