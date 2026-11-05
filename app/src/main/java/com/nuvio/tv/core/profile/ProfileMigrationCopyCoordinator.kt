@@ -51,6 +51,26 @@ internal object ProfileMigrationCopyCoordinator {
         targetProfileId: Int,
         manifest: Map<String, String>
     ): ProfileFileCopyTransaction.Result {
+        // Lock covers preflight, journal creation, file copies and VERIFIED.
+        // No second migration may observe a partial stage as a clean start.
+        return ProfileMigrationExclusiveLock.tryWithLock(directory) {
+            copyWithJournalLocked(
+                directory, accountId, sourceProfileId, targetProfileId, manifest
+            )
+        } ?: error("Another profile migration already holds the storage lock")
+    }
+
+    private fun copyWithJournalLocked(
+        directory: File,
+        accountId: String,
+        sourceProfileId: Int,
+        targetProfileId: Int,
+        manifest: Map<String, String>
+    ): ProfileFileCopyTransaction.Result {
+        require(sourceProfileId in 2..6 && targetProfileId in 2..6 &&
+            sourceProfileId != targetProfileId) {
+            "Only supported secondary profile IDs can be migrated"
+        }
         require(!ProfileMigrationJournal.hasUnresolvedMigration(directory)) {
             "An earlier migration requires recovery"
         }
@@ -73,6 +93,17 @@ internal object ProfileMigrationCopyCoordinator {
                 target == source.removeSuffix(expectedSourceSuffix) + expectedTargetSuffix
         }) {
             "Profile migration manifest does not match the verified source and target IDs"
+        }
+        // An incomplete manifest can silently strand history, progress or
+        // favorites after profile metadata is remapped. Reject it BEFORE
+        // committing the journal; recovery also independently checks this.
+        val sourceSuffix = "_p$sourceProfileId.preferences_pb"
+        val existingSources = directory.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(sourceSuffix) }
+            ?.map { it.name }?.toSet()
+            ?: error("Cannot inventory profile data files")
+        require(existingSources == manifest.keys) {
+            "Migration manifest does not include every source profile store"
         }
         // Reject obvious missing sources and occupied targets before creating a
         // durable journal. The copy primitive repeats its stronger checksum
