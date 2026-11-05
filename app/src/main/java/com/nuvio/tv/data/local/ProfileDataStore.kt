@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.nuvio.tv.R
 import com.nuvio.tv.core.profile.DeviceProfileMetadataRemapPlanner
 import com.nuvio.tv.core.profile.ProfileMigrationJournal
+import com.nuvio.tv.core.profile.ProfileMigrationRecoveryVerifier
 import java.io.File
 import com.nuvio.tv.domain.model.UserProfile
 import com.squareup.moshi.Moshi
@@ -168,7 +169,8 @@ class ProfileDataStore @Inject constructor(
         sourceProfileId: Int,
         targetProfileId: Int,
         expectedProfiles: List<UserProfile>,
-        expectedActiveProfileId: Int
+        expectedActiveProfileId: Int,
+        verifiedFileManifest: Map<String, String>
     ) {
         require(verifiedAccountId.isNotBlank() &&
             verifiedAccountId == verifiedAccountId.trim()) {
@@ -186,6 +188,16 @@ class ProfileDataStore @Inject constructor(
             }
             check(!File(directory, "profile_migration_journal.tmp").exists()) {
                 "Unresolved migration journal temporary file"
+            }
+
+            check(ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                directory = directory,
+                verifiedAccountId = verifiedAccountId,
+                sourceProfileId = sourceProfileId,
+                targetProfileId = targetProfileId,
+                manifest = verifiedFileManifest
+            )) {
+                "Profile-scoped file inventory or checksum verification failed"
             }
 
             val currentProfiles = parseProfiles(prefs[profilesJsonKey])
