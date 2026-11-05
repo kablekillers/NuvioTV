@@ -11,12 +11,12 @@ class ProfileMigrationCopyCoordinatorTest {
         try {
             dir.resolve("settings_p2.preferences_pb").writeText("personal data")
             val result = ProfileMigrationCopyCoordinator.copyWithJournal(
-                dir, "verified-account", 2, 7,
-                mapOf("settings_p2.preferences_pb" to "settings_p7.preferences_pb")
+                dir, "verified-account", 2, 5,
+                mapOf("settings_p2.preferences_pb" to "settings_p5.preferences_pb")
             )
-            assertEquals(listOf("settings_p7.preferences_pb"), result.copiedFileNames)
+            assertEquals(listOf("settings_p5.preferences_pb"), result.copiedFileNames)
             assertEquals("personal data", dir.resolve("settings_p2.preferences_pb").readText())
-            assertEquals("personal data", dir.resolve("settings_p7.preferences_pb").readText())
+            assertEquals("personal data", dir.resolve("settings_p5.preferences_pb").readText())
             assertEquals(ProfileMigrationJournal.Phase.VERIFIED,
                 ProfileMigrationJournal.read(dir)?.phase)
             assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(dir))
@@ -26,6 +26,55 @@ class ProfileMigrationCopyCoordinatorTest {
                     mapOf("settings_p2.preferences_pb" to "settings_p8.preferences_pb")
                 )
             }.isFailure)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun concurrentCopyCannotWriteJournalOrDestination() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            dir.resolve("settings_p2.preferences_pb").writeText("personal data")
+            ProfileMigrationExclusiveLock.tryWithLock(dir) {
+                assertTrue(runCatching {
+                    ProfileMigrationCopyCoordinator.copyWithJournal(
+                        dir, "verified-account", 2, 5,
+                        mapOf("settings_p2.preferences_pb" to "settings_p5.preferences_pb")
+                    )
+                }.isFailure)
+                assertTrue(ProfileMigrationJournal.read(dir) == null)
+                assertTrue(!dir.resolve("settings_p5.preferences_pb").exists())
+            }
+            assertEquals("personal data", dir.resolve("settings_p2.preferences_pb").readText())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun incompleteManifestFailsBeforeJournalCreation() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            dir.resolve("settings_p2.preferences_pb").writeText("settings")
+            dir.resolve("history_p2.preferences_pb").writeText("private history")
+            assertTrue(runCatching {
+                ProfileMigrationCopyCoordinator.copyWithJournal(
+                    dir, "verified-account", 2, 5,
+                    mapOf("settings_p2.preferences_pb" to "settings_p5.preferences_pb")
+                )
+            }.isFailure)
+            assertTrue(ProfileMigrationJournal.read(dir) == null)
+            assertTrue(!dir.resolve("settings_p5.preferences_pb").exists())
+            assertEquals("private history", dir.resolve("history_p2.preferences_pb").readText())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun unsupportedTargetFailsBeforeJournalCreation() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            dir.resolve("settings_p2.preferences_pb").writeText("original")
+            assertTrue(runCatching {
+                ProfileMigrationCopyCoordinator.copyWithJournal(
+                    dir, "verified-account", 2, 7,
+                    mapOf("settings_p2.preferences_pb" to "settings_p7.preferences_pb")
+                )
+            }.isFailure)
+            assertTrue(ProfileMigrationJournal.read(dir) == null)
         } finally { dir.deleteRecursively() }
     }
 
