@@ -59,6 +59,15 @@ internal object ProfileMigrationRecoveryVerifier {
             if (allSourceFiles != manifest.keys ||
                 allTargetFiles != manifest.values.toSet()
             ) return@runCatching false
+            // A verified primary-file copy is not safe if a shadow recovery
+            // backup remains under either profile ID without being migrated.
+            val sourceBackupSuffix = "_p$sourceProfileId.preferences_pb.bak"
+            val targetBackupSuffix = "_p$targetProfileId.preferences_pb.bak"
+            if (directory.listFiles()?.any { file ->
+                    file.name.endsWith(sourceBackupSuffix) ||
+                        file.name.endsWith(targetBackupSuffix)
+                } != false
+            ) return@runCatching false
             if (manifest.any { (source, target) ->
                     !source.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) ||
                         !target.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) ||
