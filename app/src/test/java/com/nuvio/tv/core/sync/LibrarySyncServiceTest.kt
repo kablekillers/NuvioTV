@@ -160,9 +160,55 @@ class LibrarySyncServiceTest {
         assertTrue(local.state.pendingUpsertKeys.isEmpty())
     }
 
+    @Test
+    fun customerSecondaryLibraryMustNeverUpload() = runBlocking {
+        val pending = LibrarySyncReducer.upsertLocal(
+            state = LibrarySyncState(deltaInitialized = true),
+            item = libraryItem("private-favorite"),
+            nowEpochMs = 1L
+        )
+        val local = InMemoryLibrarySyncStore(pending)
+        val remote = FakeLibrarySyncRemote()
+        val service = LibrarySyncService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+
+        val result = service.pushToRemote(profileId = 2)
+
+        assertTrue(result.isSuccess)
+        assertTrue(remote.calls.isEmpty())
+        assertTrue(remote.pushedItems.isEmpty())
+        assertTrue(remote.deletedKeys.isEmpty())
+        assertEquals(pending, local.state)
+    }
+
+    @Test
+    fun customerSecondaryLibraryMustNeverDownload() = runBlocking {
+        val local = InMemoryLibrarySyncStore()
+        val remote = FakeLibrarySyncRemote(snapshot = listOf(libraryItem("remote")))
+        val service = LibrarySyncService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+
+        val result = service.syncFromRemote(profileId = 2)
+
+        assertTrue(result.isFailure)
+        assertTrue(remote.calls.isEmpty())
+        assertTrue(local.state.items.isEmpty())
+    }
+
+    @Test
+    fun customerMainLibraryIsAlsoPrivate() = runBlocking {
+        val local = InMemoryLibrarySyncStore()
+        val remote = FakeLibrarySyncRemote(snapshot = listOf(libraryItem("remote")))
+        val service = LibrarySyncService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+
+        assertTrue(service.syncFromRemote(profileId = 1).isFailure)
+        assertTrue(remote.calls.isEmpty())
+    }
+
     private fun legacyModeProvider(): AuthenticatedProfileModeProvider =
+        modeProvider(AccountProfileMode.LEGACY_CLOUD)
+
+    private fun modeProvider(mode: AccountProfileMode): AuthenticatedProfileModeProvider =
         mockk<AuthenticatedProfileModeProvider>().also { provider ->
-            every { provider.currentMode() } returns AccountProfileMode.LEGACY_CLOUD
+            every { provider.currentMode() } returns mode
         }
 
     private fun libraryItem(id: String): SavedLibraryItem {
