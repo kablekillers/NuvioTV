@@ -25,14 +25,27 @@ class DeviceProfileMigrationPlannerTest {
         assertEquals(listOf(1, 4), plan.reservedLocalIds)
     }
 
-    @Test fun proposesCollisionFreeLocalIdsWithoutChangingCloudIds() {
-        val cloud = listOf(1, 2, 3, 6)
-        val local = listOf(1, 2, 3, 4)
+    @Test fun proposesCollisionFreeSupportedLocalIdsWithoutChangingCloudIds() {
+        val cloud = listOf(1, 2, 3)
+        val local = listOf(1, 2, 4)
         val proposal = DeviceProfileMigrationPlanner.proposeLocalRemap(cloud, local)
-        assertEquals(mapOf(2 to 5, 3 to 7), proposal)
-        assertEquals(listOf(1, 2, 3, 6), cloud)
-        assertEquals(listOf(1, 2, 3, 4), local)
+        assertEquals(mapOf(2 to 5), proposal)
+        assertEquals(listOf(1, 2, 3), cloud)
+        assertEquals(listOf(1, 2, 4), local)
+        assertTrue(proposal.values.all { it in 2..6 })
         assertFalse(proposal.values.any { it in cloud || it in local })
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun remapFailsClosedWhenOnlyUnsupportedIdsWouldRemain() {
+        DeviceProfileMigrationPlanner.proposeLocalRemap(
+            listOf(1, 2, 3, 6), listOf(1, 2, 3, 4)
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun remapRejectsAlreadyUnsupportedLocalIds() {
+        DeviceProfileMigrationPlanner.proposeLocalRemap(listOf(1, 2), listOf(1, 7))
     }
 
     @Test fun noCollisionsProduceNoRemapping() {
