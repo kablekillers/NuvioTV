@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.profile
 
 import android.content.Context
+import java.io.File
 import com.nuvio.tv.core.auth.AuthManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -15,7 +16,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class AuthenticatedProfileModeProvider @Inject constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
     private val authManager: AuthManager
 ) {
     private val preferences = context.getSharedPreferences(
@@ -60,11 +61,23 @@ class AuthenticatedProfileModeProvider @Inject constructor(
         } else {
             preferences.getBoolean("migration_complete", false)
         }
-        return AccountProfileModeResolver.resolve(
+        val resolved = AccountProfileModeResolver.resolve(
             authenticatedAccountId = accountId,
             storedAccountId = storedAccountId,
             storedMode = storedMode,
             migrationEnabled = migrationComplete
         )
+        // A completion flag alone cannot authorize customer mode when an
+        // interrupted migration has a journal or incomplete temporary file.
+        // Treat unreadable/corrupt journal state as unresolved, without deleting
+        // any existing customer profile data.
+        if (resolved == AccountProfileMode.CUSTOMER_DEVICE_LOCAL) {
+            val migrationDirectory = File(context.filesDir, "datastore")
+            val unresolved = runCatching {
+                ProfileMigrationJournal.hasUnresolvedMigration(migrationDirectory)
+            }.getOrDefault(true)
+            if (unresolved) return AccountProfileMode.LEGACY_CLOUD
+        }
+        return resolved
     }
 }
