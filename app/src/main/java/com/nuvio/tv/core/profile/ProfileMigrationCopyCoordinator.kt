@@ -105,6 +105,17 @@ internal object ProfileMigrationCopyCoordinator {
         require(existingSources == manifest.keys) {
             "Migration manifest does not include every source profile store"
         }
+        // Shadow backups are used for corruption recovery. Until backup files
+        // are included in an audited migration transaction, moving only the
+        // primary DataStore files risks silently stranding recovery state.
+        val sourceBackupSuffix = "_p$sourceProfileId.preferences_pb.bak"
+        val targetBackupSuffix = "_p$targetProfileId.preferences_pb.bak"
+        require(directory.listFiles()?.none { file ->
+            file.name.endsWith(sourceBackupSuffix) ||
+                file.name.endsWith(targetBackupSuffix)
+        } == true) {
+            "Profile migration cannot omit source or target shadow backups"
+        }
         // Reject obvious missing sources and occupied targets before creating a
         // durable journal. The copy primitive repeats its stronger checksum
         // and CREATE_NEW checks after journaling to cover concurrent changes.
