@@ -31,7 +31,8 @@ private const val PROFILE_PULL_MIN_INTERVAL_MS = 10_000L
 
 internal data class ProfilePullFreshness(
     val userId: String? = null,
-    val pulledAtMs: Long = 0L
+    val pulledAtMs: Long = 0L,
+    val deviceLocalModeEnabled: Boolean = false
 ) {
     fun isRecent(candidateUserId: String, nowMs: Long): Boolean {
         return userId == candidateUserId &&
@@ -122,7 +123,9 @@ class ProfileSyncService @Inject constructor(
         pullMutex.withLock {
             val userId = (authManager.authState.value as? AuthState.FullAccount)?.userId
             val now = SystemClock.elapsedRealtime()
-            if (!force && userId != null && pullFreshness.isRecent(userId, now)) {
+            if (!force && userId != null &&
+                pullFreshness.deviceLocalModeEnabled == deviceLocalProfilesEnabled &&
+                pullFreshness.isRecent(userId, now)) {
                 return@withLock Result.success(lastPulledProfiles)
             }
             try {
@@ -176,7 +179,8 @@ class ProfileSyncService @Inject constructor(
                     lastPulledProfiles = profiles
                     pullFreshness = ProfilePullFreshness(
                         userId = userId,
-                        pulledAtMs = SystemClock.elapsedRealtime()
+                        pulledAtMs = SystemClock.elapsedRealtime(),
+                        deviceLocalModeEnabled = deviceLocalProfilesEnabled
                     )
                 }
                 Result.success(profiles)
