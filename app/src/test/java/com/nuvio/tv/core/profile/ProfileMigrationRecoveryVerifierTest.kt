@@ -101,6 +101,35 @@ class ProfileMigrationRecoveryVerifierTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun acceptsMatchingPrimaryAndShadowBackupCopies() {
+        val dir = verifiedDirectory()
+        try {
+            dir.resolve("favorites_p2.preferences_pb.bak").writeText("recoverable favorites")
+            dir.resolve("favorites_p5.preferences_pb.bak").writeText("recoverable favorites")
+            val completeManifest = manifest + mapOf(
+                "favorites_p2.preferences_pb.bak" to "favorites_p5.preferences_pb.bak"
+            )
+            assertTrue(ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                dir, "customer-a", 2, 5, completeManifest
+            ))
+            dir.resolve("favorites_p5.preferences_pb.bak").writeText("wrong backup")
+            assertFalse(ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                dir, "customer-a", 2, 5, completeManifest
+            ))
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun rejectsMissingBackupEntryEvenWhenCopyExists() {
+        val dir = verifiedDirectory()
+        try {
+            dir.resolve("favorites_p2.preferences_pb.bak").writeText("backup")
+            dir.resolve("favorites_p5.preferences_pb.bak").writeText("backup")
+            assertFalse(ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                dir, "customer-a", 2, 5, manifest
+            ))
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun rejectsUnmigratedSourceShadowBackup() {
         val dir = verifiedDirectory()
         try {
