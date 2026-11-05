@@ -172,14 +172,21 @@ class ProfileDataStore @Inject constructor(
         targetProfileId: Int,
         expectedProfiles: List<UserProfile>,
         expectedActiveProfileId: Int,
-        verifiedFileManifest: Map<String, String>
+        verifiedFileManifest: Map<String, String>,
+        currentVerifiedAccountId: () -> String?
     ) {
         require(verifiedAccountId.isNotBlank() &&
-            verifiedAccountId == verifiedAccountId.trim()) {
-            "A verified account identity is required"
+            verifiedAccountId == verifiedAccountId.trim() &&
+            currentVerifiedAccountId() == verifiedAccountId) {
+            "The same verified account must be signed in before migration"
         }
         val directory = File(context.filesDir, "datastore")
         dataStore.edit { prefs ->
+            // DataStore edits may be queued. Never trust account identity
+            // captured before this suspend point if logout/login occurred.
+            check(currentVerifiedAccountId() == verifiedAccountId) {
+                "The signed-in account changed during profile migration"
+            }
             val journal = ProfileMigrationJournal.read(directory)
                 ?: error("No verified profile migration journal")
             check(journal.accountId == verifiedAccountId &&
@@ -213,6 +220,11 @@ class ProfileDataStore @Inject constructor(
                 activeProfileId = currentActiveId,
                 localIdRemap = mapOf(sourceProfileId to targetProfileId)
             )
+            // Recheck after potentially slow checksum and metadata validation,
+            // before mutating either key in the atomic DataStore edit.
+            check(currentVerifiedAccountId() == verifiedAccountId) {
+                "The signed-in account changed before metadata commit"
+            }
             prefs[profilesJsonKey] = serializeProfiles(proposed.profiles)
             prefs[activeProfileIdKey] = proposed.activeProfileId
         }
