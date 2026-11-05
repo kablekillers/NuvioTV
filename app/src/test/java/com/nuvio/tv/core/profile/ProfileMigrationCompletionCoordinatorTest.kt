@@ -90,6 +90,20 @@ class ProfileMigrationCompletionCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun concurrentMigrationLockPreventsCompletionWithoutChangingJournal() = runBlocking {
+        val dir = preparedDirectory()
+        try {
+            val store = mockk<ProfileDataStore>()
+            ProfileMigrationExclusiveLock.tryWithLock(dir) {
+                assertFalse(runBlocking { attempt(dir, store) })
+                assertEquals(ProfileMigrationJournal.Phase.VERIFIED,
+                    ProfileMigrationJournal.read(dir)?.phase)
+            }
+            assertEquals("preserve personal history",
+                dir.resolve("history_p2.preferences_pb").readText())
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun mismatchDoesNotMarkMigrationCompleted() = runBlocking {
         val dir = preparedDirectory()
         try {
