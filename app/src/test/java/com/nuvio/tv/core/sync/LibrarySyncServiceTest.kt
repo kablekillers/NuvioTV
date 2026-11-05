@@ -1,5 +1,9 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.AccountProfileMode
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import io.mockk.every
+import io.mockk.mockk
 import com.nuvio.tv.core.sync.library.LibrarySyncLocalStore
 import com.nuvio.tv.core.sync.library.LibrarySyncRemoteDataSource
 import com.nuvio.tv.domain.model.LibraryDeltaApplyResult
@@ -27,7 +31,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(12L, "upsert", libraryItem("delta"))
             )
         )
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, legacyModeProvider())
 
         val result = service.syncFromRemote(profileId = 3).getOrThrow()
 
@@ -55,7 +59,7 @@ class LibrarySyncServiceTest {
             LibrarySyncState(deltaInitialized = true)
         )
         val remote = FakeLibrarySyncRemote(events = events)
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, legacyModeProvider())
 
         val result = service.syncFromRemote(profileId = 5).getOrThrow()
 
@@ -85,7 +89,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(5L, "delete", localItem)
             )
         )
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, legacyModeProvider())
 
         val result = service.syncFromRemote(profileId = 1).getOrThrow()
 
@@ -108,7 +112,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, legacyModeProvider())
 
         val result = service.pushToRemote(profileId = 2)
 
@@ -130,7 +134,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote(deleteFailure = IllegalStateException("offline"))
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, legacyModeProvider())
 
         val result = service.pushToRemote(profileId = 1)
 
@@ -147,7 +151,7 @@ class LibrarySyncServiceTest {
             )
         )
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, legacyModeProvider())
 
         val result = service.pushToRemote(profileId = 1)
 
@@ -155,6 +159,11 @@ class LibrarySyncServiceTest {
         assertEquals(setOf("one", "two"), remote.pushedItems.map { it.id }.toSet())
         assertTrue(local.state.pendingUpsertKeys.isEmpty())
     }
+
+    private fun legacyModeProvider(): AuthenticatedProfileModeProvider =
+        mockk<AuthenticatedProfileModeProvider>().also { provider ->
+            every { provider.currentMode() } returns AccountProfileMode.LEGACY_CLOUD
+        }
 
     private fun libraryItem(id: String): SavedLibraryItem {
         return SavedLibraryItem(
