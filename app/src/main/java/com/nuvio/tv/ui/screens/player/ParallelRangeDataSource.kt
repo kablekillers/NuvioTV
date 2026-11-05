@@ -1153,19 +1153,16 @@ internal class ParallelRangeDataSource(
                 sharedExecutor.execute {
                     try {
                         if (!future.isCancelled && !activeSession.abandoned.get()) {
-                        val result = downloadChunk(activeSession, chunkIndex, future)
-                        if (!future.complete(result)) {
-                            releaseBuffer(result.buffer)
+                            val result = downloadChunk(activeSession, chunkIndex, future)
+                            if (!future.complete(result)) {
+                                releaseBuffer(result.buffer)
+                            }
+                        } else if (!future.isCancelled) {
+                            future.completeExceptionally(IOException("Session abandoned"))
                         }
-                    } else if (future.isCancelled) {
-
-                    } else {
-                        future.completeExceptionally(IOException("Session abandoned"))
-                    }
-                } catch (e: Exception) {
-                    future.completeExceptionally(e)
+                    } catch (e: Exception) {
+                        future.completeExceptionally(e)
                     } catch (e: OutOfMemoryError) {
-
                         drainIdleBuffers(activeSession.chunkSize)
                         future.completeExceptionally(
                             IOException("Native chunk buffer allocation failed (out of memory)", e)
