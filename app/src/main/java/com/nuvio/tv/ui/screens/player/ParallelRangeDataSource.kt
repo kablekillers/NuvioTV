@@ -1020,23 +1020,34 @@ internal class ParallelRangeDataSource(
         }
         Log.w(TAG, "RS_ESCALATE fired chunk=$chunkIndex waitMs=$waitedMs watermark=$watermark")
         val t0 = SystemClock.elapsedRealtime()
-        sharedExecutor.execute {
-            try {
-                if (typed.isDone || typed.isCancelled || activeSession.abandoned.get()) return@execute
-                val result = downloadChunkOnce(activeSession, chunkIndex, typed, allowStallRestart = false)
-                if (typed.complete(result)) {
-                    Log.w(TAG, "RS_ESCALATE won chunk=$chunkIndex ms=${SystemClock.elapsedRealtime() - t0}")
-                } else {
-                    releaseBuffer(result.buffer)
-                    Log.i(TAG, "RS_ESCALATE lost chunk=$chunkIndex")
+        // Escalation downloads can outlive a cancelled chunk future just
+        // like normal prefetch workers. Count them until their buffers have
+        // been returned, including losing hedges and interrupted reads.
+        outstandingChunkWorkers.incrementAndGet()
+        try {
+            sharedExecutor.execute {
+                try {
+                    if (typed.isDone || typed.isCancelled || activeSession.abandoned.get()) return@execute
+                    val result = downloadChunkOnce(activeSession, chunkIndex, typed, allowStallRestart = false)
+                    if (typed.complete(result)) {
+                        Log.w(TAG, "RS_ESCALATE won chunk=$chunkIndex ms=${SystemClock.elapsedRealtime() - t0}")
+                    } else {
+                        releaseBuffer(result.buffer)
+                        Log.i(TAG, "RS_ESCALATE lost chunk=$chunkIndex")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "RS_ESCALATE failed chunk=$chunkIndex: ${e.message}")
+                } catch (e: OutOfMemoryError) {
+                    drainIdleBuffers(activeSession.chunkSize)
+                    Log.w(TAG, "RS_ESCALATE failed chunk=$chunkIndex: chunk buffer OOM (contained)")
+                } finally {
+                    outstandingChunkWorkers.decrementAndGet()
                 }
-            } catch (e: Exception) {
-
-                Log.w(TAG, "RS_ESCALATE failed chunk=$chunkIndex: ${e.message}")
-            } catch (e: OutOfMemoryError) {
-                drainIdleBuffers(activeSession.chunkSize)
-                Log.w(TAG, "RS_ESCALATE failed chunk=$chunkIndex: chunk buffer OOM (contained)")
             }
+        } catch (e: RuntimeException) {
+            outstandingChunkWorkers.decrementAndGet()
+            activeSession.escalatedChunks.remove(chunkIndex)
+            throw e
         }
     }
 
