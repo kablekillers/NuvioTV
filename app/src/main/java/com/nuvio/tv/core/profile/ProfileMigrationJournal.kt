@@ -99,6 +99,22 @@ internal object ProfileMigrationJournal {
             (verifiedAccountId != null && entry.accountId != verifiedAccountId)
     }
 
+    /**
+     * Activation requires positive evidence of completion for this exact
+     * verified account. A missing journal is not proof that migration finished.
+     * Incomplete, corrupt and interrupted journals all fail closed.
+     */
+    fun hasCompletedMigrationForAccount(directory: File, verifiedAccountId: String): Boolean {
+        if (!isValidAccountId(verifiedAccountId)) return false
+        return runCatching {
+            !hasUnresolvedMigration(directory, verifiedAccountId) &&
+                read(directory)?.let { entry ->
+                    entry.accountId == verifiedAccountId &&
+                        entry.phase == Phase.COMPLETED
+                } == true
+        }.getOrDefault(false)
+    }
+
     private fun isValidAccountId(value: String): Boolean =
         value.isNotBlank() && value == value.trim() &&
             value.none { it == '\n' || it == '\r' || it.isISOControl() }
