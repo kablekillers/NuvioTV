@@ -67,16 +67,15 @@ class AuthenticatedProfileModeProvider @Inject constructor(
             storedMode = storedMode,
             migrationEnabled = migrationComplete
         )
-        // A completion flag alone cannot authorize customer mode when an
-        // interrupted migration has a journal or incomplete temporary file.
-        // Treat unreadable/corrupt journal state as unresolved, without deleting
-        // any existing customer profile data.
+        // A stored completion flag is not proof that profile data was migrated.
+        // Require an actual completed journal belonging to this signed-in
+        // account; missing, interrupted or corrupt journals fail closed.
         if (resolved == AccountProfileMode.CUSTOMER_DEVICE_LOCAL) {
             val migrationDirectory = File(context.filesDir, "datastore")
-            val unresolved = runCatching {
-                ProfileMigrationJournal.hasUnresolvedMigration(migrationDirectory, accountId)
-            }.getOrDefault(true)
-            if (unresolved) return AccountProfileMode.LEGACY_CLOUD
+            if (!ProfileMigrationJournal.hasCompletedMigrationForAccount(
+                    migrationDirectory, accountId
+                )
+            ) return AccountProfileMode.LEGACY_CLOUD
         }
         return resolved
     }
