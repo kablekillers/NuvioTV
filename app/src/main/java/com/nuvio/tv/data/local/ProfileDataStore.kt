@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.nuvio.tv.R
 import com.nuvio.tv.core.profile.DeviceProfileMetadataRemapPlanner
 import com.nuvio.tv.core.profile.ProfileMigrationJournal
+import com.nuvio.tv.core.profile.ProfileMigrationMetadataReconciliation
 import com.nuvio.tv.core.profile.ProfileMigrationRecoveryVerifier
 import java.io.File
 import com.nuvio.tv.domain.model.UserProfile
@@ -241,19 +242,16 @@ class ProfileDataStore @Inject constructor(
                 )
             ) return@runCatching false
 
-            val expected = DeviceProfileMetadataRemapPlanner.propose(
-                originalProfiles,
-                originalActiveProfileId,
-                mapOf(sourceProfileId to targetProfileId)
-            )
             val persisted = dataStore.data.first()
             val persistedJson = persisted[profilesJsonKey] ?: return@runCatching false
-            val persistedProfiles = parseProfiles(persistedJson)
-            val persistedActiveId = persisted[activeProfileIdKey] ?: 1
-            persistedProfiles == expected.profiles &&
-                persistedActiveId == expected.activeProfileId &&
-                persistedProfiles.none { it.id == sourceProfileId } &&
-                persistedProfiles.count { it.id == targetProfileId } == 1
+            ProfileMigrationMetadataReconciliation.matches(
+                originalProfiles = originalProfiles,
+                originalActiveId = originalActiveProfileId,
+                sourceId = sourceProfileId,
+                targetId = targetProfileId,
+                persistedProfiles = parseProfiles(persistedJson),
+                persistedActiveId = persisted[activeProfileIdKey] ?: 1
+            )
         }.getOrDefault(false)
     }
 
