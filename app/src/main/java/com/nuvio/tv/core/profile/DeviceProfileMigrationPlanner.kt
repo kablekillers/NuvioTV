@@ -38,18 +38,18 @@ internal object DeviceProfileMigrationPlanner {
         require(plan.reservedLocalIds.size <= 6) {
             "Device has more than five personal profiles"
         }
-        val occupied = (plan.preservedCloudIds + plan.reservedLocalIds).toMutableSet()
-        val result = linkedMapOf<Int, Int>()
-        var candidate = 2
-        for (id in plan.collidingSecondaryIds) {
-            while (candidate in occupied) {
-                check(candidate < Int.MAX_VALUE) { "No available local profile identifier" }
-                candidate++
-            }
-            result[id] = candidate
-            occupied.add(candidate)
+        require(plan.reservedLocalIds.all { it in 1..6 }) {
+            "Device contains unsupported profile IDs"
         }
-        return result
+        // Existing cloud IDs may be outside 1..6, but customer secondary IDs
+        // cannot: ProfileManager and its UI only support Main + five others.
+        // Never generate an ID 7+ and leave activation to discover it later.
+        val occupied = (plan.preservedCloudIds + plan.reservedLocalIds).toMutableSet()
+        val available = (2..6).filterNot { it in occupied }
+        check(available.size >= plan.collidingSecondaryIds.size) {
+            "Not enough supported local profile IDs for safe migration"
+        }
+        return plan.collidingSecondaryIds.zip(available).toMap()
     }
 
     fun inspect(
