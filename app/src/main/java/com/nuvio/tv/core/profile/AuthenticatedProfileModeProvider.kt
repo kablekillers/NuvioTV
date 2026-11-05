@@ -74,7 +74,7 @@ class AuthenticatedProfileModeProvider @Inject constructor(
         if (resolved == AccountProfileMode.CUSTOMER_DEVICE_LOCAL) {
             val migrationDirectory = File(context.filesDir, "datastore")
             val unresolved = runCatching {
-                ProfileMigrationJournal.hasUnresolvedMigration(migrationDirectory)
+                ProfileMigrationJournal.hasUnresolvedMigration(migrationDirectory, accountId)
             }.getOrDefault(true)
             if (unresolved) return AccountProfileMode.LEGACY_CLOUD
         }
