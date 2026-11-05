@@ -47,6 +47,24 @@ class ProfileMigrationCopyCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun shadowBackupBlocksCopyBeforeJournalCreation() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            dir.resolve("settings_p2.preferences_pb").writeText("private settings")
+            dir.resolve("settings_p2.preferences_pb.bak").writeText("recovery settings")
+            assertTrue(runCatching {
+                ProfileMigrationCopyCoordinator.copyWithJournal(
+                    dir, "verified-account", 2, 5,
+                    mapOf("settings_p2.preferences_pb" to "settings_p5.preferences_pb")
+                )
+            }.isFailure)
+            assertTrue(ProfileMigrationJournal.read(dir) == null)
+            assertTrue(!dir.resolve("settings_p5.preferences_pb").exists())
+            assertEquals("recovery settings",
+                dir.resolve("settings_p2.preferences_pb.bak").readText())
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun incompleteManifestFailsBeforeJournalCreation() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
