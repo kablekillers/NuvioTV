@@ -123,8 +123,11 @@ class ProfileSyncService @Inject constructor(
         pullMutex.withLock {
             val userId = (authManager.authState.value as? AuthState.FullAccount)?.userId
             val now = SystemClock.elapsedRealtime()
+            // Capture the effective mode for the whole pull. A migration or
+            // mode transition must invalidate the response, not reinterpret it.
+            val modeAtStart = deviceLocalProfilesEnabled
             if (!force && userId != null &&
-                pullFreshness.deviceLocalModeEnabled == deviceLocalProfilesEnabled &&
+                pullFreshness.deviceLocalModeEnabled == modeAtStart &&
                 pullFreshness.isRecent(userId, now)) {
                 return@withLock Result.success(lastPulledProfiles)
             }
@@ -141,14 +144,15 @@ class ProfileSyncService @Inject constructor(
                 // local DataStore, including when the previous account was logged out.
                 val authenticatedUserIdNow =
                     (authManager.authState.value as? AuthState.FullAccount)?.userId
-                if (userId == null || authenticatedUserIdNow != userId) {
+                if (userId == null || authenticatedUserIdNow != userId ||
+                    deviceLocalProfilesEnabled != modeAtStart) {
                     return@withLock Result.failure(
-                        IllegalStateException("Profile pull discarded after account change")
+                        IllegalStateException("Profile pull discarded after account or mode change")
                     )
                 }
 
                 val profiles = remote.filter { entry ->
-                    ProfileSyncBoundary.maySyncProfileMetadata(entry.profileIndex, deviceLocalProfilesEnabled)
+                    ProfileSyncBoundary.maySyncProfileMetadata(entry.profileIndex, modeAtStart)
                 }.map { entry ->
                     UserProfile(
                         id = entry.profileIndex,
@@ -164,23 +168,24 @@ class ProfileSyncService @Inject constructor(
                 }
 
                 if (profiles.isNotEmpty()) {
-                    if (deviceLocalProfilesEnabled) {
+                    if (modeAtStart) {
                         profiles.firstOrNull { it.id == 1 }?.let { main ->
                             profileDataStore.mergeRemoteMainProfile(main)
                         }
                     } else {
                         profileDataStore.replaceAllProfiles(profiles)
                     }
-                    Log.d(TAG, "Applied remote profile metadata (deviceLocalMode=$deviceLocalProfilesEnabled)")
+                    Log.d(TAG, "Applied remote profile metadata (deviceLocalMode=$modeAtStart)")
                 }
 
                 val currentUserId = (authManager.authState.value as? AuthState.FullAccount)?.userId
-                if (userId != null && currentUserId == userId) {
+                if (userId != null && currentUserId == userId &&
+                    deviceLocalProfilesEnabled == modeAtStart) {
                     lastPulledProfiles = profiles
                     pullFreshness = ProfilePullFreshness(
                         userId = userId,
                         pulledAtMs = SystemClock.elapsedRealtime(),
-                        deviceLocalModeEnabled = deviceLocalProfilesEnabled
+                        deviceLocalModeEnabled = modeAtStart
                     )
                 }
                 Result.success(profiles)
