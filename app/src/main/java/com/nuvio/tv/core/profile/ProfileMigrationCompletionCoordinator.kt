@@ -23,6 +23,24 @@ internal object ProfileMigrationCompletionCoordinator {
         verifiedFileManifest: Map<String, String>,
         profileDataStore: ProfileDataStore,
         currentVerifiedAccountId: () -> String?
+    ): Boolean = ProfileMigrationExclusiveLock.tryWithSuspendingLock(directory) {
+        completeVerifiedRemapLocked(
+            directory, verifiedAccountId, sourceProfileId, targetProfileId,
+            originalProfiles, originalActiveProfileId, verifiedFileManifest,
+            profileDataStore, currentVerifiedAccountId
+        )
+    } ?: false
+
+    private suspend fun completeVerifiedRemapLocked(
+        directory: File,
+        verifiedAccountId: String,
+        sourceProfileId: Int,
+        targetProfileId: Int,
+        originalProfiles: List<UserProfile>,
+        originalActiveProfileId: Int,
+        verifiedFileManifest: Map<String, String>,
+        profileDataStore: ProfileDataStore,
+        currentVerifiedAccountId: () -> String?
     ): Boolean {
         if (verifiedAccountId.isBlank() || verifiedAccountId != verifiedAccountId.trim() ||
             currentVerifiedAccountId() != verifiedAccountId
