@@ -56,23 +56,38 @@ internal object ProfileMigrationRecoveryVerifier {
             val allTargetFiles = directory.listFiles()
                 ?.filter { it.isFile && it.name.endsWith(targetSuffix) }
                 ?.map { it.name }?.toSet() ?: return@runCatching false
-            if (allSourceFiles != manifest.keys ||
-                allTargetFiles != manifest.values.toSet()
-            ) return@runCatching false
-            // A verified primary-file copy is not safe if a shadow recovery
-            // backup remains under either profile ID without being migrated.
-            val sourceBackupSuffix = "_p$sourceProfileId.preferences_pb.bak"
-            val targetBackupSuffix = "_p$targetProfileId.preferences_pb.bak"
-            if (directory.listFiles()?.any { file ->
-                    file.name.endsWith(sourceBackupSuffix) ||
-                        file.name.endsWith(targetBackupSuffix)
-                } != false
+            val primaryManifest = manifest.filterKeys { !it.endsWith(".bak") }
+            if (primaryManifest.isEmpty() ||
+                allSourceFiles != primaryManifest.keys ||
+                allTargetFiles != primaryManifest.values.toSet()
             ) return@runCatching false
             if (manifest.any { (source, target) ->
-                    !source.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) ||
-                        !target.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) ||
-                        !source.endsWith(sourceSuffix) ||
-                        target != source.removeSuffix(sourceSuffix) + targetSuffix
+                    val backup = source.endsWith(".bak")
+                    val suffix = sourceSuffix + if (backup) ".bak" else ""
+                    val targetSuffixForFile = targetSuffix + if (backup) ".bak" else ""
+                    !source.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb(\\.bak)?")) ||
+                        !target.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb(\\.bak)?")) ||
+                        !source.endsWith(suffix) ||
+                        target != source.removeSuffix(suffix) + targetSuffixForFile
+                }
+            ) return@runCatching false
+            // The read-only backup plan rejects unlisted sources and occupied
+            // target backups; target backups created by this migration are
+            // expected now, so compare both full inventories with the manifest.
+            val sourceBackupSuffix = "$sourceSuffix.bak"
+            val targetBackupSuffix = "$targetSuffix.bak"
+            val listed = directory.listFiles() ?: return@runCatching false
+            val sourceBackups = listed.filter { it.name.endsWith(sourceBackupSuffix) }
+                .map { it.name }.toSet()
+            val targetBackups = listed.filter { it.name.endsWith(targetBackupSuffix) }
+                .map { it.name }.toSet()
+            val backupManifest = manifest.filterKeys { it.endsWith(".bak") }
+            if (sourceBackups != backupManifest.keys ||
+                targetBackups != backupManifest.values.toSet() ||
+                backupManifest.any { (from, to) ->
+                    val primarySource = from.removeSuffix(".bak")
+                    val primaryTarget = to.removeSuffix(".bak")
+                    primaryManifest[primarySource] != primaryTarget
                 }
             ) return@runCatching false
 
