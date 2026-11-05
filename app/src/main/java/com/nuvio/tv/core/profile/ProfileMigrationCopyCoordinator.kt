@@ -86,13 +86,17 @@ internal object ProfileMigrationCopyCoordinator {
         }
         val expectedSourceSuffix = "_p$sourceProfileId.preferences_pb"
         val expectedTargetSuffix = "_p$targetProfileId.preferences_pb"
-        require(manifest.all { (source, target) ->
-            source.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) &&
-                target.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) &&
-                source.endsWith(expectedSourceSuffix) &&
-                target == source.removeSuffix(expectedSourceSuffix) + expectedTargetSuffix
+        val primaryManifest = manifest.filterKeys { !it.endsWith(".bak") }
+        require(primaryManifest.isNotEmpty() && manifest.all { (source, target) ->
+            val backup = source.endsWith(".bak")
+            val suffix = expectedSourceSuffix + if (backup) ".bak" else ""
+            val targetSuffix = expectedTargetSuffix + if (backup) ".bak" else ""
+            source.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb(\\.bak)?")) &&
+                target.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb(\\.bak)?")) &&
+                source.endsWith(suffix) &&
+                target == source.removeSuffix(suffix) + targetSuffix
         }) {
-            "Profile migration manifest does not match the verified source and target IDs"
+            "Profile migration manifest does not match verified source and target IDs"
         }
         // An incomplete manifest can silently strand history, progress or
         // favorites after profile metadata is remapped. Reject it BEFORE
@@ -102,19 +106,16 @@ internal object ProfileMigrationCopyCoordinator {
             ?.filter { it.isFile && it.name.endsWith(sourceSuffix) }
             ?.map { it.name }?.toSet()
             ?: error("Cannot inventory profile data files")
-        require(existingSources == manifest.keys) {
+        require(existingSources == primaryManifest.keys) {
             "Migration manifest does not include every source profile store"
         }
-        // Shadow backups are used for corruption recovery. Until backup files
-        // are included in an audited migration transaction, moving only the
-        // primary DataStore files risks silently stranding recovery state.
-        val sourceBackupSuffix = "_p$sourceProfileId.preferences_pb.bak"
-        val targetBackupSuffix = "_p$targetProfileId.preferences_pb.bak"
-        require(directory.listFiles()?.none { file ->
-            file.name.endsWith(sourceBackupSuffix) ||
-                file.name.endsWith(targetBackupSuffix)
-        } == true) {
-            "Profile migration cannot omit source or target shadow backups"
+        // Require the complete, independently audited backup inventory before
+        // journaling. A missing or unexpected .bak is never silently ignored.
+        val backupPlan = ProfileShadowBackupMigrationPlan.inspect(
+            directory, sourceProfileId, targetProfileId, primaryManifest
+        )
+        require(manifest == primaryManifest + backupPlan.backupsToCopy) {
+            "Migration manifest must account for every shadow recovery backup"
         }
         // Reject obvious missing sources and occupied targets before creating a
         // durable journal. The copy primitive repeats its stronger checksum
