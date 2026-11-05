@@ -11,6 +11,9 @@ import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.nuvio.tv.R
+import com.nuvio.tv.core.profile.DeviceProfileMetadataRemapPlanner
+import com.nuvio.tv.core.profile.ProfileMigrationJournal
+import java.io.File
 import com.nuvio.tv.domain.model.UserProfile
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -145,6 +148,59 @@ class ProfileDataStore @Inject constructor(
             val local = parseProfiles(prefs[profilesJsonKey])
             val merged = local.map { if (it.id == 1) mainProfile else it }
             prefs[profilesJsonKey] = serializeProfiles(normalizeProfiles(merged))
+        }
+    }
+
+    /**
+     * Migration-only metadata commit, deliberately not called from startup.
+     *
+     * The copy-only coordinator must first verify all profile-scoped files and
+     * leave a VERIFIED journal for this exact account and ID remap. This edit
+     * atomically updates profile metadata and active selection. If anything has
+     * changed since the caller captured the snapshot, leave data untouched.
+     *
+     * The migration journal intentionally remains VERIFIED afterwards: an
+     * independent recovery/reconciliation stage must validate persistence and
+     * explicitly mark COMPLETED before enabling customer device-local mode.
+     */
+    suspend fun commitVerifiedProfileMetadataRemap(
+        verifiedAccountId: String,
+        sourceProfileId: Int,
+        targetProfileId: Int,
+        expectedProfiles: List<UserProfile>,
+        expectedActiveProfileId: Int
+    ) {
+        require(verifiedAccountId.isNotBlank() &&
+            verifiedAccountId == verifiedAccountId.trim()) {
+            "A verified account identity is required"
+        }
+        val directory = File(context.filesDir, "datastore")
+        dataStore.edit { prefs ->
+            val journal = ProfileMigrationJournal.read(directory)
+                ?: error("No verified profile migration journal")
+            check(journal.accountId == verifiedAccountId &&
+                journal.sourceId == sourceProfileId &&
+                journal.targetId == targetProfileId &&
+                journal.phase == ProfileMigrationJournal.Phase.VERIFIED) {
+                "Profile migration journal is not verified for this account and remap"
+            }
+            check(!File(directory, "profile_migration_journal.tmp").exists()) {
+                "Unresolved migration journal temporary file"
+            }
+
+            val currentProfiles = parseProfiles(prefs[profilesJsonKey])
+            val currentActiveId = prefs[activeProfileIdKey] ?: 1
+            check(currentProfiles == expectedProfiles &&
+                currentActiveId == expectedActiveProfileId) {
+                "Profile metadata changed during migration; reconciliation required"
+            }
+            val proposed = DeviceProfileMetadataRemapPlanner.propose(
+                existingProfiles = currentProfiles,
+                activeProfileId = currentActiveId,
+                localIdRemap = mapOf(sourceProfileId to targetProfileId)
+            )
+            prefs[profilesJsonKey] = serializeProfiles(proposed.profiles)
+            prefs[activeProfileIdKey] = proposed.activeProfileId
         }
     }
 
