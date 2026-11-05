@@ -61,6 +61,13 @@ internal object CustomerProfileMigrationGate {
         if (existingCloudProfileIds.any { it <= 0 } || existingDeviceProfileIds.any { it <= 0 }) {
             return Decision(false, "Invalid profile IDs require data repair before migration")
         }
+        // The current profile manager supports Main (1) and local secondaries
+        // (2..6). A copy-only remap can propose IDs above six to avoid cloud
+        // collisions, but such IDs must never be activated before the profile
+        // manager and its persistence paths support them end to end.
+        if (existingDeviceProfileIds.any { it !in 1..6 }) {
+            return Decision(false, "Local profile IDs exceed the supported device range")
+        }
         // Cloud-only secondaries may still contain historical customer viewing data.
         if (!historicalCloudProfilesPreserved) {
             return Decision(false, "Historical cloud profiles have not been preserved")
