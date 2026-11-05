@@ -23,9 +23,13 @@ internal object ProfileFileCopyTransaction {
         val canonicalDirectory = directory.canonicalFile
         require(canonicalDirectory.isDirectory) { "DataStore directory does not exist" }
         val pairs = manifest.map { (from, to) ->
-            require(from.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) &&
-                to.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb"))) {
-                "Unsafe DataStore file name"
+            // Accept only matching primary DataStore files or matching shadow
+            // backups. Never permit a .bak source to become a primary store (or
+            // the reverse), even when the filenames otherwise look safe.
+            val allowed = Regex("[A-Za-z0-9_-]+\\.preferences_pb(\\.bak)?")
+            require(allowed.matches(from) && allowed.matches(to) &&
+                from.endsWith(".bak") == to.endsWith(".bak")) {
+                "Unsafe or mismatched DataStore file name"
             }
             val source = File(canonicalDirectory, from)
             val destination = File(canonicalDirectory, to)
