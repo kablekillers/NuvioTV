@@ -7,6 +7,41 @@ import org.junit.Test
 import java.nio.file.Files
 
 class ProfileMigrationJournalTest {
+    @Test fun missingJournalDoesNotProveCustomerMigrationCompleted() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            assertFalse(ProfileMigrationJournal.hasCompletedMigrationForAccount(
+                directory, "account-a"
+            ))
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun onlyMatchingCompletedJournalAuthorizesCustomerMode() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            val entry = ProfileMigrationJournal.Entry(
+                "account-a", 2, 5, ProfileMigrationJournal.Phase.VERIFIED
+            )
+            ProfileMigrationJournal.write(directory, entry)
+            assertFalse(ProfileMigrationJournal.hasCompletedMigrationForAccount(
+                directory, "account-a"
+            ))
+            ProfileMigrationJournal.write(directory, entry.copy(
+                phase = ProfileMigrationJournal.Phase.COMPLETED
+            ))
+            assertTrue(ProfileMigrationJournal.hasCompletedMigrationForAccount(
+                directory, "account-a"
+            ))
+            assertFalse(ProfileMigrationJournal.hasCompletedMigrationForAccount(
+                directory, "account-b"
+            ))
+            directory.resolve("profile_migration_journal.tmp").writeText("interrupted")
+            assertFalse(ProfileMigrationJournal.hasCompletedMigrationForAccount(
+                directory, "account-a"
+            ))
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun completedJournalCannotAuthorizeAnotherAccount() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
