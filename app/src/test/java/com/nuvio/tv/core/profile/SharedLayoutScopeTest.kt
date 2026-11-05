@@ -18,6 +18,21 @@ class SharedLayoutScopeTest {
         assertTrue(SharedLayoutScope.canEditConfiguration(1, true))
     }
 
+
+    @Test fun everyCustomerSecondaryReadsMainLayoutAndCannotEditIt() {
+        for (profileId in 2..6) {
+            assertEquals(SharedLayoutScope.MAIN_PROFILE_ID, SharedLayoutScope.configurationProfileId(profileId, true))
+            assertFalse(SharedLayoutScope.canEditConfiguration(profileId, true))
+        }
+    }
+
+    @Test fun familySecondariesRetainTheirOwnLayouts() {
+        for (profileId in 2..6) {
+            assertEquals(profileId, SharedLayoutScope.configurationProfileId(profileId, false))
+            assertTrue(SharedLayoutScope.canEditConfiguration(profileId, false))
+        }
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun invalidProfileIdIsRejected() {
         SharedLayoutScope.configurationProfileId(0, true)
