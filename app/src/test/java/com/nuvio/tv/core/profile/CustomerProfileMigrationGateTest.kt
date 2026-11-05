@@ -96,6 +96,14 @@ class CustomerProfileMigrationGateTest {
         assertFalse(check(local = listOf(1, 4, 5, 6, 7, 8, 9)).mayActivate)
     }
 
+    @Test fun blocksRemappedLocalProfileOutsideSupportedDeviceIds() {
+        // Remapping IDs 2 and 3 away from legacy cloud identifiers can
+        // produce ID 7. The current ProfileManager can only create 2..6.
+        assertFalse(check(cloud = listOf(1, 2, 3), local = listOf(1, 7)).mayActivate)
+        assertFalse(check(cloud = listOf(1, 2), local = listOf(1, 0, 7)).mayActivate)
+        assertTrue(check(cloud = listOf(1, 2, 3), local = listOf(1, 4, 5)).mayActivate)
+    }
+
     @Test fun rejectsInvalidConfiguredProfileLimits() {
         for (limit in listOf(-1, 0, 6, 100)) {
             assertFalse(CustomerProfileMigrationGate.evaluate(
