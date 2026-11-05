@@ -47,6 +47,18 @@ internal object ProfileMigrationRecoveryVerifier {
 
             val sourceSuffix = "_p$sourceProfileId.preferences_pb"
             val targetSuffix = "_p$targetProfileId.preferences_pb"
+            // A subset of matching files is not enough. Every existing store
+            // for this secondary profile must be copied, or a metadata remap
+            // could silently strand its viewing progress or private settings.
+            val allSourceFiles = directory.listFiles()
+                ?.filter { it.isFile && it.name.endsWith(sourceSuffix) }
+                ?.map { it.name }?.toSet() ?: return@runCatching false
+            val allTargetFiles = directory.listFiles()
+                ?.filter { it.isFile && it.name.endsWith(targetSuffix) }
+                ?.map { it.name }?.toSet() ?: return@runCatching false
+            if (allSourceFiles != manifest.keys ||
+                allTargetFiles != manifest.values.toSet()
+            ) return@runCatching false
             if (manifest.any { (source, target) ->
                     !source.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) ||
                         !target.matches(Regex("[A-Za-z0-9_-]+\\.preferences_pb")) ||
