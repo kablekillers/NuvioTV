@@ -21,9 +21,12 @@ internal object ProfileMigrationCompletionCoordinator {
         originalProfiles: List<UserProfile>,
         originalActiveProfileId: Int,
         verifiedFileManifest: Map<String, String>,
-        profileDataStore: ProfileDataStore
+        profileDataStore: ProfileDataStore,
+        currentVerifiedAccountId: () -> String?
     ): Boolean {
-        if (verifiedAccountId.isBlank() || verifiedAccountId != verifiedAccountId.trim()) return false
+        if (verifiedAccountId.isBlank() || verifiedAccountId != verifiedAccountId.trim() ||
+            currentVerifiedAccountId() != verifiedAccountId
+        ) return false
         // Both checks must succeed again immediately before writing COMPLETED.
         // A VERIFIED record only means file copies were checked; it cannot by
         // itself prove that profile metadata was persisted correctly.
@@ -46,6 +49,10 @@ internal object ProfileMigrationCompletionCoordinator {
                     originalProfiles, originalActiveProfileId, verifiedFileManifest
                 )
             ) return false
+
+            // Metadata verification suspends. A logout or login switch during
+            // that read must never complete the previous account's migration.
+            if (currentVerifiedAccountId() != verifiedAccountId) return false
 
             // Journal ownership and phase are revalidated by write(). If the
             // write fails, leave VERIFIED in place for explicit reconciliation.
