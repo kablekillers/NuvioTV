@@ -89,13 +89,14 @@ internal object ProfileMigrationJournal {
         return Entry(accountId, sourceId, targetId, phase)
     }
 
-    fun hasUnresolvedMigration(directory: File): Boolean {
+    fun hasUnresolvedMigration(directory: File, verifiedAccountId: String? = null): Boolean {
         if (!directory.isDirectory ||
             Files.isSymbolicLink(directory.toPath()) ||
             Files.isSymbolicLink(File(directory, "$JOURNAL_NAME.tmp").toPath())) return true
         if (File(directory, "$JOURNAL_NAME.tmp").exists()) return true
         val entry = read(directory) ?: return false
-        return entry.phase != Phase.COMPLETED
+        return entry.phase != Phase.COMPLETED ||
+            (verifiedAccountId != null && entry.accountId != verifiedAccountId)
     }
 
     private fun isValidAccountId(value: String): Boolean =
