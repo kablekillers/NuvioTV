@@ -71,6 +71,12 @@ class ParallelRangeChunkLeaseTest {
         every { Uri.parse(any()) } answers { uriOf(firstArg()) }
         every { SystemClock.elapsedRealtime() } answers { System.nanoTime() / 1_000_000L }
         every { SystemClock.uptimeMillis() } answers { System.nanoTime() / 1_000_000L + clockOffsetMs.get() }
+        // The player buffer pool and sessions are process-global. Drain any
+        // leftovers using the previous allocator/free callbacks BEFORE installing
+        // this test's allocation tracker; otherwise another test's buffers may
+        // appear in this test's pool or be freed by the wrong tracker.
+        ParallelRangeDataSource.releaseRetainedSession()
+        ParallelRangeDataSource.drainIdleBuffers(CHUNK)
         allocateBefore = ParallelRangeDataSource.allocateChunk
         freeBefore = ParallelRangeDataSource.freeChunk
         ParallelRangeDataSource.allocateChunk = memory::allocate
