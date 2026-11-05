@@ -40,4 +40,33 @@ internal object ProfileMigrationExclusiveLock {
             }
         }
     }
+    /**
+     * Holds the same OS file lock across suspending verification and journal
+     * completion. Never run this concurrently with ordinary profile writers;
+     * they are not participants in this advisory lock.
+     */
+    suspend fun <T> tryWithSuspendingLock(
+        directory: File,
+        operation: suspend () -> T
+    ): T? {
+        require(directory.isDirectory && !Files.isSymbolicLink(directory.toPath())) {
+            "Migration directory must be a real directory"
+        }
+        val file = File(directory, LOCK_FILE)
+        require(!Files.isSymbolicLink(file.toPath())) {
+            "Migration lock file must not be a symbolic link"
+        }
+        RandomAccessFile(file, "rw").use { handle ->
+            val lock = try {
+                handle.channel.tryLock()
+            } catch (_: OverlappingFileLockException) {
+                null
+            }
+            if (lock == null) return null
+            lock.use {
+                return operation()
+            }
+        }
+    }
+
 }
