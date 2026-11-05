@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.nuvio.tv.R
 import com.nuvio.tv.core.profile.DeviceProfileMetadataRemapPlanner
 import com.nuvio.tv.core.profile.ProfileMigrationJournal
+import com.nuvio.tv.core.profile.ProfileMigrationExclusiveLock
 import com.nuvio.tv.core.profile.ProfileMigrationMetadataReconciliation
 import com.nuvio.tv.core.profile.ProfileMigrationRecoveryVerifier
 import java.io.File
@@ -181,7 +182,11 @@ class ProfileDataStore @Inject constructor(
             "The same verified account must be signed in before migration"
         }
         val directory = File(context.filesDir, "datastore")
-        dataStore.edit { prefs ->
+        // Serialize the metadata stage with journal creation and completion.
+        // This advisory lock does not stop ordinary DataStore writers; the
+        // future orchestrator must quiesce them before beginning migration.
+        val committed = ProfileMigrationExclusiveLock.tryWithSuspendingLock(directory) {
+            dataStore.edit { prefs ->
             // DataStore edits may be queued. Never trust account identity
             // captured before this suspend point if logout/login occurred.
             check(currentVerifiedAccountId() == verifiedAccountId) {
@@ -227,7 +232,10 @@ class ProfileDataStore @Inject constructor(
             }
             prefs[profilesJsonKey] = serializeProfiles(proposed.profiles)
             prefs[activeProfileIdKey] = proposed.activeProfileId
+            }
+            true
         }
+        check(committed == true) { "Another migration holds the profile storage lock" }
     }
 
     /**
