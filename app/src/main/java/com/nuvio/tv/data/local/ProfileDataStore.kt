@@ -20,6 +20,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -214,6 +215,46 @@ class ProfileDataStore @Inject constructor(
             prefs[profilesJsonKey] = serializeProfiles(proposed.profiles)
             prefs[activeProfileIdKey] = proposed.activeProfileId
         }
+    }
+
+    /**
+     * Read-only checkpoint after the metadata commit. This does not complete
+     * migration or authorize device-local mode. A future recovery coordinator
+     * must independently reconcile journal ownership and every data source.
+     */
+    suspend fun verifyPersistedProfileMetadataRemap(
+        verifiedAccountId: String,
+        sourceProfileId: Int,
+        targetProfileId: Int,
+        originalProfiles: List<UserProfile>,
+        originalActiveProfileId: Int,
+        verifiedFileManifest: Map<String, String>
+    ): Boolean {
+        return runCatching {
+            val directory = File(context.filesDir, "datastore")
+            if (!ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                    directory,
+                    verifiedAccountId,
+                    sourceProfileId,
+                    targetProfileId,
+                    verifiedFileManifest
+                )
+            ) return@runCatching false
+
+            val expected = DeviceProfileMetadataRemapPlanner.propose(
+                originalProfiles,
+                originalActiveProfileId,
+                mapOf(sourceProfileId to targetProfileId)
+            )
+            val persisted = dataStore.data.first()
+            val persistedJson = persisted[profilesJsonKey] ?: return@runCatching false
+            val persistedProfiles = parseProfiles(persistedJson)
+            val persistedActiveId = persisted[activeProfileIdKey] ?: 1
+            persistedProfiles == expected.profiles &&
+                persistedActiveId == expected.activeProfileId &&
+                persistedProfiles.none { it.id == sourceProfileId } &&
+                persistedProfiles.count { it.id == targetProfileId } == 1
+        }.getOrDefault(false)
     }
 
     suspend fun clearAll() {
