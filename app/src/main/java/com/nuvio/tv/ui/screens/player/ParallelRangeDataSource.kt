@@ -94,6 +94,11 @@ internal class ParallelRangeDataSource(
 
         private val activeInstances = java.util.concurrent.atomic.AtomicInteger(0)
         private val globalBufferPool = ConcurrentHashMap<Long, ConcurrentLinkedDeque<PooledBuffer>>()
+        // Tracks queued and running chunk downloads, including workers still
+        // unwinding after their CompletableFuture has been cancelled.
+        private val outstandingChunkWorkers = java.util.concurrent.atomic.AtomicInteger(0)
+
+        internal fun outstandingChunkWorkerCount(): Int = outstandingChunkWorkers.get()
 
         private fun freeDirectBuffer(buffer: ByteBuffer) {
             if (!buffer.isDirect) return
@@ -1143,9 +1148,11 @@ internal class ParallelRangeDataSource(
             val future = CompletableFuture<DownloadedChunk>()
             activeSession.touch(chunkIndex)
             Log.d(TAG, "Scheduling chunk $chunkIndex")
-            sharedExecutor.execute {
-                try {
-                    if (!future.isCancelled && !activeSession.abandoned.get()) {
+            outstandingChunkWorkers.incrementAndGet()
+            try {
+                sharedExecutor.execute {
+                    try {
+                        if (!future.isCancelled && !activeSession.abandoned.get()) {
                         val result = downloadChunk(activeSession, chunkIndex, future)
                         if (!future.complete(result)) {
                             releaseBuffer(result.buffer)
@@ -1157,13 +1164,20 @@ internal class ParallelRangeDataSource(
                     }
                 } catch (e: Exception) {
                     future.completeExceptionally(e)
-                } catch (e: OutOfMemoryError) {
+                    } catch (e: OutOfMemoryError) {
 
-                    drainIdleBuffers(activeSession.chunkSize)
-                    future.completeExceptionally(
-                        IOException("Native chunk buffer allocation failed (out of memory)", e)
-                    )
+                        drainIdleBuffers(activeSession.chunkSize)
+                        future.completeExceptionally(
+                            IOException("Native chunk buffer allocation failed (out of memory)", e)
+                        )
+                    } finally {
+                        outstandingChunkWorkers.decrementAndGet()
+                    }
                 }
+            } catch (e: RuntimeException) {
+                outstandingChunkWorkers.decrementAndGet()
+                future.completeExceptionally(e)
+                throw e
             }
             future
         }
