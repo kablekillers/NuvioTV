@@ -47,6 +47,31 @@ class ProfileMigrationCopyCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun copiesCompletePrimaryAndShadowBackupManifest() {
+        val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
+        try {
+            dir.resolve("settings_p2.preferences_pb").writeText("private settings")
+            dir.resolve("settings_p2.preferences_pb.bak").writeText("recoverable settings")
+            val manifest = mapOf(
+                "settings_p2.preferences_pb" to "settings_p5.preferences_pb",
+                "settings_p2.preferences_pb.bak" to "settings_p5.preferences_pb.bak"
+            )
+            val result = ProfileMigrationCopyCoordinator.copyWithJournal(
+                dir, "verified-account", 2, 5, manifest
+            )
+            assertEquals(manifest.values.toSet(), result.copiedFileNames.toSet())
+            assertTrue(ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                dir, "verified-account", 2, 5, manifest
+            ))
+            assertEquals("recoverable settings",
+                dir.resolve("settings_p2.preferences_pb.bak").readText())
+            assertEquals("recoverable settings",
+                dir.resolve("settings_p5.preferences_pb.bak").readText())
+            assertEquals(ProfileMigrationJournal.Phase.VERIFIED,
+                ProfileMigrationJournal.read(dir)?.phase)
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun shadowBackupBlocksCopyBeforeJournalCreation() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
