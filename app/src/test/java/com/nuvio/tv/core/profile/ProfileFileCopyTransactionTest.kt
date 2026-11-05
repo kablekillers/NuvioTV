@@ -71,4 +71,53 @@ class ProfileFileCopyTransactionTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun copiesPrimaryAndShadowBackupWithoutDeletingSources() {
+        val directory = Files.createTempDirectory("profile-copy-backup").toFile()
+        try {
+            val main = directory.resolve("history_p2.preferences_pb")
+            val backup = directory.resolve("history_p2.preferences_pb.bak")
+            main.writeText("current viewing progress")
+            backup.writeText("recoverable viewing progress")
+            val result = ProfileFileCopyTransaction.copy(directory, mapOf(
+                main.name to "history_p5.preferences_pb",
+                backup.name to "history_p5.preferences_pb.bak"
+            ))
+            assertTrue(result.copiedFileNames.contains("history_p5.preferences_pb"))
+            assertTrue(result.copiedFileNames.contains("history_p5.preferences_pb.bak"))
+            assertArrayEquals(main.readBytes(),
+                directory.resolve("history_p5.preferences_pb").readBytes())
+            assertArrayEquals(backup.readBytes(),
+                directory.resolve("history_p5.preferences_pb.bak").readBytes())
+            assertTrue(main.exists())
+            assertTrue(backup.exists())
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun existingBackupDestinationCannotBeOverwritten() {
+        val directory = Files.createTempDirectory("profile-copy-backup").toFile()
+        try {
+            directory.resolve("history_p2.preferences_pb.bak").writeText("source")
+            val target = directory.resolve("history_p5.preferences_pb.bak")
+            target.writeText("private target backup")
+            assertTrue(runCatching {
+                ProfileFileCopyTransaction.copy(directory,
+                    mapOf("history_p2.preferences_pb.bak" to target.name))
+            }.isFailure)
+            assertTrue(target.readText() == "private target backup")
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun cannotRenameShadowBackupAsPrimaryDataStore() {
+        val directory = Files.createTempDirectory("profile-copy-backup").toFile()
+        try {
+            directory.resolve("history_p2.preferences_pb.bak").writeText("old state")
+            assertTrue(runCatching {
+                ProfileFileCopyTransaction.copy(directory,
+                    mapOf("history_p2.preferences_pb.bak" to "history_p5.preferences_pb"))
+            }.isFailure)
+            assertFalse(directory.resolve("history_p5.preferences_pb").exists())
+        } finally { directory.deleteRecursively() }
+    }
+
+
 }
