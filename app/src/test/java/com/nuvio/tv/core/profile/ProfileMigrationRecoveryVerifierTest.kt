@@ -79,6 +79,28 @@ class ProfileMigrationRecoveryVerifierTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun rejectsManifestThatOmitsExistingPersonalDataStore() {
+        val dir = verifiedDirectory()
+        try {
+            assertFalse(ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                dir, "customer-a", 2, 5,
+                mapOf("favorites_p2.preferences_pb" to "favorites_p5.preferences_pb")
+            ))
+            assertTrue(dir.resolve("watch_progress_p2.preferences_pb").exists())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun rejectsUnexpectedDestinationStoreNotRepresentedInManifest() {
+        val dir = verifiedDirectory()
+        try {
+            dir.resolve("history_p5.preferences_pb").writeText("unexpected previous profile")
+            assertFalse(ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                dir, "customer-a", 2, 5, manifest
+            ))
+            assertTrue(dir.resolve("history_p5.preferences_pb").exists())
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun rejectsMissingOrUnsafeManifestAndMissingFiles() {
         val dir = verifiedDirectory()
         try {
