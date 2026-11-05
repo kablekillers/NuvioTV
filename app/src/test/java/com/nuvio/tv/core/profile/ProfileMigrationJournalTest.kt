@@ -7,6 +7,34 @@ import org.junit.Test
 import java.nio.file.Files
 
 class ProfileMigrationJournalTest {
+    @Test fun completedJournalCannotAuthorizeAnotherAccount() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            ProfileMigrationJournal.write(
+                directory,
+                ProfileMigrationJournal.Entry(
+                    "account-a", 2, 7, ProfileMigrationJournal.Phase.COMPLETED
+                )
+            )
+            assertFalse(ProfileMigrationJournal.hasUnresolvedMigration(directory, "account-a"))
+            assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory, "account-b"))
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun pendingJournalBlocksEvenItsOriginalAccount() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            ProfileMigrationJournal.write(
+                directory,
+                ProfileMigrationJournal.Entry(
+                    "account-a", 2, 7, ProfileMigrationJournal.Phase.VERIFIED
+                )
+            )
+            assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory, "account-a"))
+            assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory, "account-b"))
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun incompleteJournalBlocksActivation() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
