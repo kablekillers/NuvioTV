@@ -226,10 +226,19 @@ class ParallelRangeChunkLeaseTest {
         val end = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (System.nanoTime() < end) {
             teardownSessions()
+            // A cancelled future completes immediately, but the executor
+            // can still be reading or releasing its buffer. Wait for worker
+            // cleanup, not just future cancellation, before evaluating leaks.
+            val workers = ParallelRangeDataSource.outstandingChunkWorkerCount()
             drainPool()
-            if (memory.freed.get() == memory.allocated.get()) break
+            if (workers == 0 && memory.freed.get() == memory.allocated.get()) break
             Thread.sleep(10)
         }
+        assertEquals(
+            "chunk workers still active after session teardown",
+            0, ParallelRangeDataSource.outstandingChunkWorkerCount()
+        )
+        drainPool()
         assertEquals("chunk memory freed twice or never allocated here", 0, memory.badFrees.get())
         assertEquals("every chunk freed exactly once", memory.allocated.get(), memory.freed.get())
     }
