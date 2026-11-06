@@ -379,7 +379,7 @@ class ProfileDataStoreFactory @Inject constructor(
         return scoped
     }
 
-    internal fun writeShadowCopy(fileName: String, preferences: Preferences) {
+    internal fun writeShadowCopy(fileName: String, preferences: Preferences): Boolean {
         val sourceFile = File(File(context.filesDir, "datastore"), "$fileName.preferences_pb")
         val backupFile = File(File(context.filesDir, "datastore"), "$fileName.preferences_pb.bak")
         // Shadow backups are written asynchronously after DataStore changes.
@@ -387,17 +387,21 @@ class ProfileDataStoreFactory @Inject constructor(
         // through a copy, and reject late writes to blocked source/target IDs.
         val profileId = Regex("_p([0-9]+)$").find(fileName)
             ?.groupValues?.get(1)?.toIntOrNull() ?: 1
-        try {
+        return try {
             synchronized(lock) { remapAccessGate.beginMutation(profileId) }
             try {
                 if (sourceFile.exists() && sourceFile.length() > 0) {
                     sourceFile.copyTo(backupFile, overwrite = true)
+                    true
+                } else {
+                    false
                 }
             } finally {
                 synchronized(lock) { remapAccessGate.endMutation() }
             }
         } catch (e: Exception) {
             Log.w("ProfileDataStoreFactory", "Failed to write shadow copy for $fileName: ${e.message}")
+            false
         }
     }
 
@@ -443,8 +447,7 @@ private class ShadowCopyDataStore(
                     try {
                         val prefs = delegate.data.first()
                         if (prefs != emptyPreferences()) {
-                            factory.writeShadowCopy(fileName, prefs)
-                            shadowWritten = true
+                            shadowWritten = factory.writeShadowCopy(fileName, prefs)
                         }
                     } catch (_: Exception) { }
                 }
@@ -457,8 +460,7 @@ private class ShadowCopyDataStore(
         }
         scope.launch(Dispatchers.IO) {
             try {
-                factory.writeShadowCopy(fileName, result)
-                shadowWritten = true
+                shadowWritten = factory.writeShadowCopy(fileName, result)
             } catch (_: Exception) { }
         }
         return result
