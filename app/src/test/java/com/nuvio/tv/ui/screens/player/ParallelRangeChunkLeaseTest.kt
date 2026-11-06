@@ -361,6 +361,24 @@ class ParallelRangeChunkLeaseTest {
     }
 
     @Test
+    fun `abandoned session cannot register a chunk after teardown`() {
+        serve()
+        val reader = Reader(source())
+        holdChunkOne(reader)
+        val abandoned = field(reader.source, "session")!!
+        teardownSessions()
+        val futures = field(abandoned, "futures") as Map<*, *>
+        assertTrue("teardown must evict all pending chunk futures", futures.isEmpty())
+
+        // A player reader can still retain its old session reference during
+        // a concurrent teardown. It must not recreate an orphaned future.
+        call(reader.source, "ensureChunkScheduled", 19L)
+        assertTrue("abandoned session scheduled new chunk work", futures.isEmpty())
+        reader.close()
+        assertAllMemoryReturned()
+    }
+
+    @Test
     fun `paced reader stays correct while sessions are torn down repeatedly`() {
         serve()
         val done = AtomicBoolean(false)
