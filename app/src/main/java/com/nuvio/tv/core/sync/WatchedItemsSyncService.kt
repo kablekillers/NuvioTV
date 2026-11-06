@@ -62,6 +62,11 @@ class WatchedItemsSyncService @Inject constructor(
     private fun canSync(profileId: Int): Boolean =
         ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)
 
+    private fun identityFence() = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+        { authManager.verifiedProfileAccountId },
+        { accountProfileModeProvider.currentMode() }
+    )
+
     private val deltaSyncMutex = Mutex()
     private val outboundSyncMutexes = ConcurrentHashMap<Int, Mutex>()
 
@@ -292,6 +297,8 @@ class WatchedItemsSyncService @Inject constructor(
         profileId: Int
     ): Result<WatchedItemsRemoteSyncResult> {
         return try {
+            val fence = identityFence()
+            val identity = fence.capture()
             if (!shouldUseSupabaseWatchProgressSync(profileId)) {
                 Log.d(TAG, "Using tracking provider watch progress, skipping watched items snapshot pull")
                 return Result.success(WatchedItemsRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false))
@@ -302,8 +309,9 @@ class WatchedItemsSyncService @Inject constructor(
                 Log.w(TAG, "syncSnapshotFromRemote: delta cursor unavailable, applying snapshot without initialized cursor for profile $profileId", e)
                 null
             }
-            val result = pullSnapshotFromRemote(profileId, resetDeltaState = cursorBeforeSnapshot == null)
+            val result = pullSnapshotFromRemote(profileId, resetDeltaState = cursorBeforeSnapshot == null, fence, identity)
             if (cursorBeforeSnapshot != null) {
+                fence.requireCurrent(identity)
                 watchedItemsPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
             }
             Result.success(result)
@@ -317,6 +325,8 @@ class WatchedItemsSyncService @Inject constructor(
         profileId: Int
     ): Result<WatchedItemsRemoteSyncResult> {
         return try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val deltaInitialized = watchedItemsPreferences.isDeltaInitialized(profileId)
             val deltaCursor = watchedItemsPreferences.getDeltaCursor(profileId)
             val localCount = watchedItemsPreferences.getAllItems(profileId).size
@@ -335,10 +345,12 @@ class WatchedItemsSyncService @Inject constructor(
                     fetchDeltaCursor(profileId)
                 } catch (e: Exception) {
                     Log.w(TAG, "syncDeltaFromRemote: delta cursor unavailable, falling back to snapshot for profile $profileId", e)
-                    val fallbackResult = pullSnapshotFromRemote(profileId, resetDeltaState = true)
+                    val fallbackResult = pullSnapshotFromRemote(profileId, resetDeltaState = true, fence, identity)
                     return Result.success(fallbackResult)
                 }
-                val snapshotResult = pullSnapshotFromRemote(profileId, resetDeltaState = false)
+                fence.requireCurrent(identity)
+                val snapshotResult = pullSnapshotFromRemote(profileId, resetDeltaState = false, fence, identity)
+                fence.requireCurrent(identity)
                 watchedItemsPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
                 Log.d(TAG, "syncDeltaFromRemote: initialized cursor $cursorBeforeSnapshot after watched items snapshot for profile $profileId")
                 return Result.success(snapshotResult)
@@ -355,7 +367,7 @@ class WatchedItemsSyncService @Inject constructor(
                     pullDeltaPage(profileId, cursor)
                 } catch (e: Exception) {
                     Log.w(TAG, "syncDeltaFromRemote: watched items delta pull unavailable, falling back to snapshot for profile $profileId", e)
-                    val fallbackResult = pullSnapshotFromRemote(profileId, resetDeltaState = true)
+                    val fallbackResult = pullSnapshotFromRemote(profileId, resetDeltaState = true, fence, identity)
                     return Result.success(fallbackResult)
                 }
                 if (events.isEmpty()) {
@@ -383,6 +395,7 @@ class WatchedItemsSyncService @Inject constructor(
 
                 val pendingUpsertKeys = mutationStore.pendingWatchedUpserts(profileId).keys
                 val pendingDeleteKeys = mutationStore.pendingWatchedDeletes(profileId)
+                fence.requireCurrent(identity)
                 watchedItemsPreferences.applyRemoteChanges(
                     upserts = upserts,
                     deletes = deletes,
@@ -391,6 +404,7 @@ class WatchedItemsSyncService @Inject constructor(
                     profileId = profileId
                 )
                 cursor = maxOf(cursor, events.maxOf { it.eventId })
+                fence.requireCurrent(identity)
                 watchedItemsPreferences.setDeltaState(cursor, initialized = true, profileId = profileId)
                 totalUpserts += upserts.size
                 totalDeletes += deletes.size
@@ -418,12 +432,17 @@ class WatchedItemsSyncService @Inject constructor(
 
     private suspend fun pullSnapshotFromRemote(
         profileId: Int,
-        resetDeltaState: Boolean
+        resetDeltaState: Boolean,
+        fence: com.nuvio.tv.core.profile.ProfileSyncIdentityFence,
+        identity: com.nuvio.tv.core.profile.ProfileSyncIdentityFence.Snapshot
     ): WatchedItemsRemoteSyncResult {
+        fence.requireCurrent(identity)
         val remoteWatchedItems = pullFromRemote(profileId).getOrElse { throw it }
         Log.d(TAG, "pullSnapshotFromRemote: snapshot returned ${remoteWatchedItems.size} watched items for profile $profileId")
+        fence.requireCurrent(identity)
         val pendingUpsertKeys = mutationStore.pendingWatchedUpserts(profileId).keys
         val pendingDeleteKeys = mutationStore.pendingWatchedDeletes(profileId)
+        fence.requireCurrent(identity)
         val hadUnsyncedItems = watchedItemsPreferences.replaceWithRemoteItems(
             remoteWatchedItems,
             pendingUpsertKeys = pendingUpsertKeys,
@@ -431,6 +450,7 @@ class WatchedItemsSyncService @Inject constructor(
             profileId = profileId
         )
         if (resetDeltaState) {
+            fence.requireCurrent(identity)
             watchedItemsPreferences.setDeltaState(0L, initialized = false, profileId = profileId)
         }
         val finalLocalCount = watchedItemsPreferences.getAllItems(profileId).size
