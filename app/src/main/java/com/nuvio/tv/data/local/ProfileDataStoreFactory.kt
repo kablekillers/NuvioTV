@@ -168,6 +168,46 @@ class ProfileDataStoreFactory @Inject constructor(
         }
     }
 
+    /**
+     * Keep the factory's source/target access barrier held across a suspending
+     * migration operation, including checksum work and metadata checkpoints.
+     *
+     * This entry point is deliberately not invoked by login or app startup.
+     * The caller must still stop non-factory writers and background sync, and
+     * every mutating migration stage must independently hold its OS file lock
+     * and revalidate account identity before committing durable state.
+     *
+     * Aborts if the authenticated account changed during the operation.
+     * A failed or cancelled operation always releases the access barrier;
+     * durable journal recovery remains the responsibility of its caller.
+     */
+    internal suspend fun <T> withGuardedProfileRemap(
+        verifiedAccountId: String,
+        sourceId: Int,
+        targetId: Int,
+        currentVerifiedAccountId: () -> String?,
+        operation: suspend (Map<String, String>) -> T
+    ): T {
+        require(verifiedAccountId.isNotBlank() &&
+            verifiedAccountId == verifiedAccountId.trim() &&
+            currentVerifiedAccountId() == verifiedAccountId) {
+            "The verified migration account must be signed in"
+        }
+        val preparation = prepareProfileRemap(sourceId, targetId)
+        try {
+            check(currentVerifiedAccountId() == verifiedAccountId) {
+                "The authenticated account changed during migration preflight"
+            }
+            val result = operation(preparation.manifest)
+            check(currentVerifiedAccountId() == verifiedAccountId) {
+                "The authenticated account changed during profile migration"
+            }
+            return result
+        } finally {
+            preparation.close()
+        }
+    }
+
     suspend fun clearProfile(profileId: Int) {
         if (profileId == 1) return
         synchronized(lock) { remapAccessGate.beginMutation(profileId) }
