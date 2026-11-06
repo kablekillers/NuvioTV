@@ -184,9 +184,17 @@ class WatchProgressSyncService @Inject constructor(
 
     private suspend fun pushToRemoteLocked(profileId: Int): Result<Unit> {
         return try {
+            val identityFence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+                { authManager.verifiedProfileAccountId },
+                { accountProfileModeProvider.currentMode() }
+            )
+            val operationIdentity = identityFence.capture()
             val pendingDeletes = mutationStore.pendingProgressDeletes(profileId)
             if (pendingDeletes.isNotEmpty()) {
                 deleteFromRemoteLocked(pendingDeletes, profileId).getOrElse { throw it }
+                // A separate RPC may have completed under an earlier login.
+                // Never begin the next upload under a different account.
+                identityFence.requireCurrent(operationIdentity)
             }
             val rawEntries = mutationStore.pendingProgressUpserts(profileId)
             val entries = canonicalizeForRemote(rawEntries).filterValues { progress ->
@@ -198,6 +206,7 @@ class WatchProgressSyncService @Inject constructor(
                 Log.d(TAG, "  push entry: key=$key contentId=${progress.contentId} type=${progress.contentType} pos=${progress.position} dur=${progress.duration} lastWatched=${progress.lastWatched}")
             }
 
+            identityFence.requireCurrent(operationIdentity)
             if (entries.isNotEmpty()) {
                 val params = buildJsonObject {
                     put("p_entries", buildJsonArray {
@@ -223,9 +232,11 @@ class WatchProgressSyncService @Inject constructor(
                 }
             }
 
+            identityFence.requireCurrent(operationIdentity)
             mutationStore.acknowledgeProgressUpserts(rawEntries, profileId)
             Log.d(TAG, "Pushed ${entries.size} watch progress entries to remote for profile $profileId")
             if (pendingDeletes.isNotEmpty() || rawEntries.isNotEmpty()) {
+                identityFence.requireCurrent(operationIdentity)
                 markPushSucceeded(profileId)
             }
             Result.success(Unit)
