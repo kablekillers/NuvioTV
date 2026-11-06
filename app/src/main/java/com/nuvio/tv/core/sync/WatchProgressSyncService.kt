@@ -460,7 +460,8 @@ class WatchProgressSyncService @Inject constructor(
                     remoteEntries.toMap(),
                     pendingUpsertKeys = pendingUpsertKeys,
                     pendingDeleteKeys = pendingDeleteKeys,
-                    profileId = profileId
+                    profileId = profileId,
+                    validateBeforeMutation = { fence.requireCurrent(identity) }
                 )
                 fence.requireCurrent(identity)
                 watchProgressPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
@@ -524,7 +525,8 @@ class WatchProgressSyncService @Inject constructor(
                     deletes = deletes,
                     pendingUpsertKeys = pendingUpsertKeys,
                     pendingDeleteKeys = pendingDeleteKeys,
-                    profileId = profileId
+                    profileId = profileId,
+                    validateBeforeMutation = { fence.requireCurrent(identity) }
                 )
                 preservedLocalItems = preservedLocalItems || pagePreservedLocal
                 cursor = maxOf(cursor, events.maxOf { it.eventId })
@@ -571,7 +573,8 @@ class WatchProgressSyncService @Inject constructor(
             remoteEntries.toMap(),
             pendingUpsertKeys = pendingUpsertKeys,
             pendingDeleteKeys = pendingDeleteKeys,
-            profileId = profileId
+            profileId = profileId,
+            validateBeforeMutation = { fence.requireCurrent(identity) }
         )
         if (resetDeltaState) {
             fence.requireCurrent(identity)
