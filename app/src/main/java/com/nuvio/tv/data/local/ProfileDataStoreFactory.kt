@@ -117,6 +117,36 @@ class ProfileDataStoreFactory @Inject constructor(
         }
     }
 
+    /**
+     * A read-only, guarded migration preflight. The returned preparation keeps
+     * new source/target DataStores blocked until close() is called; the preview
+     * itself is built AFTER the access gate has been installed.
+     *
+     * This is not an authorization to run migration: it cannot stop references
+     * handed out outside this factory, background sync, or another process.
+     * A future orchestrator must independently stop writers, authenticate the
+     * account, and use ProfileMigrationExclusiveLock for each stage.
+     */
+    internal class ProfileRemapPreparation(
+        val manifest: Map<String, String>,
+        private val accessBlock: AutoCloseable
+    ) : AutoCloseable {
+        override fun close() = accessBlock.close()
+    }
+
+    internal fun prepareProfileRemap(sourceId: Int, targetId: Int): ProfileRemapPreparation {
+        val block = beginProfileRemapAccessBlock(sourceId, targetId)
+        try {
+            return ProfileRemapPreparation(
+                manifest = previewProfileFileMoves(sourceId, targetId),
+                accessBlock = block
+            )
+        } catch (failure: Throwable) {
+            block.close()
+            throw failure
+        }
+    }
+
     suspend fun clearProfile(profileId: Int) {
         if (profileId == 1) return
         synchronized(lock) { remapAccessGate.beginMutation(profileId) }
