@@ -110,45 +110,46 @@ class ProfileDataStoreFactory @Inject constructor(
 
     suspend fun clearProfile(profileId: Int) {
         if (profileId == 1) return
-        synchronized(lock) {
-            remapAccessGate.checkAccess(profileId)
+        synchronized(lock) { remapAccessGate.beginMutation(profileId) }
+        try {
             deletedProfileIds.add(profileId)
-        }
-        val suffix = "_p$profileId"
-        val keysToRemove = synchronized(lock) {
-            cache.keys.filter { it.endsWith(suffix) }
-        }
-        for (key in keysToRemove) {
-            val scoped = synchronized(lock) { cache.remove(key) } ?: continue
-            runCatching { scoped.store.edit { it.clear() } }
-            // Cancel the scope so DataStore releases the file from its active-files
-            // registry. Wait for completion before any subsequent get() can create
-            // a fresh DataStore for the same path.
-            scoped.job.cancel()
-            scoped.job.join()
+            val suffix = "_p$profileId"
+            val keysToRemove = synchronized(lock) {
+                cache.keys.filter { it.endsWith(suffix) }
+            }
+            for (key in keysToRemove) {
+                val scoped = synchronized(lock) { cache.remove(key) } ?: continue
+                runCatching { scoped.store.edit { it.clear() } }
+                // Cancel the scope so DataStore releases the file from its
+                // active-files registry before it can be opened again.
+                scoped.job.cancel()
+                scoped.job.join()
+            }
+        } finally {
+            synchronized(lock) { remapAccessGate.endMutation() }
         }
     }
 
     suspend fun clearProfileScopedData() = withContext(Dispatchers.IO) {
-        val cachedStores = synchronized(lock) {
-            check(!remapAccessGate.isActive()) {
-                "Cannot clear profile-scoped DataStores during migration"
+        synchronized(lock) { remapAccessGate.beginMutation() }
+        try {
+            val cachedStores = synchronized(lock) { cache.toMap() }
+            cachedStores.values.forEach { scoped ->
+                runCatching { scoped.store.edit { it.clear() } }
             }
-            cache.toMap()
-        }
-        cachedStores.values.forEach { scoped ->
-            runCatching { scoped.store.edit { it.clear() } }
-        }
-        deletedProfileIds.clear()
-        corruptedFileNames.clear()
+            deletedProfileIds.clear()
+            corruptedFileNames.clear()
 
-        val cachedFileNames = cachedStores.keys.mapTo(mutableSetOf()) { "$it.preferences_pb" }
-        val dataStoreDir = File(context.filesDir, "datastore")
-        if (!dataStoreDir.exists()) return@withContext
-        dataStoreDir.listFiles()?.forEach { file ->
-            if (file.name !in cachedFileNames && isProfileScopedDataStoreFile(file.name)) {
-                file.delete()
+            val cachedFileNames = cachedStores.keys.mapTo(mutableSetOf()) { "$it.preferences_pb" }
+            val dataStoreDir = File(context.filesDir, "datastore")
+            if (!dataStoreDir.exists()) return@withContext
+            dataStoreDir.listFiles()?.forEach { file ->
+                if (file.name !in cachedFileNames && isProfileScopedDataStoreFile(file.name)) {
+                    file.delete()
+                }
             }
+        } finally {
+            synchronized(lock) { remapAccessGate.endMutation() }
         }
     }
 
