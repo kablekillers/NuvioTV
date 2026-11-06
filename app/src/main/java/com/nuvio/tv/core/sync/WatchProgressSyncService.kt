@@ -60,6 +60,11 @@ class WatchProgressSyncService @Inject constructor(
     private fun canSync(profileId: Int): Boolean =
         ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)
 
+    private fun identityFence() = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+        { authManager.verifiedProfileAccountId },
+        { accountProfileModeProvider.currentMode() }
+    )
+
     private val deltaSyncMutex = Mutex()
     private val outboundSyncMutexes = ConcurrentHashMap<Int, Mutex>()
 
@@ -388,6 +393,8 @@ class WatchProgressSyncService @Inject constructor(
         if (!canSync(profileId)) return@withContext Result.success(WatchProgressRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false))
         deltaSyncMutex.withLock {
             try {
+                val fence = identityFence()
+                val identity = fence.capture()
                 if (!shouldUseSupabaseWatchProgressSync(profileId)) {
                     Log.d(TAG, "Using tracking provider watch progress, skipping watch progress snapshot pull")
                     return@withLock Result.success(WatchProgressRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false))
@@ -398,9 +405,11 @@ class WatchProgressSyncService @Inject constructor(
                     Log.w(TAG, "syncSnapshotFromRemote: delta cursor unavailable, applying snapshot without initialized cursor for profile $profileId", e)
                     null
                 }
-                val result = pullSnapshotFromRemote(profileId, resetDeltaState = cursorBeforeSnapshot == null)
+                val result = pullSnapshotFromRemote(profileId, resetDeltaState = cursorBeforeSnapshot == null, fence, identity)
                 if (cursorBeforeSnapshot != null) {
-                    watchProgressPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
+                    fence.requireCurrent(identity)
+                    fence.requireCurrent(identity)
+                watchProgressPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
                 }
                 Result.success(result)
             } catch (e: Exception) {
@@ -414,6 +423,8 @@ class WatchProgressSyncService @Inject constructor(
         profileId: Int
     ): Result<WatchProgressRemoteSyncResult> {
         return try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val deltaInitialized = watchProgressPreferences.isDeltaInitialized(profileId)
             val deltaCursor = watchProgressPreferences.getDeltaCursor(profileId)
             val localCount = watchProgressPreferences.getAllRawEntries(profileId).size
@@ -432,18 +443,21 @@ class WatchProgressSyncService @Inject constructor(
                     fetchDeltaCursor(profileId)
                 } catch (e: Exception) {
                     Log.w(TAG, "syncDeltaFromRemote: delta cursor unavailable, falling back to snapshot for profile $profileId", e)
-                    val fallbackResult = pullSnapshotFromRemote(profileId, resetDeltaState = true)
+                    val fallbackResult = pullSnapshotFromRemote(profileId, resetDeltaState = true, fence, identity)
                     return Result.success(fallbackResult)
                 }
                 val remoteEntries = pullFromRemote(profileId).getOrElse { throw it }
+                fence.requireCurrent(identity)
                 val pendingUpsertKeys = mutationStore.pendingProgressUpserts(profileId).keys
                 val pendingDeleteKeys = mutationStore.pendingProgressDeletes(profileId)
+                fence.requireCurrent(identity)
                 val hadUnsyncedProgress = watchProgressPreferences.mergeRemoteEntries(
                     remoteEntries.toMap(),
                     pendingUpsertKeys = pendingUpsertKeys,
                     pendingDeleteKeys = pendingDeleteKeys,
                     profileId = profileId
                 )
+                fence.requireCurrent(identity)
                 watchProgressPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
                 val finalLocalCount = watchProgressPreferences.getAllRawEntries(profileId).size
                 Log.d(TAG, "syncDeltaFromRemote: initialized cursor $cursorBeforeSnapshot with ${remoteEntries.size} snapshot entries for profile $profileId finalLocalCount=$finalLocalCount preservedLocal=$hadUnsyncedProgress")
@@ -470,7 +484,7 @@ class WatchProgressSyncService @Inject constructor(
                     pullDeltaPage(profileId, cursor)
                 } catch (e: Exception) {
                     Log.w(TAG, "syncDeltaFromRemote: delta pull unavailable, falling back to snapshot for profile $profileId", e)
-                    val fallbackResult = pullSnapshotFromRemote(profileId, resetDeltaState = true)
+                    val fallbackResult = pullSnapshotFromRemote(profileId, resetDeltaState = true, fence, identity)
                     return Result.success(fallbackResult)
                 }
                 if (events.isEmpty()) {
@@ -496,8 +510,10 @@ class WatchProgressSyncService @Inject constructor(
                     progress?.let { key to it }
                 }.toMap()
                 val deletes = pageChanges.filterValues { it == null }.keys
+                fence.requireCurrent(identity)
                 val pendingUpsertKeys = mutationStore.pendingProgressUpserts(profileId).keys
                 val pendingDeleteKeys = mutationStore.pendingProgressDeletes(profileId)
+                fence.requireCurrent(identity)
                 val pagePreservedLocal = watchProgressPreferences.applyRemoteChanges(
                     upserts = upserts,
                     deletes = deletes,
@@ -507,6 +523,7 @@ class WatchProgressSyncService @Inject constructor(
                 )
                 preservedLocalItems = preservedLocalItems || pagePreservedLocal
                 cursor = maxOf(cursor, events.maxOf { it.eventId })
+                fence.requireCurrent(identity)
                 watchProgressPreferences.setDeltaState(cursor, initialized = true, profileId = profileId)
                 totalUpserts += upserts.size
                 totalDeletes += deletes.size
@@ -535,11 +552,16 @@ class WatchProgressSyncService @Inject constructor(
 
     private suspend fun pullSnapshotFromRemote(
         profileId: Int,
-        resetDeltaState: Boolean
+        resetDeltaState: Boolean,
+        fence: com.nuvio.tv.core.profile.ProfileSyncIdentityFence,
+        identity: com.nuvio.tv.core.profile.ProfileSyncIdentityFence.Snapshot
     ): WatchProgressRemoteSyncResult {
+        fence.requireCurrent(identity)
         val remoteEntries = pullFromRemote(profileId).getOrElse { throw it }
+        fence.requireCurrent(identity)
         val pendingUpsertKeys = mutationStore.pendingProgressUpserts(profileId).keys
         val pendingDeleteKeys = mutationStore.pendingProgressDeletes(profileId)
+        fence.requireCurrent(identity)
         val hadUnsyncedProgress = watchProgressPreferences.mergeRemoteEntries(
             remoteEntries.toMap(),
             pendingUpsertKeys = pendingUpsertKeys,
@@ -547,6 +569,7 @@ class WatchProgressSyncService @Inject constructor(
             profileId = profileId
         )
         if (resetDeltaState) {
+            fence.requireCurrent(identity)
             watchProgressPreferences.setDeltaState(0L, initialized = false, profileId = profileId)
         }
         val finalLocalCount = watchProgressPreferences.getAllRawEntries(profileId).size
