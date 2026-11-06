@@ -455,11 +455,13 @@ class WatchProgressPreferences @Inject constructor(
         lastSuccessfulPushMs: Long? = null,
         profileId: Int = profileManager.activeProfileId.value,
         removeMissingRemoteEntries: Boolean = true,
-        isNonTraktId: ((String) -> Boolean)? = null
+        isNonTraktId: ((String) -> Boolean)? = null,
+        validateBeforeMutation: () -> Unit = {}
     ): Boolean {
         var preservedLocalItems = false
         Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${remoteEntries.size} remote entries, profile=$profileId, removeMissing=$removeMissingRemoteEntries")
         storageMutex.withLock {
+            validateBeforeMutation()
             ensureStorageLocked(profileId)
             val current = readBucketsLocked(profileId)
             val local = mergeWatchProgressBuckets(current.recent, current.archive)
@@ -508,7 +510,8 @@ class WatchProgressPreferences @Inject constructor(
 
             val updated = splitWatchProgressEntries(local)
             Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${local.size} entries after merge, writing to DataStore")
-            writeBucketsLocked(profileId, current, updated)
+            validateBeforeMutation()
+            writeBucketsLocked(profileId, current, updated, validateBeforeMutation)
         }
         return preservedLocalItems
     }
@@ -519,7 +522,8 @@ class WatchProgressPreferences @Inject constructor(
         pendingUpsertKeys: Set<String> = emptySet(),
         pendingDeleteKeys: Set<String> = emptySet(),
         lastSuccessfulPushMs: Long? = null,
-        profileId: Int = profileManager.activeProfileId.value
+        profileId: Int = profileManager.activeProfileId.value,
+        validateBeforeMutation: () -> Unit = {}
     ): Boolean {
         if (upserts.isEmpty() && deletes.isEmpty()) {
             Log.d(TAG, "applyRemoteChanges: no changes for profile $profileId")
@@ -529,6 +533,7 @@ class WatchProgressPreferences @Inject constructor(
         var beforeCount = 0
         var afterCount = 0
         storageMutex.withLock {
+            validateBeforeMutation()
             ensureStorageLocked(profileId)
             val current = readBucketsLocked(profileId)
             val local = mergeWatchProgressBuckets(current.recent, current.archive)
@@ -560,7 +565,8 @@ class WatchProgressPreferences @Inject constructor(
 
             val updated = splitWatchProgressEntries(local)
             afterCount = local.size
-            writeBucketsLocked(profileId, current, updated)
+            validateBeforeMutation()
+            writeBucketsLocked(profileId, current, updated, validateBeforeMutation)
         }
         Log.d(TAG, "applyRemoteChanges: profile=$profileId before=$beforeCount after=$afterCount upserts=${upserts.size} deletes=${deletes.size} preservedLocal=$preservedLocalItems")
         return preservedLocalItems
@@ -717,32 +723,41 @@ class WatchProgressPreferences @Inject constructor(
     private suspend fun writeBucketsLocked(
         profileId: Int,
         current: WatchProgressBuckets,
-        updated: WatchProgressBuckets
+        updated: WatchProgressBuckets,
+        validateBeforeMutation: () -> Unit = {}
     ) {
+        validateBeforeMutation()
         if (current.archive != updated.archive) {
-            writeBucketLocked(archiveStore(profileId), updated.archive)
+            writeBucketLocked(archiveStore(profileId), updated.archive, validateBeforeMutation)
         }
+        validateBeforeMutation()
         if (current.recent != updated.recent) {
-            writeBucketLocked(recentStore(profileId), updated.recent)
+            writeBucketLocked(recentStore(profileId), updated.recent, validateBeforeMutation)
         }
     }
 
     private suspend fun writeBucketLocked(
         store: DataStore<Preferences>,
-        entries: Map<String, WatchProgress>
+        entries: Map<String, WatchProgress>,
+        validateBeforeMutation: () -> Unit = {}
     ) {
         if (entries.isEmpty()) {
-            clearBucketLocked(store)
+            clearBucketLocked(store, validateBeforeMutation)
             return
         }
         store.edit { preferences ->
+            validateBeforeMutation()
             preferences[watchProgressEntriesKey] = gson.toJson(entries)
         }
     }
 
-    private suspend fun clearBucketLocked(store: DataStore<Preferences>) {
+    private suspend fun clearBucketLocked(
+        store: DataStore<Preferences>,
+        validateBeforeMutation: () -> Unit = {}
+    ) {
         if (store.data.first()[watchProgressEntriesKey] == null) return
         store.edit { preferences ->
+            validateBeforeMutation()
             preferences.remove(watchProgressEntriesKey)
         }
     }
