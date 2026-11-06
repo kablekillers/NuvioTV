@@ -147,6 +147,27 @@ class ProfileDataStoreFactory @Inject constructor(
         }
     }
 
+    /**
+     * Tracks writes even when callers already hold a DataStore returned by
+     * get(). A remap barrier refuses to start until these writes complete,
+     * and any later writes to blocked source/target IDs fail before the
+     * underlying DataStore is modified. This covers this factory's wrapped
+     * DataStores only; it does not quiesce other storage implementations.
+     */
+    internal suspend fun <T> withTrackedProfileStoreWrite(
+        fileName: String,
+        operation: suspend () -> T
+    ): T {
+        val profileId = Regex("_p([0-9]+)$").find(fileName)
+            ?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        synchronized(lock) { remapAccessGate.beginMutation(profileId) }
+        try {
+            return operation()
+        } finally {
+            synchronized(lock) { remapAccessGate.endMutation() }
+        }
+    }
+
     suspend fun clearProfile(profileId: Int) {
         if (profileId == 1) return
         synchronized(lock) { remapAccessGate.beginMutation(profileId) }
@@ -431,7 +452,9 @@ private class ShadowCopyDataStore(
         }
 
     override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
-        val result = delegate.updateData(transform)
+        val result = factory.withTrackedProfileStoreWrite(fileName) {
+            delegate.updateData(transform)
+        }
         scope.launch(Dispatchers.IO) {
             try {
                 factory.writeShadowCopy(fileName, result)
