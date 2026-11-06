@@ -230,7 +230,8 @@ class WatchedItemsPreferences @Inject constructor(
         deletes: List<Triple<String, Int?, Int?>>,
         pendingUpsertKeys: Set<WatchedMutationKey> = emptySet(),
         pendingDeleteKeys: Set<WatchedMutationKey> = emptySet(),
-        profileId: Int = profileManager.activeProfileId.value
+        profileId: Int = profileManager.activeProfileId.value,
+        validateBeforeMutation: () -> Unit = {}
     ) {
         if (upserts.isEmpty() && deletes.isEmpty()) {
             Log.d(TAG, "applyRemoteChanges: no changes for profile $profileId")
@@ -239,6 +240,9 @@ class WatchedItemsPreferences @Inject constructor(
         var beforeCount = 0
         var afterCount = 0
         store(profileId).edit { preferences ->
+            // Reject queued delta edits after an account/mode change, at the
+            // DataStore transaction boundary rather than only before suspend.
+            validateBeforeMutation()
             val current = preferences[watchedItemsKey] ?: emptySet()
             beforeCount = current.size
             val itemsByKey = linkedMapOf<Triple<String, Int?, Int?>, WatchedItem>()
