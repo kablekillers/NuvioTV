@@ -309,6 +309,9 @@ class WatchedItemsSyncService @Inject constructor(
                 Log.d(TAG, "Using tracking provider watch progress, skipping watched items snapshot pull")
                 return Result.success(WatchedItemsRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false))
             }
+            // Provider selection may suspend across logout or account switch.
+            // Reject before sending the first cursor request.
+            fence.requireCurrent(identity)
             val cursorBeforeSnapshot = try {
                 fetchDeltaCursor(profileId)
             } catch (e: Exception) {
