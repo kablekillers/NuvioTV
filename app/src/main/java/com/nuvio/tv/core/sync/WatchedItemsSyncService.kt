@@ -138,13 +138,21 @@ class WatchedItemsSyncService @Inject constructor(
 
     private suspend fun pushToRemoteLocked(profileId: Int): Result<Unit> {
         return try {
+            val identityFence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+                { authManager.verifiedProfileAccountId },
+                { accountProfileModeProvider.currentMode() }
+            )
+            val operationIdentity = identityFence.capture()
             val pendingDeletes = mutationStore.pendingWatchedDeletes(profileId)
             if (pendingDeletes.isNotEmpty()) {
                 deleteKeysFromRemoteLocked(pendingDeletes, profileId).getOrElse { throw it }
+                identityFence.requireCurrent(operationIdentity)
             }
             val items = mutationStore.pendingWatchedUpserts(profileId).values
             Log.d(TAG, "pushToRemote: ${items.size} pending watched items to push for profile $profileId")
+            identityFence.requireCurrent(operationIdentity)
             pushItemsToRemoteLocked(items, updateLastSuccessfulPush = true, profileId = profileId).getOrThrow()
+            identityFence.requireCurrent(operationIdentity)
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to push watched items to remote", e)
@@ -169,6 +177,11 @@ class WatchedItemsSyncService @Inject constructor(
         profileId: Int
     ): Result<Unit> {
         return try {
+            val identityFence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+                { authManager.verifiedProfileAccountId },
+                { accountProfileModeProvider.currentMode() }
+            )
+            val operationIdentity = identityFence.capture()
             val items = items.filterNot { ServerItemRef.isServerId(it.contentId) }
             if (items.isEmpty()) return Result.success(Unit)
             Log.d(TAG, "pushItemsToRemote: ${items.size} watched items to push")
@@ -194,9 +207,11 @@ class WatchedItemsSyncService @Inject constructor(
                 postgrest.rpc("sync_push_watched_items", params)
             }
 
+            identityFence.requireCurrent(operationIdentity)
             mutationStore.acknowledgeWatchedUpserts(items, profileId)
             Log.d(TAG, "Pushed ${items.size} watched items to remote for profile $profileId")
             if (updateLastSuccessfulPush) {
+                identityFence.requireCurrent(operationIdentity)
                 markPushSucceeded(profileId)
             }
             Result.success(Unit)
