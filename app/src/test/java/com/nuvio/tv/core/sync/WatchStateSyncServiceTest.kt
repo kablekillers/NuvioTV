@@ -318,6 +318,50 @@ class WatchStateSyncServiceTest {
         coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
     }
 
+    @Test
+    fun `progress delta rejects account switch during provider selection before RPC`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } coAnswers {
+            account = "account-b"
+            WatchProgressSource.NUVIO_SYNC
+        }
+        val remote = mockk<Postgrest>()
+        val preferences = mockk<WatchProgressPreferences>(relaxed = true)
+        coEvery { preferences.isDeltaInitialized(2) } returns true
+        coEvery { preferences.getDeltaCursor(2) } returns 10L
+        val service = progressService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncDeltaFromRemote(2).isFailure)
+        coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
+    @Test
+    fun `watched delta rejects account switch during provider selection before RPC`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } coAnswers {
+            account = "account-b"
+            WatchProgressSource.NUVIO_SYNC
+        }
+        val remote = mockk<Postgrest>()
+        val preferences = mockk<WatchedItemsPreferences>(relaxed = true)
+        coEvery { preferences.isDeltaInitialized(2) } returns true
+        coEvery { preferences.getDeltaCursor(2) } returns 10L
+        val service = watchedService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncDeltaFromRemote(2).isFailure)
+        coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
     private fun progressService(
         postgrest: Postgrest,
         preferences: WatchProgressPreferences,
