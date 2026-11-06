@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.nuvio.tv.core.profile.ProfileShadowBackupMigrationPlan
 import com.nuvio.tv.domain.model.DiscoverLocation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -103,8 +104,16 @@ class ProfileDataStoreFactory @Inject constructor(
             }.toSet()
             remapAccessGate.begin(sourceId, targetId, cachedIds)
         }
+        var released = false
         return AutoCloseable {
-            synchronized(lock) { remapAccessGate.end(sourceId, targetId) }
+            synchronized(lock) {
+                // A stale or double-closed token must not release a later
+                // migration barrier for the same source/target IDs.
+                if (!released) {
+                    remapAccessGate.end(sourceId, targetId)
+                    released = true
+                }
+            }
         }
     }
 
@@ -246,7 +255,13 @@ class ProfileDataStoreFactory @Inject constructor(
         check(manifest.values.none { File(directory, it).exists() }) {
             "Destination store appeared after inventory; refusing remap"
         }
-        return manifest
+        // The copy coordinator expects a complete inventory including
+        // shadow recovery backups. A preview containing only primary files
+        // would be rejected whenever a profile has recovery data.
+        val backupPlan = ProfileShadowBackupMigrationPlan.inspect(
+            directory, sourceId, targetId, manifest
+        )
+        return manifest + backupPlan.backupsToCopy
     }
 
     fun isProfileDeleted(profileId: Int): Boolean = profileId in deletedProfileIds
