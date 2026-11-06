@@ -231,6 +231,9 @@ class WatchedItemsSyncService @Inject constructor(
     ): Result<List<WatchedItem>> = withContext(Dispatchers.IO) {
         if (!canSync(profileId)) return@withContext Result.success(emptyList())
         try {
+            // A paginated snapshot must not mix pages from different logins.
+            val fence = identityFence()
+            val identity = fence.capture()
             Log.d(TAG, "pullFromRemote: starting full watched items snapshot for profile $profileId")
             if (!shouldUseSupabaseWatchProgressSync(profileId)) {
                 Log.d(TAG, "Using tracking provider watch progress, skipping watched items pull")
@@ -240,6 +243,7 @@ class WatchedItemsSyncService @Inject constructor(
             var page = 1
 
             while (true) {
+                fence.requireCurrent(identity)
                 val params = buildJsonObject {
                     put("p_profile_id", profileId)
                     put("p_page", page)
@@ -249,6 +253,7 @@ class WatchedItemsSyncService @Inject constructor(
                     postgrest.rpc("sync_pull_watched_items", params)
                 }
                 val remote = response.decodeList<SupabaseWatchedItem>()
+                fence.requireCurrent(identity)
 
                 Log.d(TAG, "pullFromRemote: page $page fetched ${remote.size} watched items for profile $profileId")
 
@@ -267,6 +272,7 @@ class WatchedItemsSyncService @Inject constructor(
                 page++
             }
 
+            fence.requireCurrent(identity)
             Log.d(TAG, "pullFromRemote: fetched ${allItems.size} total watched items from Supabase for profile $profileId")
             Result.success(allItems)
         } catch (e: Exception) {
