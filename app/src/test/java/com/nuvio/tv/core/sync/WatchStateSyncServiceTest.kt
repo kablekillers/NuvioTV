@@ -134,14 +134,61 @@ class WatchStateSyncServiceTest {
         }
     }
 
+    @Test
+    fun `progress push discards RPC result if account switches before acknowledgment`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var current = "account-a"
+        every { auth.verifiedProfileAccountId } answers { current }
+        val postgrest = mockk<Postgrest>()
+        val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
+        val pending = progress("pending")
+        coEvery { mutationStore.pendingProgressDeletes(2) } returns emptySet()
+        coEvery { mutationStore.pendingProgressUpserts(2) } returns mapOf("pending" to pending)
+        coEvery { postgrest.rpc(any(), any<JsonObject>()) } coAnswers {
+            current = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val service = progressService(postgrest, mockk(relaxed = true), mutationStore,
+            authManager = auth)
+
+        assertTrue(service.pushToRemote(2).isFailure)
+        coVerify(exactly = 0) {
+            mutationStore.acknowledgeProgressUpserts(any(), any())
+        }
+    }
+
+    @Test
+    fun `watched push discards RPC result if account switches before acknowledgment`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var current = "account-a"
+        every { auth.verifiedProfileAccountId } answers { current }
+        val postgrest = mockk<Postgrest>()
+        val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
+        val pending = watched("pending")
+        coEvery { mutationStore.pendingWatchedDeletes(2) } returns emptySet()
+        coEvery { mutationStore.pendingWatchedUpserts(2) } returns mapOf(pending.mutationKey() to pending)
+        coEvery { postgrest.rpc(any(), any<JsonObject>()) } coAnswers {
+            current = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val service = watchedService(postgrest, mockk(relaxed = true), mutationStore,
+            authManager = auth)
+
+        assertTrue(service.pushToRemote(2).isFailure)
+        coVerify(exactly = 0) {
+            mutationStore.acknowledgeWatchedUpserts(any(), any())
+        }
+    }
+
     private fun progressService(
         postgrest: Postgrest,
         preferences: WatchProgressPreferences,
         mutationStore: WatchStateMutationStore,
-        canRefreshJwt: Boolean = false
+        canRefreshJwt: Boolean = false,
+        authManager: AuthManager = mockk<AuthManager>(relaxed = true).also {
+            every { it.verifiedProfileAccountId } returns "verified-sync-test-account"
+        }
     ): WatchProgressSyncService {
-        val authManager = mockk<AuthManager>(relaxed = true)
-        every { authManager.verifiedProfileAccountId } returns "verified-sync-test-account"
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns canRefreshJwt
         return WatchProgressSyncService(
             authManager = authManager,
@@ -159,10 +206,11 @@ class WatchStateSyncServiceTest {
     private fun watchedService(
         postgrest: Postgrest,
         preferences: WatchedItemsPreferences,
-        mutationStore: WatchStateMutationStore
+        mutationStore: WatchStateMutationStore,
+        authManager: AuthManager = mockk<AuthManager>(relaxed = true).also {
+            every { it.verifiedProfileAccountId } returns "verified-sync-test-account"
+        }
     ): WatchedItemsSyncService {
-        val authManager = mockk<AuthManager>(relaxed = true)
-        every { authManager.verifiedProfileAccountId } returns "verified-sync-test-account"
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns false
         return WatchedItemsSyncService(
             authManager = authManager,
