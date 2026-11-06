@@ -275,10 +275,14 @@ class WatchedItemsPreferences @Inject constructor(
         pendingUpsertKeys: Set<WatchedMutationKey> = emptySet(),
         pendingDeleteKeys: Set<WatchedMutationKey> = emptySet(),
         lastSuccessfulPushMs: Long? = null,
-        profileId: Int = profileManager.activeProfileId.value
+        profileId: Int = profileManager.activeProfileId.value,
+        validateBeforeMutation: () -> Unit = {}
     ): Boolean {
         var preservedLocalItems = false
         store(profileId).edit { preferences ->
+            // DataStore edits can queue after a remote response. Validate inside
+            // the actual edit, not only before awaiting the edit transaction.
+            validateBeforeMutation()
             val current = preferences[watchedItemsKey] ?: emptySet()
             Log.d(TAG, "replaceWithRemoteItems: profile=$profileId current=${current.size} remote=${remoteItems.size}")
             val deduped = linkedMapOf<Triple<String, Int?, Int?>, WatchedItem>()
