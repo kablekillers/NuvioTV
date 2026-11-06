@@ -399,6 +399,10 @@ class ProfileDataStoreFactory @Inject constructor(
             } finally {
                 synchronized(lock) { remapAccessGate.endMutation() }
             }
+        } catch (_: IllegalStateException) {
+            // A remap barrier intentionally rejects late backup writes.
+            // The caller must not treat the skipped copy as persisted.
+            false
         } catch (e: Exception) {
             Log.w("ProfileDataStoreFactory", "Failed to write shadow copy for $fileName: ${e.message}")
             false
