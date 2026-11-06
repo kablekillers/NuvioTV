@@ -399,6 +399,8 @@ class WatchProgressSyncService @Inject constructor(
                     Log.d(TAG, "Using tracking provider watch progress, skipping watch progress snapshot pull")
                     return@withLock Result.success(WatchProgressRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false))
                 }
+                // Provider selection may suspend while the login changes.
+                fence.requireCurrent(identity)
                 val cursorBeforeSnapshot = try {
                     fetchDeltaCursor(profileId)
                 } catch (e: Exception) {
@@ -437,6 +439,9 @@ class WatchProgressSyncService @Inject constructor(
                 return Result.success(WatchProgressRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false))
             }
 
+            // Never dispatch a sync RPC if the identity changed during
+            // local state reads or tracking-provider selection.
+            fence.requireCurrent(identity)
             if (!deltaInitialized) {
                 Log.d(TAG, "syncDeltaFromRemote: delta not initialized, taking one watch progress snapshot for profile $profileId")
                 val cursorBeforeSnapshot = try {
