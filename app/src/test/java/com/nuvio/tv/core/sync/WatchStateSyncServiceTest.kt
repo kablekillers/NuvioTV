@@ -4,6 +4,7 @@ import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingProgressProviderRegistry
 import com.nuvio.tv.data.local.TraktSettingsDataStore
+import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.domain.model.WatchProgress
@@ -227,6 +228,48 @@ class WatchStateSyncServiceTest {
         coVerify(exactly = 0) { mutationStore.acknowledgeWatchedDeletes(any(), any()) }
     }
 
+    @Test
+    fun `progress snapshot skips remote work after login changes during provider selection`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } coAnswers {
+            account = "account-b"
+            WatchProgressSource.NUVIO_SYNC
+        }
+        val remote = mockk<Postgrest>()
+        val preferences = mockk<WatchProgressPreferences>(relaxed = true)
+        val service = progressService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncSnapshotFromRemote(2).isFailure)
+        coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
+        coVerify(exactly = 0) { preferences.mergeRemoteEntries(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
+    @Test
+    fun `watched snapshot skips remote work after login changes during provider selection`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } coAnswers {
+            account = "account-b"
+            WatchProgressSource.NUVIO_SYNC
+        }
+        val remote = mockk<Postgrest>()
+        val preferences = mockk<WatchedItemsPreferences>(relaxed = true)
+        val service = watchedService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncSnapshotFromRemote(2).isFailure)
+        coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
+        coVerify(exactly = 0) { preferences.replaceWithRemoteItems(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
     private fun progressService(
         postgrest: Postgrest,
         preferences: WatchProgressPreferences,
@@ -234,7 +277,8 @@ class WatchStateSyncServiceTest {
         canRefreshJwt: Boolean = false,
         authManager: AuthManager = mockk<AuthManager>(relaxed = true).also {
             every { it.verifiedProfileAccountId } returns "verified-sync-test-account"
-        }
+        },
+        traktSettingsDataStore: TraktSettingsDataStore = mockk(relaxed = true)
     ): WatchProgressSyncService {
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns canRefreshJwt
         return WatchProgressSyncService(
@@ -243,7 +287,7 @@ class WatchStateSyncServiceTest {
             postgrest = postgrest,
             watchProgressPreferences = preferences,
             trackingProviderRegistry = TrackingProgressProviderRegistry(emptySet()),
-            traktSettingsDataStore = mockk(relaxed = true),
+            traktSettingsDataStore = traktSettingsDataStore,
             profileManager = profileManager(),
             syncClientIdentity = syncClientIdentity(),
             mutationStore = mutationStore
@@ -256,7 +300,8 @@ class WatchStateSyncServiceTest {
         mutationStore: WatchStateMutationStore,
         authManager: AuthManager = mockk<AuthManager>(relaxed = true).also {
             every { it.verifiedProfileAccountId } returns "verified-sync-test-account"
-        }
+        },
+        traktSettingsDataStore: TraktSettingsDataStore = mockk(relaxed = true)
     ): WatchedItemsSyncService {
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns false
         return WatchedItemsSyncService(
@@ -265,7 +310,7 @@ class WatchStateSyncServiceTest {
             postgrest = postgrest,
             watchedItemsPreferences = preferences,
             trackingProviderRegistry = TrackingProgressProviderRegistry(emptySet()),
-            traktSettingsDataStore = mockk(relaxed = true),
+            traktSettingsDataStore = traktSettingsDataStore,
             profileManager = profileManager(),
             syncClientIdentity = syncClientIdentity(),
             mutationStore = mutationStore
