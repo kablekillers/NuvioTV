@@ -211,7 +211,7 @@ class WatchStateSyncServiceTest {
         val postgrest = mockk<Postgrest>()
         val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
         val calls = mutableListOf<String>()
-        coEvery { mutationStore.pendingWatchedDeletes(2) } returns setOf("old")
+        coEvery { mutationStore.pendingWatchedDeletes(2) } returns setOf(watched("old").mutationKey())
         coEvery { mutationStore.pendingWatchedUpserts(2) } returns
             mapOf(watched("new").mutationKey() to watched("new"))
         coEvery { postgrest.rpc(any(), any<JsonObject>()) } coAnswers {
