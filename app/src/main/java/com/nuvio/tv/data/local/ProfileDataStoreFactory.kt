@@ -316,9 +316,19 @@ class ProfileDataStoreFactory @Inject constructor(
     internal fun writeShadowCopy(fileName: String, preferences: Preferences) {
         val sourceFile = File(File(context.filesDir, "datastore"), "$fileName.preferences_pb")
         val backupFile = File(File(context.filesDir, "datastore"), "$fileName.preferences_pb.bak")
+        // Shadow backups are written asynchronously after DataStore changes.
+        // Count them as in-flight mutations so a remap cannot begin midway
+        // through a copy, and reject late writes to blocked source/target IDs.
+        val profileId = Regex("_p([0-9]+)$").find(fileName)
+            ?.groupValues?.get(1)?.toIntOrNull() ?: 1
         try {
-            if (sourceFile.exists() && sourceFile.length() > 0) {
-                sourceFile.copyTo(backupFile, overwrite = true)
+            synchronized(lock) { remapAccessGate.beginMutation(profileId) }
+            try {
+                if (sourceFile.exists() && sourceFile.length() > 0) {
+                    sourceFile.copyTo(backupFile, overwrite = true)
+                }
+            } finally {
+                synchronized(lock) { remapAccessGate.endMutation() }
             }
         } catch (e: Exception) {
             Log.w("ProfileDataStoreFactory", "Failed to write shadow copy for $fileName: ${e.message}")
