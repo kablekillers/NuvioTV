@@ -345,8 +345,13 @@ class WatchedItemsSyncService @Inject constructor(
                 return Result.success(WatchedItemsRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false))
             }
 
+            // Never dispatch a sync RPC if the identity changed during
+            // local state reads or tracking-provider selection.
+            fence.requireCurrent(identity)
             if (!deltaInitialized) {
                 Log.d(TAG, "syncDeltaFromRemote: delta not initialized, taking one full snapshot for profile $profileId")
+                // Provider selection may suspend while the login changes.
+                fence.requireCurrent(identity)
                 val cursorBeforeSnapshot = try {
                     fetchDeltaCursor(profileId)
                 } catch (e: Exception) {
