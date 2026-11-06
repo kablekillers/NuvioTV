@@ -226,6 +226,58 @@ class WatchProgressPreferencesStorageTest {
     }
 
     @Test
+    fun `stale account cannot apply remote progress snapshot to local buckets`() = runTest {
+        val original = progress("original", 100L)
+        val harness = harness(mapOf("original" to original))
+        harness.preferences.getAllRawEntries()
+        harness.resetUpdateCounts()
+        var account = "account-b"
+
+        assertTrue(runCatching {
+            harness.preferences.mergeRemoteEntries(
+                remoteEntries = mapOf("foreign" to progress("foreign", 200L)),
+                profileId = 1,
+                validateBeforeMutation = {
+                    check(account == "account-a") { "Changed identity" }
+                }
+            )
+        }.isFailure)
+        assertEquals(mapOf("original" to original), harness.preferences.getAllRawEntries())
+        assertEquals(0, harness.recent.updateCount)
+        assertEquals(0, harness.archive.updateCount)
+
+        account = "account-a"
+        harness.preferences.mergeRemoteEntries(
+            remoteEntries = mapOf("trusted" to progress("trusted", 300L)),
+            profileId = 1,
+            validateBeforeMutation = {
+                check(account == "account-a") { "Changed identity" }
+            }
+        )
+        assertEquals(setOf("trusted"), harness.preferences.getAllRawEntries().keys)
+    }
+
+    @Test
+    fun `stale account cannot apply remote progress delta to local buckets`() = runTest {
+        val original = progress("original", 100L)
+        val harness = harness(mapOf("original" to original))
+        harness.preferences.getAllRawEntries()
+        harness.resetUpdateCounts()
+
+        assertTrue(runCatching {
+            harness.preferences.applyRemoteChanges(
+                upserts = mapOf("foreign" to progress("foreign", 200L)),
+                deletes = listOf("original"),
+                profileId = 1,
+                validateBeforeMutation = { error("Account switched") }
+            )
+        }.isFailure)
+        assertEquals(mapOf("original" to original), harness.preferences.getAllRawEntries())
+        assertEquals(0, harness.recent.updateCount)
+        assertEquals(0, harness.archive.updateCount)
+    }
+
+    @Test
     fun `empty remote replacement clears non-pending local progress`() = runTest {
         val harness = harness(legacyEntries())
         harness.preferences.getAllRawEntries()
