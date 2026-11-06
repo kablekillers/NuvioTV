@@ -44,4 +44,40 @@ class ProfileRemapStoreAccessGateTest {
         assertTrue(runCatching { gate.begin(2, 2, emptySet()) }.isFailure)
         assertFalse(gate.isActive())
     }
+    @Test fun activeCleanupMustFinishBeforeMigrationCanBlockAccess() {
+        val gate = ProfileRemapStoreAccessGate()
+        gate.beginMutation(2)
+        assertTrue(runCatching { gate.begin(2, 5, emptySet()) }.isFailure)
+        gate.endMutation()
+        gate.begin(2, 5, emptySet())
+        assertTrue(gate.isActive())
+        gate.end(2, 5)
+    }
+
+    @Test fun multipleInFlightMutationsMustAllFinish() {
+        val gate = ProfileRemapStoreAccessGate()
+        gate.beginMutation(2)
+        gate.beginMutation(3)
+        gate.endMutation()
+        assertTrue(runCatching { gate.begin(2, 5, emptySet()) }.isFailure)
+        gate.endMutation()
+        gate.begin(2, 5, emptySet())
+        gate.end(2, 5)
+        assertTrue(runCatching { gate.endMutation() }.isFailure)
+    }
+
+    @Test fun lateCleanupAndShadowWritesCannotStartForBlockedProfiles() {
+        val gate = ProfileRemapStoreAccessGate()
+        gate.begin(2, 5, emptySet())
+        assertTrue(runCatching { gate.beginMutation(2) }.isFailure)
+        assertTrue(runCatching { gate.beginMutation(5) }.isFailure)
+        assertTrue(runCatching { gate.beginMutation() }.isFailure)
+        // The primary profile is unaffected by a secondary-ID remap.
+        gate.beginMutation(1)
+        gate.endMutation()
+        gate.end(2, 5)
+        gate.beginMutation(2)
+        gate.endMutation()
+    }
+
 }
