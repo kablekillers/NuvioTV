@@ -106,6 +106,38 @@ class WatchedItemsPreferencesSyncTest {
     }
 
     @Test
+    fun `stale account delta edit is rejected before modifying watched items`() = runTest {
+        val harness = harness()
+        val original = item("original", 100L)
+        harness.preferences.markAsWatched(original, 1)
+        var account = "account-b"
+
+        assertTrue(runCatching {
+            harness.preferences.applyRemoteChanges(
+                upserts = listOf(item("untrusted", 200L)),
+                deletes = listOf(Triple("original", 1, 2)),
+                profileId = 1,
+                validateBeforeMutation = {
+                    check(account == "account-a") { "Account changed before DataStore edit" }
+                }
+            )
+        }.isFailure)
+        assertEquals(listOf(original), harness.preferences.getAllItems(1))
+
+        account = "account-a"
+        harness.preferences.applyRemoteChanges(
+            upserts = listOf(item("trusted", 300L)),
+            deletes = emptyList(),
+            profileId = 1,
+            validateBeforeMutation = {
+                check(account == "account-a") { "Account changed before DataStore edit" }
+            }
+        )
+        assertEquals(setOf(original, item("trusted", 300L)),
+            harness.preferences.getAllItems(1).toSet())
+    }
+
+    @Test
     fun `explicit watched flow remains bound after active profile changes`() = runTest {
         val harness = harness()
         val firstProfileItem = item("first", 100L)
