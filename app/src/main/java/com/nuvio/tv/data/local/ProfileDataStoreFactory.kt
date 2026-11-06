@@ -110,7 +110,10 @@ class ProfileDataStoreFactory @Inject constructor(
 
     suspend fun clearProfile(profileId: Int) {
         if (profileId == 1) return
-        deletedProfileIds.add(profileId)
+        synchronized(lock) {
+            remapAccessGate.checkAccess(profileId)
+            deletedProfileIds.add(profileId)
+        }
         val suffix = "_p$profileId"
         val keysToRemove = synchronized(lock) {
             cache.keys.filter { it.endsWith(suffix) }
@@ -127,7 +130,12 @@ class ProfileDataStoreFactory @Inject constructor(
     }
 
     suspend fun clearProfileScopedData() = withContext(Dispatchers.IO) {
-        val cachedStores = synchronized(lock) { cache.toMap() }
+        val cachedStores = synchronized(lock) {
+            check(!remapAccessGate.isActive()) {
+                "Cannot clear profile-scoped DataStores during migration"
+            }
+            cache.toMap()
+        }
         cachedStores.values.forEach { scoped ->
             runCatching { scoped.store.edit { it.clear() } }
         }
@@ -243,7 +251,10 @@ class ProfileDataStoreFactory @Inject constructor(
     fun isProfileDeleted(profileId: Int): Boolean = profileId in deletedProfileIds
 
     fun markProfileCreated(profileId: Int) {
-        deletedProfileIds.remove(profileId)
+        synchronized(lock) {
+            remapAccessGate.checkAccess(profileId)
+            deletedProfileIds.remove(profileId)
+        }
     }
 
     private fun isProfileScopedDataStoreFile(fileName: String): Boolean {
