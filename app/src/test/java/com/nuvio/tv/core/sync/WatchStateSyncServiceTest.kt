@@ -180,6 +180,53 @@ class WatchStateSyncServiceTest {
         }
     }
 
+    @Test
+    fun `progress batch stops before upsert if login switches after delete`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var current = "account-a"
+        every { auth.verifiedProfileAccountId } answers { current }
+        val postgrest = mockk<Postgrest>()
+        val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
+        val calls = mutableListOf<String>()
+        coEvery { mutationStore.pendingProgressDeletes(2) } returns setOf("old")
+        coEvery { mutationStore.pendingProgressUpserts(2) } returns mapOf("new" to progress("new"))
+        coEvery { postgrest.rpc(any(), any<JsonObject>()) } coAnswers {
+            calls += firstArg<String>()
+            current = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val service = progressService(postgrest, mockk(relaxed = true), mutationStore,
+            authManager = auth)
+        assertTrue(service.pushToRemote(2).isFailure)
+        assertEquals(listOf("sync_delete_watch_progress"), calls)
+        coVerify(exactly = 0) { mutationStore.acknowledgeProgressUpserts(any(), any()) }
+        coVerify(exactly = 0) { mutationStore.acknowledgeProgressDeletes(any(), any()) }
+    }
+
+    @Test
+    fun `watched batch stops before upsert if login switches after delete`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var current = "account-a"
+        every { auth.verifiedProfileAccountId } answers { current }
+        val postgrest = mockk<Postgrest>()
+        val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
+        val calls = mutableListOf<String>()
+        coEvery { mutationStore.pendingWatchedDeletes(2) } returns setOf("old")
+        coEvery { mutationStore.pendingWatchedUpserts(2) } returns
+            mapOf(watched("new").mutationKey() to watched("new"))
+        coEvery { postgrest.rpc(any(), any<JsonObject>()) } coAnswers {
+            calls += firstArg<String>()
+            current = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val service = watchedService(postgrest, mockk(relaxed = true), mutationStore,
+            authManager = auth)
+        assertTrue(service.pushToRemote(2).isFailure)
+        assertEquals(listOf("sync_delete_watched_items"), calls)
+        coVerify(exactly = 0) { mutationStore.acknowledgeWatchedUpserts(any(), any()) }
+        coVerify(exactly = 0) { mutationStore.acknowledgeWatchedDeletes(any(), any()) }
+    }
+
     private fun progressService(
         postgrest: Postgrest,
         preferences: WatchProgressPreferences,
