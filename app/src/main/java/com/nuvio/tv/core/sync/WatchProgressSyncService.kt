@@ -71,12 +71,26 @@ class WatchProgressSyncService @Inject constructor(
         watchProgressPreferences.advanceLastSuccessfulPushMs(now, profileId)
     }
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
-        return try {
+        // RPCs may suspend while the signed-in account changes. Do not retry
+        // under another account or return a response obtained for an old one.
+        val fence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+            { authManager.verifiedProfileAccountId },
+            { accountProfileModeProvider.currentMode() }
+        )
+        val identity = fence.capture()
+        fence.requireCurrent(identity)
+        val result = try {
             block()
         } catch (e: Exception) {
+            // An account switch must never turn a stale response into a JWT
+            // refresh/retry issued under the new account.
+            fence.requireCurrent(identity)
             if (!authManager.refreshSessionIfJwtExpired(e)) throw e
+            fence.requireCurrent(identity)
             block()
         }
+        fence.requireCurrent(identity)
+        return result
     }
 
     suspend fun shouldUseSupabaseWatchProgressSync(
