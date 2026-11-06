@@ -1166,37 +1166,37 @@ internal class ParallelRangeDataSource(
             if (activeSession.abandoned.get()) return
             enforceSessionCap(activeSession, protectIndex = chunkIndex, poolCap = maxPoolSize)
             activeSession.futures.computeIfAbsent(chunkIndex) {
-            val future = CompletableFuture<DownloadedChunk>()
-            activeSession.touch(chunkIndex)
-            Log.d(TAG, "Scheduling chunk $chunkIndex")
-            outstandingChunkWorkers.incrementAndGet()
-            try {
-                sharedExecutor.execute {
-                    try {
-                        if (!future.isCancelled && !activeSession.abandoned.get()) {
-                            val result = downloadChunk(activeSession, chunkIndex, future)
-                            if (!future.complete(result)) {
-                                releaseBuffer(result.buffer)
+                val future = CompletableFuture<DownloadedChunk>()
+                activeSession.touch(chunkIndex)
+                Log.d(TAG, "Scheduling chunk $chunkIndex")
+                outstandingChunkWorkers.incrementAndGet()
+                try {
+                    sharedExecutor.execute {
+                        try {
+                            if (!future.isCancelled && !activeSession.abandoned.get()) {
+                                val result = downloadChunk(activeSession, chunkIndex, future)
+                                if (!future.complete(result)) {
+                                    releaseBuffer(result.buffer)
+                                }
+                            } else if (!future.isCancelled) {
+                                future.completeExceptionally(IOException("Session abandoned"))
                             }
-                        } else if (!future.isCancelled) {
-                            future.completeExceptionally(IOException("Session abandoned"))
+                        } catch (e: Exception) {
+                            future.completeExceptionally(e)
+                        } catch (e: OutOfMemoryError) {
+                            drainIdleBuffers(activeSession.chunkSize)
+                            future.completeExceptionally(
+                                IOException("Native chunk buffer allocation failed (out of memory)", e)
+                            )
+                        } finally {
+                            outstandingChunkWorkers.decrementAndGet()
                         }
-                    } catch (e: Exception) {
-                        future.completeExceptionally(e)
-                    } catch (e: OutOfMemoryError) {
-                        drainIdleBuffers(activeSession.chunkSize)
-                        future.completeExceptionally(
-                            IOException("Native chunk buffer allocation failed (out of memory)", e)
-                        )
-                    } finally {
-                        outstandingChunkWorkers.decrementAndGet()
                     }
+                } catch (e: RuntimeException) {
+                    outstandingChunkWorkers.decrementAndGet()
+                    future.completeExceptionally(e)
+                    throw e
                 }
-            } catch (e: RuntimeException) {
-                outstandingChunkWorkers.decrementAndGet()
-                future.completeExceptionally(e)
-                throw e
-            }
                 future
             }
         }
