@@ -415,7 +415,8 @@ class WatchedItemsSyncService @Inject constructor(
                     deletes = deletes,
                     pendingUpsertKeys = pendingUpsertKeys,
                     pendingDeleteKeys = pendingDeleteKeys,
-                    profileId = profileId
+                    profileId = profileId,
+                    validateBeforeMutation = { fence.requireCurrent(identity) }
                 )
                 cursor = maxOf(cursor, events.maxOf { it.eventId })
                 fence.requireCurrent(identity)
