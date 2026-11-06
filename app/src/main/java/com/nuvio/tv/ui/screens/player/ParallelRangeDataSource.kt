@@ -314,13 +314,18 @@ internal class ParallelRangeDataSource(
                 try { ds.close() } catch (_: Exception) {}
             }
             session.activeSources.clear()
-            val indices = session.futures.keys.toList()
-            for (index in indices) {
-                evictFuture(session, index, poolCap)
+            // Scheduling and eviction must share a session monitor. Otherwise
+            // computeIfAbsent may start a worker while its new future is still
+            // invisible to this snapshot, orphaning a completed chunk buffer.
+            synchronized(session) {
+                val indices = session.futures.keys.toList()
+                for (index in indices) {
+                    evictFuture(session, index, poolCap)
+                }
+                session.futures.clear()
+                session.lastTouch.clear()
+                session.inFlight.clear()
             }
-            session.futures.clear()
-            session.lastTouch.clear()
-            session.inFlight.clear()
         }
 
         private fun obtainSession(
@@ -1154,8 +1159,13 @@ internal class ParallelRangeDataSource(
     private fun ensureChunkScheduled(chunkIndex: Long) {
         val activeSession = session ?: return
 
-        enforceSessionCap(activeSession, protectIndex = chunkIndex, poolCap = maxPoolSize)
-        activeSession.futures.computeIfAbsent(chunkIndex) {
+        // A future must be visible in the map before teardown can snapshot
+        // and clear it. A session that is already abandoned must never admit
+        // new download work.
+        synchronized(activeSession) {
+            if (activeSession.abandoned.get()) return
+            enforceSessionCap(activeSession, protectIndex = chunkIndex, poolCap = maxPoolSize)
+            activeSession.futures.computeIfAbsent(chunkIndex) {
             val future = CompletableFuture<DownloadedChunk>()
             activeSession.touch(chunkIndex)
             Log.d(TAG, "Scheduling chunk $chunkIndex")
@@ -1187,7 +1197,8 @@ internal class ParallelRangeDataSource(
                 future.completeExceptionally(e)
                 throw e
             }
-            future
+                future
+            }
         }
     }
 
