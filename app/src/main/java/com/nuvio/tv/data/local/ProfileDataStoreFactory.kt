@@ -61,6 +61,7 @@ class ProfileDataStoreFactory @Inject constructor(
     private val cache = ConcurrentHashMap<String, ScopedDataStore>()
     private val deletedProfileIds = ConcurrentHashMap.newKeySet<Int>()
     private val lock = Any()
+    private val remapAccessGate = ProfileRemapStoreAccessGate()
     private val retainedStandaloneDataStoreNames = setOf(
         "app_onboarding",
         "auth_session_notice_store",
@@ -79,8 +80,31 @@ class ProfileDataStoreFactory @Inject constructor(
     fun get(profileId: Int, featureName: String): DataStore<Preferences> {
         val fileName = if (profileId == 1) featureName else "${featureName}_p$profileId"
         synchronized(lock) {
+            remapAccessGate.checkAccess(profileId)
             cache[fileName]?.let { return it.store }
             return createAndCache(fileName).store
+        }
+    }
+
+    /**
+     * Future migration orchestrators can hold this barrier while copying and
+     * reconciling source/target profile stores. Begin and get() share the
+     * factory monitor so no source or target store can open between the cache
+     * check and installation of the barrier.
+     *
+     * A barrier alone does NOT quiesce already handed-out DataStores, other
+     * processes, or background writers. Callers must stop those first, hold
+     * ProfileMigrationExclusiveLock as well, and close the token in finally.
+     */
+    internal fun beginProfileRemapAccessBlock(sourceId: Int, targetId: Int): AutoCloseable {
+        synchronized(lock) {
+            val cachedIds = cache.keys.mapNotNull { key ->
+                Regex("_p([0-9]+)$").find(key)?.groupValues?.get(1)?.toIntOrNull()
+            }.toSet()
+            remapAccessGate.begin(sourceId, targetId, cachedIds)
+        }
+        return AutoCloseable {
+            synchronized(lock) { remapAccessGate.end(sourceId, targetId) }
         }
     }
 
