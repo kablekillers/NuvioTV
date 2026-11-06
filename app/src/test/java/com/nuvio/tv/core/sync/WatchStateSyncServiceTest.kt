@@ -245,7 +245,7 @@ class WatchStateSyncServiceTest {
 
         assertTrue(service.syncSnapshotFromRemote(2).isFailure)
         coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
-        coVerify(exactly = 0) { preferences.mergeRemoteEntries(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.mergeRemoteEntries(any(), any(), any(), any(), any(), any(), any()) }
         coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
     }
 
@@ -266,7 +266,7 @@ class WatchStateSyncServiceTest {
 
         assertTrue(service.syncSnapshotFromRemote(2).isFailure)
         coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
-        coVerify(exactly = 0) { preferences.replaceWithRemoteItems(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.replaceWithRemoteItems(any(), any(), any(), any(), any()) }
         coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
     }
 
