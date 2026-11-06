@@ -141,6 +141,7 @@ class WatchStateSyncServiceTest {
         canRefreshJwt: Boolean = false
     ): WatchProgressSyncService {
         val authManager = mockk<AuthManager>(relaxed = true)
+        every { authManager.verifiedProfileAccountId } returns "verified-sync-test-account"
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns canRefreshJwt
         return WatchProgressSyncService(
             authManager = authManager,
@@ -161,6 +162,7 @@ class WatchStateSyncServiceTest {
         mutationStore: WatchStateMutationStore
     ): WatchedItemsSyncService {
         val authManager = mockk<AuthManager>(relaxed = true)
+        every { authManager.verifiedProfileAccountId } returns "verified-sync-test-account"
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns false
         return WatchedItemsSyncService(
             authManager = authManager,
