@@ -270,6 +270,54 @@ class WatchStateSyncServiceTest {
         coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
     }
 
+    @Test
+    fun `progress snapshot rejects fallback after account changes during cursor request`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } returns WatchProgressSource.NUVIO_SYNC
+        val remote = mockk<Postgrest>()
+        val requests = mutableListOf<String>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            requests.add(firstArg())
+            account = "account-b"
+            throw IllegalStateException("cursor failed during account switch")
+        }
+        val preferences = mockk<WatchProgressPreferences>(relaxed = true)
+        val service = progressService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncSnapshotFromRemote(2).isFailure)
+        assertEquals(listOf("sync_get_watch_progress_delta_cursor"), requests)
+        coVerify(exactly = 0) { preferences.mergeRemoteEntries(any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
+    @Test
+    fun `watched snapshot rejects fallback after account changes during cursor request`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } returns WatchProgressSource.NUVIO_SYNC
+        val remote = mockk<Postgrest>()
+        val requests = mutableListOf<String>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            requests.add(firstArg())
+            account = "account-b"
+            throw IllegalStateException("cursor failed during account switch")
+        }
+        val preferences = mockk<WatchedItemsPreferences>(relaxed = true)
+        val service = watchedService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncSnapshotFromRemote(2).isFailure)
+        assertEquals(listOf("sync_get_watched_items_delta_cursor"), requests)
+        coVerify(exactly = 0) { preferences.replaceWithRemoteItems(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
     private fun progressService(
         postgrest: Postgrest,
         preferences: WatchProgressPreferences,
