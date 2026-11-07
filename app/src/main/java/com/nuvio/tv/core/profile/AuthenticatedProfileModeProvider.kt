@@ -28,7 +28,7 @@ class AuthenticatedProfileModeProvider @Inject constructor(
         if (!DeviceLocalProfilesFeature.ENABLED) return AccountProfileMode.LEGACY_CLOUD
         val accountId = authManager.verifiedProfileAccountId
             ?: return AccountProfileMode.LEGACY_CLOUD
-        if (accountId.isBlank() || accountId != accountId.trim()) {
+        if (accountId.isBlank() || accountId != accountId.trim() || accountId.any { it.isISOControl() }) {
             return AccountProfileMode.LEGACY_CLOUD
         }
         // A per-account namespace avoids one login overwriting another login's
