@@ -6,6 +6,14 @@ import org.junit.Test
 import java.nio.file.Files
 
 class ProfileMigrationCopyCoordinatorTest {
+    private fun writeJournalThrough(directory: java.io.File, entry: ProfileMigrationJournal.Entry) {
+        for (phase in ProfileMigrationJournal.Phase.values()) {
+            ProfileMigrationJournal.write(directory, entry.copy(phase = phase))
+            if (phase == entry.phase) break
+        }
+    }
+
+
     @Test fun copyPreservesSourceAndLeavesMigrationUnresolved() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
@@ -173,7 +181,7 @@ class ProfileMigrationCopyCoordinatorTest {
     @Test fun recoveryAssessmentNeverClearsJournalForDifferentAccount() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
-            ProfileMigrationJournal.write(
+            writeJournalThrough(
                 dir,
                 ProfileMigrationJournal.Entry(
                     "account-a", 2, 7, ProfileMigrationJournal.Phase.COPYING
@@ -190,7 +198,7 @@ class ProfileMigrationCopyCoordinatorTest {
     @Test fun completedJournalStillRequiresExplicitReconciliation() {
         val dir = Files.createTempDirectory("profile-copy-coordinator").toFile()
         try {
-            ProfileMigrationJournal.write(
+            writeJournalThrough(
                 dir,
                 ProfileMigrationJournal.Entry(
                     "account-a", 2, 7, ProfileMigrationJournal.Phase.COMPLETED
