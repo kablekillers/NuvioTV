@@ -16,6 +16,16 @@ class AccountProfilePolicyTest {
         }
     }
 
+    @Test fun customerMainMetadataNeverSyncsToSharedLogin() {
+        val customer = AccountProfileMode.CUSTOMER_DEVICE_LOCAL
+        for (profileId in 1..6) {
+            assertFalse(AccountProfilePolicy.maySyncProfileMetadata(profileId, customer))
+            assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(profileId, customer))
+            assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(profileId, true))
+        }
+        assertTrue(ProfileSyncBoundary.maySyncProfileMetadata(1, false))
+    }
+
     @Test fun customerModeNeverImportsOtherCustomersSecondaryProfiles() {
         val customer = AccountProfileMode.CUSTOMER_DEVICE_LOCAL
         val remoteProfiles = (1..100).toList()
@@ -47,7 +57,7 @@ class AccountProfilePolicyTest {
         assertTrue(AccountProfilePolicy.usesDeviceOnlySecondaries(mode))
         assertFalse(AccountProfilePolicy.maySyncProfileMetadata(3, mode))
         assertFalse(AccountProfilePolicy.maySyncViewingState(3, mode))
-        assertTrue(AccountProfilePolicy.maySyncProfileMetadata(1, mode))
+        assertFalse(AccountProfilePolicy.maySyncProfileMetadata(1, mode))
         assertFalse(AccountProfilePolicy.maySyncViewingState(1, mode))
         assertEquals(listOf(1), AccountProfilePolicy.visibleRemoteProfileIds(listOf(1, 2, 3), mode))
         assertFalse(AccountProfilePolicy.canEditSharedConfiguration(2, mode))
@@ -69,7 +79,7 @@ class AccountProfilePolicyTest {
             assertFalse(AccountProfilePolicy.maySyncViewingState(profileId, customer))
         }
         assertFalse(AccountProfilePolicy.canEditSharedConfiguration(1, customer))
-        assertTrue(AccountProfilePolicy.maySyncProfileMetadata(1, customer))
+        assertFalse(AccountProfilePolicy.maySyncProfileMetadata(1, customer))
         assertFalse(AccountProfilePolicy.maySyncViewingState(1, customer))
     }
 
