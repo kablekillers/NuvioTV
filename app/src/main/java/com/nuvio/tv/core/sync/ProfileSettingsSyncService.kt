@@ -193,8 +193,13 @@ class ProfileSettingsSyncService @Inject constructor(
     // Resolve on access so switching logins cannot retain the previous account's mode.
     private val deviceLocalProfilesEnabled: Boolean
         get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+    // This blob includes per-profile theme, player, trailer and credential-related
+    // settings. Main (ID 1) is shared by every customer login, so it must not
+    // push or pull this blob in device-local mode either. Shared addon/catalog
+    // configuration has separate sync services.
     private fun maySyncProfileSettings(profileId: Int): Boolean =
-        ProfileSyncBoundary.maySyncProfileMetadata(profileId, deviceLocalProfilesEnabled)
+        !deviceLocalProfilesEnabled &&
+            ProfileSyncBoundary.maySyncProfileMetadata(profileId, false)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
