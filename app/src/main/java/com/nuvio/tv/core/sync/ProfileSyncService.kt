@@ -107,7 +107,13 @@ class ProfileSyncService @Inject constructor(
                 })
                 putSyncOriginClientId(syncClientIdentity)
             }
+            // Recheck immediately before the destructive legacy list-sync RPC.
+            // A mode transition during payload construction must not publish it.
+            if (deviceLocalProfilesEnabled) {
+                return@withContext Result.success(Unit)
+            }
             withJwtRefreshRetry {
+                check(!deviceLocalProfilesEnabled) { "Customer profile metadata upload blocked" }
                 postgrest.rpc("sync_push_profiles", params)
             }
 
@@ -214,7 +220,13 @@ class ProfileSyncService @Inject constructor(
                 put("p_profile_id", profileId)
                 putSyncOriginClientId(syncClientIdentity)
             }
+            if (!AccountProfilePolicy.mayDeleteRemoteProfileData(accountProfileModeProvider.currentMode())) {
+                return@withContext Result.success(Unit)
+            }
             withJwtRefreshRetry {
+                check(AccountProfilePolicy.mayDeleteRemoteProfileData(accountProfileModeProvider.currentMode())) {
+                    "Customer profile deletion blocked"
+                }
                 postgrest.rpc("sync_delete_profile_data", params)
             }
 
