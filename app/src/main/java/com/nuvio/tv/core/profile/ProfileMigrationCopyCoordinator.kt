@@ -70,7 +70,7 @@ internal object ProfileMigrationCopyCoordinator {
         // Validate identity before creating any journal or copied profile data.
         // The migration must never proceed under an absent or malformed account.
         require(accountId.isNotBlank() && accountId == accountId.trim() &&
-            accountId.none { it == '\\n' || it == '\\r' || it.isISOControl() }) {
+            accountId.none { it == '\n' || it == '\r' || it.isISOControl() }) {
             "A valid verified account ID is required for profile migration"
         }
         require(sourceProfileId in 2..6 && targetProfileId in 2..6 &&
