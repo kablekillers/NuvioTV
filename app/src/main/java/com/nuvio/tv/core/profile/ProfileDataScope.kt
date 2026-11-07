@@ -47,7 +47,7 @@ object ProfileDataPolicy {
      * profile ID must fail closed for personal data rather than fall back to
      * the shared account. Keep the legacy overload for existing callers.
      */
-    fun canUploadToSharedAccount(
+    internal fun canUploadToSharedAccount(
         kind: ProfileDataKind,
         localProfileId: String?,
         mode: AccountProfileMode
