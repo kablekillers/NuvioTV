@@ -6,6 +6,14 @@ import org.junit.Test
 import java.nio.file.Files
 
 class ProfileMigrationRecoveryVerifierTest {
+    private fun writeJournalThrough(directory: java.io.File, entry: ProfileMigrationJournal.Entry) {
+        for (phase in ProfileMigrationJournal.Phase.values()) {
+            ProfileMigrationJournal.write(directory, entry.copy(phase = phase))
+            if (phase == entry.phase) break
+        }
+    }
+
+
     private val manifest = mapOf(
         "watch_progress_p2.preferences_pb" to "watch_progress_p5.preferences_pb",
         "favorites_p2.preferences_pb" to "favorites_p5.preferences_pb"
@@ -17,7 +25,7 @@ class ProfileMigrationRecoveryVerifierTest {
         dir.resolve("watch_progress_p5.preferences_pb").writeText("private watch progress")
         dir.resolve("favorites_p2.preferences_pb").writeText("private favorites")
         dir.resolve("favorites_p5.preferences_pb").writeText("private favorites")
-        ProfileMigrationJournal.write(
+        writeJournalThrough(
             dir,
             ProfileMigrationJournal.Entry(
                 "customer-a", 2, 5, ProfileMigrationJournal.Phase.VERIFIED
@@ -64,7 +72,7 @@ class ProfileMigrationRecoveryVerifierTest {
     @Test fun rejectsIncompleteJournalAndTemporaryWrite() {
         val dir = verifiedDirectory()
         try {
-            ProfileMigrationJournal.write(
+            writeJournalThrough(
                 dir, ProfileMigrationJournal.Entry(
                     "customer-a", 2, 5, ProfileMigrationJournal.Phase.COMPLETED
                 )
