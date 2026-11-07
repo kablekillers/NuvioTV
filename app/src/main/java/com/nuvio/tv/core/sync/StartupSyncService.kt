@@ -224,6 +224,13 @@ class StartupSyncService @Inject constructor(
 
     fun requestRealtimeSurfacePull(profileId: Int, surface: String) {
         if (!authManager.isAuthenticated) return
+        // Customer profile metadata is exclusively local, including Main.
+        // Shared-account realtime profile events must not mutate or refresh
+        // any customer's local profile list.
+        if (deviceLocalProfilesEnabled && surface == "profiles") {
+            Log.d(TAG, "Ignoring shared-account profile event in device-local customer mode")
+            return
+        }
         // A remote event for a shared-account secondary profile must never
         // trigger a local customer's viewing-state or credential pull.
         // Shared addon/catalog updates are handled separately through Main.
