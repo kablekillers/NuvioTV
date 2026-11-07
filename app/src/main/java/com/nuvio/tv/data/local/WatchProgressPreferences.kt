@@ -98,9 +98,6 @@ class WatchProgressPreferences @Inject constructor(
      */
     suspend fun advanceLastSuccessfulPushMs(timestampMs: Long, profileId: Int = profileManager.activeProfileId.value) {
         metadataStore(profileId).edit { prefs ->
-            // Recheck inside the queued transaction; a caller's pre-edit
-            // identity check may be stale by the time this edit executes.
-            validateBeforeMutation()
             val stored = prefs[lastSuccessfulPushMsKey] ?: 0L
             prefs[lastSuccessfulPushMsKey] = maxOf(stored, timestampMs)
         }
@@ -123,6 +120,8 @@ class WatchProgressPreferences @Inject constructor(
         validateBeforeMutation: () -> Unit = {}
     ) {
         metadataStore(profileId).edit { prefs ->
+            // Recheck after queued DataStore edits are admitted.
+            validateBeforeMutation()
             prefs[deltaCursorKey] = cursor.coerceAtLeast(0L)
             prefs[deltaInitializedKey] = initialized
         }
