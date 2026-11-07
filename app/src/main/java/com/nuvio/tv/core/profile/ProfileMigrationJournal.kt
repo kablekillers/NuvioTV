@@ -68,7 +68,9 @@ internal object ProfileMigrationJournal {
                 throw IllegalStateException("Atomic journal replacement is required", unsupported)
             }
         } finally {
-            temp.delete()
+            // Preserve a failed or interrupted write as a recovery blocker.
+            // Deleting the temporary journal here would erase evidence of an
+            // incomplete migration and allow a later write to start blindly.
         }
     }
 
