@@ -233,12 +233,24 @@ class ProfileSettingsSyncService @Inject constructor(
     }
 
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
-        return try {
+        // Never retry a personal settings RPC using credentials from a different
+        // login, or return data fetched before the authenticated account changed.
+        val fence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+            { authManager.verifiedProfileAccountId },
+            { accountProfileModeProvider.currentMode() }
+        )
+        val identity = fence.capture()
+        fence.requireCurrent(identity)
+        val result = try {
             block()
         } catch (e: Exception) {
+            fence.requireCurrent(identity)
             if (!authManager.refreshSessionIfJwtExpired(e)) throw e
+            fence.requireCurrent(identity)
             block()
         }
+        fence.requireCurrent(identity)
+        return result
     }
 
     suspend fun pushCurrentProfileToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
