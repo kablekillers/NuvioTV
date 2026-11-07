@@ -132,7 +132,7 @@ class MediaServerSyncService @Inject constructor(
     }
 
     private suspend fun pull(profileId: Int): List<SyncedServer>? {
-        if (!maySyncMediaServers()) return null
+        if (!canSync(profileId)) return null
         val params = buildJsonObject { put("p_profile_id", profileId) }
         val response = withJwtRefreshRetry {
             postgrest.rpc("sync_pull_media_servers", params)
@@ -141,7 +141,7 @@ class MediaServerSyncService @Inject constructor(
     }
 
     private suspend fun push(snapshot: ServerSyncSnapshot) {
-        if (!maySyncMediaServers()) return
+        if (!canSync(snapshot.profileId)) return
         val params = buildJsonObject {
             put("p_profile_id", snapshot.profileId)
             put("p_servers", snapshot.servers.toSyncPayload())
