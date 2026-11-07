@@ -41,7 +41,7 @@ internal object AccountProfilePolicy {
     }
 
     fun visibleRemoteProfileIds(ids: List<Int>, mode: AccountProfileMode): List<Int> =
-        if (usesDeviceOnlySecondaries(mode)) ids.filter { it == 1 } else ids
+        if (usesDeviceOnlySecondaries(mode)) emptyList() else ids
 
     /**
      * Main profile ID is NOT an administrator credential: every customer
