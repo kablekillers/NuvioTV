@@ -144,6 +144,11 @@ class HomeCatalogSettingsSyncService @Inject constructor(
             if (localState.disabledKeys.any(::hasLegacyHomeCatalogDisabledKeyFormat)) {
                 val localPayload = loadLocalPayload()
                 if (localPayload.items.isNotEmpty()) {
+                    // The legacy-key migration is local, but its suspendable
+                    // payload load can outlive the original authenticated scope.
+                    if (currentScope(profileId) != syncScope) {
+                        return@withContext Result.success(false)
+                    }
                     isSyncingFromRemote = true
                     try {
                         layoutPreferenceDataStore.applyCatalogSettingsFromRemote(localPayload)
