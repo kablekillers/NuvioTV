@@ -29,7 +29,7 @@ class AccountProfilePolicyTest {
     @Test fun customerModeNeverImportsOtherCustomersSecondaryProfiles() {
         val customer = AccountProfileMode.CUSTOMER_DEVICE_LOCAL
         val remoteProfiles = (1..100).toList()
-        assertEquals(listOf(1), ProfileSyncBoundary.visibleRemoteProfileIds(remoteProfiles, customer))
+        assertEquals(emptyList<Int>(), ProfileSyncBoundary.visibleRemoteProfileIds(remoteProfiles, customer))
         for (profileId in 2..100) {
             assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(profileId, customer))
         }
@@ -59,7 +59,7 @@ class AccountProfilePolicyTest {
         assertFalse(AccountProfilePolicy.maySyncViewingState(3, mode))
         assertFalse(AccountProfilePolicy.maySyncProfileMetadata(1, mode))
         assertFalse(AccountProfilePolicy.maySyncViewingState(1, mode))
-        assertEquals(listOf(1), AccountProfilePolicy.visibleRemoteProfileIds(listOf(1, 2, 3), mode))
+        assertEquals(emptyList<Int>(), AccountProfilePolicy.visibleRemoteProfileIds(listOf(1, 2, 3), mode))
         assertFalse(AccountProfilePolicy.canEditSharedConfiguration(2, mode))
         assertFalse(AccountProfilePolicy.canEditSharedConfiguration(1, mode))
     }
@@ -105,7 +105,7 @@ class AccountProfilePolicyTest {
 
     @Test fun remoteSecondaryProfileVisibilityDependsOnVerifiedMode() {
         val remote = listOf(1, 2, 3, 4, 5, 6)
-        assertEquals(listOf(1), AccountProfilePolicy.visibleRemoteProfileIds(remote, AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+        assertEquals(emptyList<Int>(), AccountProfilePolicy.visibleRemoteProfileIds(remote, AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
         assertEquals(remote, AccountProfilePolicy.visibleRemoteProfileIds(remote, AccountProfileMode.FAMILY_CLOUD))
         assertEquals(remote, AccountProfilePolicy.visibleRemoteProfileIds(remote, AccountProfileMode.LEGACY_CLOUD))
     }
