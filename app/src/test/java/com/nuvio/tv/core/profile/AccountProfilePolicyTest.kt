@@ -6,6 +6,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AccountProfilePolicyTest {
+    @Test fun customerModeNeverUploadsPersonalViewingStateEvenForMainProfile() {
+        // Every customer uses the same authenticated login. No profile index,
+        // including Main (1), is safe for account-wide viewing-state sync.
+        val customer = AccountProfileMode.CUSTOMER_DEVICE_LOCAL
+        for (profileId in 1..100) {
+            assertFalse(AccountProfilePolicy.maySyncViewingState(profileId, customer))
+            assertFalse(ProfileSyncBoundary.maySyncPersonalViewingState(profileId, customer))
+        }
+    }
+
+    @Test fun customerModeNeverImportsOtherCustomersSecondaryProfiles() {
+        val customer = AccountProfileMode.CUSTOMER_DEVICE_LOCAL
+        val remoteProfiles = (1..100).toList()
+        assertEquals(listOf(1), ProfileSyncBoundary.visibleRemoteProfileIds(remoteProfiles, customer))
+        for (profileId in 2..100) {
+            assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(profileId, customer))
+        }
+    }
+
     @Test fun familyProfilesStayCloudSynced() {
         val mode = AccountProfileMode.FAMILY_CLOUD
         assertFalse(AccountProfilePolicy.usesDeviceOnlySecondaries(mode))
