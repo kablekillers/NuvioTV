@@ -41,8 +41,9 @@ internal object ProfileMigrationJournal {
                 previous.sourceId == entry.sourceId && previous.targetId == entry.targetId) {
                 "Another profile migration is already journaled"
             }
-            require(entry.phase.ordinal >= previous.phase.ordinal) {
-                "Profile migration journal cannot move backwards"
+            require(entry.phase.ordinal == previous.phase.ordinal ||
+                entry.phase.ordinal == previous.phase.ordinal + 1) {
+                "Profile migration journal must advance one verified phase at a time"
             }
         }
         val temp = File(directory, "$JOURNAL_NAME.tmp")
