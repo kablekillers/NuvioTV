@@ -22,6 +22,19 @@ internal object AccountProfilePolicy {
         return !usesDeviceOnlySecondaries(mode) || profileId == 1
     }
 
+    /**
+     * Account-wide destructive RPCs must never run for customer-local profiles.
+     * Even Main (ID 1) belongs to the same shared login across all customers.
+     */
+    fun mayDeleteRemoteProfileData(mode: AccountProfileMode): Boolean =
+        !usesDeviceOnlySecondaries(mode)
+
+    /**
+     * Account-wide PINs and locks are not local profile credentials, even for Main.
+     */
+    fun maySyncRemoteProfilePins(mode: AccountProfileMode): Boolean =
+        !usesDeviceOnlySecondaries(mode)
+
     fun maySyncViewingState(profileId: Int, mode: AccountProfileMode): Boolean {
         require(profileId > 0)
         return !usesDeviceOnlySecondaries(mode)
