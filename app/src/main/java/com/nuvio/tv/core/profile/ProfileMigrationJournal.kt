@@ -55,22 +55,18 @@ internal object ProfileMigrationJournal {
             "Migration temporary journal must not be a symbolic link"
         }
         require(!temp.exists()) { "Unresolved migration journal temporary file" }
+        // A failed write must leave the temporary file in place so the
+        // migration recovery check refuses activation until it is reconciled.
+        temp.writeText(
+            listOf(VERSION, entry.accountId, entry.sourceId, entry.targetId, entry.phase.name)
+                .joinToString("\n") + "\n"
+        )
+        java.io.RandomAccessFile(temp, "rw").use { it.fd.sync() }
         try {
-            temp.writeText(
-                listOf(VERSION, entry.accountId, entry.sourceId, entry.targetId, entry.phase.name)
-                    .joinToString("\n") + "\n"
-            )
-            java.io.RandomAccessFile(temp, "rw").use { it.fd.sync() }
-            try {
-                Files.move(temp.toPath(), journal.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            } catch (unsupported: java.nio.file.AtomicMoveNotSupportedException) {
-                throw IllegalStateException("Atomic journal replacement is required", unsupported)
-            }
-        } finally {
-            // Preserve a failed or interrupted write as a recovery blocker.
-            // Deleting the temporary journal here would erase evidence of an
-            // incomplete migration and allow a later write to start blindly.
+            Files.move(temp.toPath(), journal.toPath(),
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (unsupported: java.nio.file.AtomicMoveNotSupportedException) {
+            throw IllegalStateException("Atomic journal replacement is required", unsupported)
         }
     }
 
