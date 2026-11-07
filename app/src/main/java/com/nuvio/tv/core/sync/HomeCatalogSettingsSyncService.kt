@@ -138,6 +138,7 @@ class HomeCatalogSettingsSyncService @Inject constructor(
             val profileId = sharedLayoutProfileId(profileManager.activeProfileId.value)
             val syncScope = currentScope(profileId)
                 ?: return@withContext Result.success(false)
+            val initialProfileMode = accountProfileModeProvider.currentMode()
             val localState = layoutPreferenceDataStore.getHomeCatalogSettingsState()
             Log.d(TAG, "Pull start profile=$profileId ${localState.summary()}")
 
@@ -146,7 +147,8 @@ class HomeCatalogSettingsSyncService @Inject constructor(
                 if (localPayload.items.isNotEmpty()) {
                     // The legacy-key migration is local, but its suspendable
                     // payload load can outlive the original authenticated scope.
-                    if (currentScope(profileId) != syncScope) {
+                    if (currentScope(profileId) != syncScope ||
+                accountProfileModeProvider.currentMode() != initialProfileMode) {
                         return@withContext Result.success(false)
                     }
                     isSyncingFromRemote = true
@@ -162,7 +164,8 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
             val localPayload = loadLocalPayload()
             val remoteBlob = fetchRemoteBlob(profileId)
-            if (currentScope(profileId) != syncScope) {
+            if (currentScope(profileId) != syncScope ||
+                accountProfileModeProvider.currentMode() != initialProfileMode) {
                 return@withContext Result.success(false)
             }
             cachedSharedSettings = CachedSharedSettings(
@@ -188,7 +191,8 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
             // Parsing and loading may outlive a profile/account switch. Never
             // apply a previous account's shared catalog to the new session.
-            if (currentScope(profileId) != syncScope) {
+            if (currentScope(profileId) != syncScope ||
+                accountProfileModeProvider.currentMode() != initialProfileMode) {
                 return@withContext Result.success(false)
             }
             isSyncingFromRemote = true
