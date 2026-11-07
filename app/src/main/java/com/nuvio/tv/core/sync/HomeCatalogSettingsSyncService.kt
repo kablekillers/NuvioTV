@@ -148,7 +148,7 @@ class HomeCatalogSettingsSyncService @Inject constructor(
                     // The legacy-key migration is local, but its suspendable
                     // payload load can outlive the original authenticated scope.
                     if (currentScope(profileId) != syncScope ||
-                accountProfileModeProvider.currentMode() != initialProfileMode) {
+                        accountProfileModeProvider.currentMode() != initialProfileMode) {
                         return@withContext Result.success(false)
                     }
                     isSyncingFromRemote = true
