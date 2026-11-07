@@ -42,6 +42,27 @@ object ProfileDataPolicy {
                 else ProfileDataScope.LocalProfile(localProfileId)
         }
 
+    /**
+     * Mode-aware upload fence. In customer mode, a missing or blank local
+     * profile ID must fail closed for personal data rather than fall back to
+     * the shared account. Keep the legacy overload for existing callers.
+     */
+    fun canUploadToSharedAccount(
+        kind: ProfileDataKind,
+        localProfileId: String?,
+        mode: AccountProfileMode
+    ): Boolean {
+        if (AccountProfilePolicy.usesDeviceOnlySecondaries(mode)) {
+            return kind in setOf(
+                ProfileDataKind.ADDONS,
+                ProfileDataKind.PLUGINS,
+                ProfileDataKind.ADDON_SETTINGS,
+                ProfileDataKind.CATALOG_CONFIGURATION
+            )
+        }
+        return canUploadToSharedAccount(kind, localProfileId)
+    }
+
     /** Personal local viewing state must never be uploaded to the shared account. */
     fun canUploadToSharedAccount(kind: ProfileDataKind, localProfileId: String?): Boolean =
         scopeFor(kind, localProfileId) == ProfileDataScope.SharedAccount
