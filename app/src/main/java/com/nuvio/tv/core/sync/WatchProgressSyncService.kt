@@ -151,6 +151,8 @@ class WatchProgressSyncService @Inject constructor(
         profileId: Int
     ): Result<Unit> {
         return try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val distinctKeys = keys
                 .map { it.trim() }
                 .filter { it.isNotEmpty() && !ServerItemRef.isServerId(it) }
@@ -166,9 +168,11 @@ class WatchProgressSyncService @Inject constructor(
                 put("p_profile_id", profileId)
                 putSyncOriginClientId(syncClientIdentity)
             }
+            fence.requireCurrent(identity)
             withJwtRefreshRetry {
                 postgrest.rpc("sync_delete_watch_progress", params)
             }
+            fence.requireCurrent(identity)
             mutationStore.acknowledgeProgressDeletes(distinctKeys, profileId)
             Log.d(TAG, "Deleted ${distinctKeys.size} watch progress entries from remote for profile $profileId")
             Result.success(Unit)
@@ -276,6 +280,8 @@ class WatchProgressSyncService @Inject constructor(
     ): Result<Unit> {
         if (ServerItemRef.isServerId(progress.contentId)) return Result.success(Unit)
         return try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val params = buildJsonObject {
                 put("p_entries", buildJsonArray {
                     addJsonObject {
@@ -293,10 +299,12 @@ class WatchProgressSyncService @Inject constructor(
                 put("p_profile_id", profileId)
                 putSyncOriginClientId(syncClientIdentity)
             }
+            fence.requireCurrent(identity)
             withJwtRefreshRetry {
                 postgrest.rpc("sync_push_watch_progress", params)
             }
 
+            fence.requireCurrent(identity)
             mutationStore.acknowledgeProgressUpserts(mapOf(key to progress), profileId)
             Log.d(TAG, "Pushed single watch progress entry to remote for profile $profileId (key=$key)")
             // Deliberately does not move the sync point. One entry reaching remote says
