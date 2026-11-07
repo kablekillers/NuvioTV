@@ -321,7 +321,7 @@ class WatchedItemsSyncService @Inject constructor(
             val result = pullSnapshotFromRemote(profileId, resetDeltaState = cursorBeforeSnapshot == null, fence, identity)
             if (cursorBeforeSnapshot != null) {
                 fence.requireCurrent(identity)
-                watchedItemsPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
+                watchedItemsPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId, validateBeforeMutation = { fence.requireCurrent(identity) })
             }
             Result.success(result)
         } catch (e: Exception) {
@@ -365,7 +365,7 @@ class WatchedItemsSyncService @Inject constructor(
                 fence.requireCurrent(identity)
                 val snapshotResult = pullSnapshotFromRemote(profileId, resetDeltaState = false, fence, identity)
                 fence.requireCurrent(identity)
-                watchedItemsPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
+                watchedItemsPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId, validateBeforeMutation = { fence.requireCurrent(identity) })
                 Log.d(TAG, "syncDeltaFromRemote: initialized cursor $cursorBeforeSnapshot after watched items snapshot for profile $profileId")
                 return Result.success(snapshotResult)
             }
@@ -420,7 +420,7 @@ class WatchedItemsSyncService @Inject constructor(
                 )
                 cursor = maxOf(cursor, events.maxOf { it.eventId })
                 fence.requireCurrent(identity)
-                watchedItemsPreferences.setDeltaState(cursor, initialized = true, profileId = profileId)
+                watchedItemsPreferences.setDeltaState(cursor, initialized = true, profileId = profileId, validateBeforeMutation = { fence.requireCurrent(identity) })
                 totalUpserts += upserts.size
                 totalDeletes += deletes.size
                 Log.d(TAG, "syncDeltaFromRemote: applied page $page for profile $profileId newCursor=$cursor pageUpserts=${upserts.size} pageDeletes=${deletes.size}")
@@ -467,7 +467,7 @@ class WatchedItemsSyncService @Inject constructor(
         )
         if (resetDeltaState) {
             fence.requireCurrent(identity)
-            watchedItemsPreferences.setDeltaState(0L, initialized = false, profileId = profileId)
+            watchedItemsPreferences.setDeltaState(0L, initialized = false, profileId = profileId, validateBeforeMutation = { fence.requireCurrent(identity) })
         }
         val finalLocalCount = watchedItemsPreferences.getAllItems(profileId).size
         Log.d(TAG, "pullSnapshotFromRemote: applied ${remoteWatchedItems.size} snapshot items for profile $profileId finalLocalCount=$finalLocalCount preservedLocal=$hadUnsyncedItems resetDeltaState=$resetDeltaState")
