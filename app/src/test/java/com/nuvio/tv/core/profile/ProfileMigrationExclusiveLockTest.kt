@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import java.nio.file.Files
 
 class ProfileMigrationExclusiveLockTest {
@@ -20,6 +22,19 @@ class ProfileMigrationExclusiveLockTest {
             assertEquals("later safe migration",
                 ProfileMigrationExclusiveLock.tryWithLock(directory) { "later safe migration" })
             assertTrue(directory.resolve("profile_migration.lock").exists())
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun suspendingMigrationRetainsExclusiveLockAcrossSuspension() = runBlocking {
+        val directory = Files.createTempDirectory("migration-exclusive").toFile()
+        try {
+            val result = ProfileMigrationExclusiveLock.tryWithSuspendingLock(directory) {
+                yield()
+                assertNull(ProfileMigrationExclusiveLock.tryWithLock(directory) { "unsafe" })
+                "verified migration owns lock"
+            }
+            assertEquals("verified migration owns lock", result)
+            assertEquals("released", ProfileMigrationExclusiveLock.tryWithLock(directory) { "released" })
         } finally { directory.deleteRecursively() }
     }
 
