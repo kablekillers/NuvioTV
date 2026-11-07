@@ -46,6 +46,34 @@ class CollectionSyncService @Inject constructor(
 
     private var pushJob: Job? = null
 
+    private fun captureSyncIdentity(profileId: Int):
+        Pair<com.nuvio.tv.core.profile.ProfileSyncIdentityFence, com.nuvio.tv.core.profile.ProfileSyncIdentityFence.Snapshot> {
+        val fence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+            { authManager.verifiedProfileAccountId },
+            { accountProfileModeProvider.currentMode() }
+        )
+        val identity = fence.capture()
+        check(profileManager.activeProfileId.value == profileId) {
+            "Collections sync profile changed before request"
+        }
+        return fence to identity
+    }
+
+    private fun requireSyncIdentity(
+        profileId: Int,
+        fence: com.nuvio.tv.core.profile.ProfileSyncIdentityFence,
+        identity: com.nuvio.tv.core.profile.ProfileSyncIdentityFence.Snapshot
+    ) {
+        fence.requireCurrent(identity)
+        check(profileManager.activeProfileId.value == profileId) {
+            "Collections sync discarded after active profile change"
+        }
+        check(ProfileSyncBoundary.maySyncPersonalViewingState(profileId,
+            AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode()))) {
+            "Collections sync no longer permitted for this profile"
+        }
+    }
+
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
         return try {
             block()
@@ -65,7 +93,9 @@ class CollectionSyncService @Inject constructor(
             if (!ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)) {
                 return@withContext Result.success(Unit)
             }
+            val (fence, identity) = captureSyncIdentity(profileId)
             val json = collectionsDataStore.exportCurrentProfileJson()
+            requireSyncIdentity(profileId, fence, identity)
 
             val collectionsJsonElement = if (json.isNullOrBlank()) {
                 JsonArray(emptyList())
@@ -79,9 +109,12 @@ class CollectionSyncService @Inject constructor(
                 putSyncOriginClientId(syncClientIdentity)
             }
 
+            requireSyncIdentity(profileId, fence, identity)
             withJwtRefreshRetry {
+                requireSyncIdentity(profileId, fence, identity)
                 postgrest.rpc("sync_push_collections", params)
             }
+            requireSyncIdentity(profileId, fence, identity)
 
             Log.d(TAG, "Pushed collections to remote for profile $profileId")
             Result.success(Unit)
@@ -102,13 +135,16 @@ class CollectionSyncService @Inject constructor(
                 return@withContext Result.success(false)
             }
 
+            val (fence, identity) = captureSyncIdentity(profileId)
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
             }
 
             val response = withJwtRefreshRetry {
+                requireSyncIdentity(profileId, fence, identity)
                 postgrest.rpc("sync_pull_collections", params)
             }
+            requireSyncIdentity(profileId, fence, identity)
             val rows = response.decodeList<SupabaseCollectionBlob>()
             val blob = rows.firstOrNull()
             if (blob == null) {
@@ -117,7 +153,9 @@ class CollectionSyncService @Inject constructor(
             }
 
             val remoteJson = blob.collectionsJson.toString()
+            requireSyncIdentity(profileId, fence, identity)
             val remoteCollections = collectionsDataStore.importFromJson(remoteJson)
+            requireSyncIdentity(profileId, fence, identity)
 
             // Preserve local if remote is empty but local has data
             val localCollections = collectionsDataStore.getCurrentCollections()
@@ -133,8 +171,10 @@ class CollectionSyncService @Inject constructor(
                 return@withContext Result.success(false)
             }
 
+            requireSyncIdentity(profileId, fence, identity)
             isSyncingFromRemote = true
             try {
+                requireSyncIdentity(profileId, fence, identity)
                 collectionsDataStore.setCollections(remoteCollections)
             } finally {
                 isSyncingFromRemote = false
