@@ -20,10 +20,16 @@ class ProfileMigrationJournalTest {
             val entry = ProfileMigrationJournal.Entry(
                 "account-a", 2, 7, ProfileMigrationJournal.Phase.COMPLETED
             )
-            assertTrue(runCatching {
-                ProfileMigrationJournal.write(directory, entry)
-            }.isFailure)
-            assertFalse(directory.resolve("profile_migration_journal").exists())
+            for (phase in listOf(
+                ProfileMigrationJournal.Phase.COPYING,
+                ProfileMigrationJournal.Phase.VERIFIED,
+                ProfileMigrationJournal.Phase.COMPLETED
+            )) {
+                assertTrue("Initial phase $phase must be rejected", runCatching {
+                    ProfileMigrationJournal.write(directory, entry.copy(phase = phase))
+                }.isFailure)
+                assertFalse(directory.resolve("profile_migration_journal").exists())
+            }
             advanceTo(directory, entry)
             assertTrue(ProfileMigrationJournal.hasCompletedMigrationForAccount(directory, "account-a"))
         } finally { directory.deleteRecursively() }
