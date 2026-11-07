@@ -43,8 +43,24 @@ internal object AccountProfilePolicy {
     fun visibleRemoteProfileIds(ids: List<Int>, mode: AccountProfileMode): List<Int> =
         if (usesDeviceOnlySecondaries(mode)) ids.filter { it == 1 } else ids
 
+    /**
+     * Main profile ID is NOT an administrator credential: every customer
+     * device using the master login has Main (1). Customer-mode writes to
+     * shared configuration require a separately verified administrator
+     * entitlement. Until that authorization exists, fail closed.
+     */
     fun canEditSharedConfiguration(profileId: Int, mode: AccountProfileMode): Boolean {
         require(profileId > 0)
-        return !usesDeviceOnlySecondaries(mode) || profileId == 1
+        return !usesDeviceOnlySecondaries(mode)
+    }
+
+    fun canEditSharedConfiguration(
+        profileId: Int,
+        mode: AccountProfileMode,
+        verifiedAdministrator: Boolean
+    ): Boolean {
+        require(profileId > 0)
+        return !usesDeviceOnlySecondaries(mode) ||
+            (profileId == 1 && verifiedAdministrator)
     }
 }
