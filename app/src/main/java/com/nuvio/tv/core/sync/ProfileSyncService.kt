@@ -206,7 +206,7 @@ class ProfileSyncService @Inject constructor(
         // All customer devices share one account. Deleting even Main (profile 1)
         // through the legacy account-wide RPC could erase another customer's
         // cloud data. Device-local profile deletion must never call this RPC.
-        if (deviceLocalProfilesEnabled) {
+        if (!AccountProfilePolicy.mayDeleteRemoteProfileData(accountProfileModeProvider.currentMode())) {
             Log.w(TAG, "Skipping account-wide profile deletion for device-local customer")
             return@withContext Result.success(Unit)
         }
@@ -233,7 +233,7 @@ class ProfileSyncService @Inject constructor(
     suspend fun pullProfileLockStates(): Result<Map<Int, Boolean>> = withContext(Dispatchers.IO) {
         // All customer devices share one login: even Main's remote PIN belongs
         // to the shared account, not to this device's local Main profile.
-        if (deviceLocalProfilesEnabled) return@withContext Result.success(emptyMap())
+        if (!AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) return@withContext Result.success(emptyMap())
         try {
             val response = withJwtRefreshRetry {
                 postgrest.rpc("sync_pull_profile_locks")
@@ -250,7 +250,7 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun setProfilePin(profileId: Int, pin: String, currentPin: String? = null): SetProfilePinResult = withContext(Dispatchers.IO) {
-        if (deviceLocalProfilesEnabled) {
+        if (!AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) {
             return@withContext SetProfilePinResult.Failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
         }
         try {
@@ -279,7 +279,7 @@ class ProfileSyncService @Inject constructor(
         e.message?.contains("Current PIN is required", ignoreCase = true) == true
 
     suspend fun clearProfilePin(profileId: Int, currentPin: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
-        if (deviceLocalProfilesEnabled) {
+        if (!AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) {
             return@withContext Result.failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
         }
         try {
@@ -300,7 +300,7 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun verifyProfilePin(profileId: Int, pin: String): Result<SupabaseProfilePinVerifyResult> = withContext(Dispatchers.IO) {
-        if (deviceLocalProfilesEnabled) {
+        if (!AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) {
             return@withContext Result.failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
         }
         try {
