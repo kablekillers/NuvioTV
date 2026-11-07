@@ -19,6 +19,32 @@ import org.junit.Test
 
 class WatchedItemsPreferencesSyncTest {
     @Test
+    fun `stale account cannot advance watched items sync cursor`() = runTest {
+        val harness = harness()
+        harness.preferences.setDeltaState(15L, initialized = true, profileId = 1)
+        assertTrue(runCatching {
+            harness.preferences.setDeltaState(
+                99L,
+                initialized = true,
+                profileId = 1,
+                validateBeforeMutation = {
+                    error("Account changed while waiting for DataStore cursor edit")
+                }
+            )
+        }.isFailure)
+        assertEquals(15L, harness.preferences.getDeltaCursor(1))
+        assertTrue(harness.preferences.isDeltaInitialized(1))
+
+        harness.preferences.setDeltaState(
+            18L,
+            initialized = true,
+            profileId = 1,
+            validateBeforeMutation = {}
+        )
+        assertEquals(18L, harness.preferences.getDeltaCursor(1))
+    }
+
+    @Test
     fun `snapshot is authoritative for non-pending items`() = runTest {
         val harness = harness()
         val local = item("local", 100L)
