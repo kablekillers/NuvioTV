@@ -304,7 +304,15 @@ class ProfileSettingsSyncService @Inject constructor(
                 check(profileManager.activeProfileId.value == profileId) {
                     "Active profile changed before applying remote settings"
                 }
-                applySettingsBlob(profileId, featuresJson, remoteSignature)
+                applySettingsBlob(profileId, featuresJson, remoteSignature) {
+                    fence.requireCurrent(identity)
+                    check(profileManager.activeProfileId.value == profileId) {
+                        "Active profile changed during remote settings import"
+                    }
+                    check(maySyncProfileSettings(profileId)) {
+                        "Profile settings sync mode changed during remote import"
+                    }
+                }
                 Log.d(TAG, "Applied remote profile settings blob for profile $profileId")
                 Result.success(true)
             } catch (e: Exception) {
@@ -487,10 +495,12 @@ class ProfileSettingsSyncService @Inject constructor(
     private suspend fun applySettingsBlob(
         profileId: Int,
         featuresJson: JsonObject,
-        signature: String
+        signature: String,
+        validateBeforeMutation: () -> Unit = {}
     ) {
         val isActiveProfile = profileManager.activeProfileId.value == profileId
-        importSettingsBlob(profileId, featuresJson)
+        importSettingsBlob(profileId, featuresJson, validateBeforeMutation)
+        validateBeforeMutation()
         if (isActiveProfile) {
             skipNextPushSignature = signature
         }
@@ -557,16 +567,23 @@ class ProfileSettingsSyncService @Inject constructor(
         }
     }
 
-    private suspend fun importSettingsBlob(profileId: Int, featuresJson: JsonObject) {
+    private suspend fun importSettingsBlob(
+        profileId: Int,
+        featuresJson: JsonObject,
+        validateBeforeMutation: () -> Unit = {}
+    ) {
         applyingRemoteBlob = true
         try {
             syncedFeatures.forEach { feature ->
+                validateBeforeMutation()
                 val featureJson = featuresJson[feature]?.jsonObject ?: return@forEach
                 if (feature == PluginDataStore.FEATURE) {
+                    validateBeforeMutation()
                     importPluginSettings(profileId, featureJson)
                     return@forEach
                 }
                 profileDataStoreFactory.get(profileId, feature).edit { mutablePrefs ->
+                    validateBeforeMutation()
                     val preservedEntries = captureLocalOnlyPreferenceEntries(feature, mutablePrefs)
                     val priorDiscoverLocation = if (feature == "layout_settings") {
                         mutablePrefs[stringPreferencesKey("discover_location")]
