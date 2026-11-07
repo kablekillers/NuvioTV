@@ -15,6 +15,19 @@ internal object SharedLayoutScope {
         return if (deviceLocalModeEnabled) MAIN_PROFILE_ID else activeProfileId
     }
 
-    fun canEditConfiguration(activeProfileId: Int, deviceLocalModeEnabled: Boolean): Boolean =
-        !deviceLocalModeEnabled || activeProfileId == MAIN_PROFILE_ID
+    // Main is present on every customer device; it is not an admin credential.
+    fun canEditConfiguration(activeProfileId: Int, deviceLocalModeEnabled: Boolean): Boolean {
+        require(activeProfileId > 0)
+        return !deviceLocalModeEnabled
+    }
+
+    fun canEditConfiguration(
+        activeProfileId: Int,
+        deviceLocalModeEnabled: Boolean,
+        verifiedAdministrator: Boolean
+    ): Boolean {
+        require(activeProfileId > 0)
+        return !deviceLocalModeEnabled ||
+            (activeProfileId == MAIN_PROFILE_ID && verifiedAdministrator)
+    }
 }
