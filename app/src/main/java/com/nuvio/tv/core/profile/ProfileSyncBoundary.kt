@@ -31,5 +31,5 @@ internal object ProfileSyncBoundary {
     fun visibleRemoteProfileIds(
         remoteProfileIds: List<Int>,
         deviceLocalModeEnabled: Boolean
-    ): List<Int> = if (deviceLocalModeEnabled) remoteProfileIds.filter { it == 1 } else remoteProfileIds
+    ): List<Int> = if (deviceLocalModeEnabled) emptyList() else remoteProfileIds
 }
