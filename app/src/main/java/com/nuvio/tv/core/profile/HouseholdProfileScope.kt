@@ -1,13 +1,13 @@
 package com.nuvio.tv.core.profile
 
 /**
- * Future customer household sync identity. The shared login is NOT a household ID.
+ * Reserved for possible future household sync. Current customer rollout uses device-local profiles instead. The shared login is NOT a household ID.
  *
  * A household must be explicitly enrolled with a server-authorized membership.
  * Never derive household identity from account email, device name, IP address,
  * profile index or an unverified client-supplied value.
  *
- * This model is not wired to sync yet: customer profile rollout remains disabled
+ * This model must not be wired into current customer sync: customer profile rollout remains disabled
  * until server-side authorization and migration are implemented and tested.
  */
 internal data class HouseholdProfileScope(
