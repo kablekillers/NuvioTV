@@ -25,6 +25,15 @@ class AccountProfilePolicyTest {
         }
     }
 
+    @Test fun customerModeBlocksAllAccountWideProfileDeletesAndPinOperations() {
+        assertFalse(AccountProfilePolicy.mayDeleteRemoteProfileData(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+        assertFalse(AccountProfilePolicy.maySyncRemoteProfilePins(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+        for (mode in listOf(AccountProfileMode.LEGACY_CLOUD, AccountProfileMode.FAMILY_CLOUD)) {
+            assertTrue(AccountProfilePolicy.mayDeleteRemoteProfileData(mode))
+            assertTrue(AccountProfilePolicy.maySyncRemoteProfilePins(mode))
+        }
+    }
+
     @Test fun familyProfilesStayCloudSynced() {
         val mode = AccountProfileMode.FAMILY_CLOUD
         assertFalse(AccountProfilePolicy.usesDeviceOnlySecondaries(mode))
