@@ -300,10 +300,23 @@ class ProfileSettingsSyncService @Inject constructor(
                     // cloud-backed secondary profile. Never invoke the remote copy
                     // RPC for a device-only target (it creates remote profile data).
                     if (deviceLocalProfilesEnabled) {
-                        // Never invoke account-wide profile setup copy, even for
-                        // Main -> Main. Both source and target IDs belong to the
-                        // same login used by every customer device.
-                        Log.i(TAG, "Skipping shared-account profile setup copy in device-local customer mode")
+                        // Customer profiles are device-local even though every
+                        // device uses the same master account. Copy only local
+                        // settings; never call an account-wide profile RPC.
+                        require(sourceProfileId != targetProfileId)
+                        require(profileManager.profiles.value.any { it.id == sourceProfileId })
+                        require(profileManager.profiles.value.any { it.id == targetProfileId })
+                        val features = exportSettingsBlob(sourceProfileId)["features"]?.jsonObject
+                            ?: error("Source local TV settings are unavailable")
+                        applySettingsBlob(
+                            profileId = targetProfileId,
+                            featuresJson = features,
+                            signature = buildSettingsSignature(features)
+                        )
+                        if (copyProviderCredentials) {
+                            copyProviderCredentialsLocally(sourceProfileId, targetProfileId)
+                        }
+                        Log.d(TAG, "Copied profile setup locally from $sourceProfileId to $targetProfileId")
                         return@withLock Result.success(Unit)
                     }
                     require(sourceProfileId != targetProfileId)
