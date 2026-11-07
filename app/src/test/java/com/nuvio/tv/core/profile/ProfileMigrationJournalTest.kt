@@ -79,6 +79,18 @@ class ProfileMigrationJournalTest {
             ProfileMigrationJournal.write(directory, prepared)
             assertEquals(prepared, ProfileMigrationJournal.read(directory))
             assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory))
+            assertTrue(runCatching {
+                ProfileMigrationJournal.write(
+                    directory, prepared.copy(phase = ProfileMigrationJournal.Phase.COMPLETED)
+                )
+            }.isFailure)
+            assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory))
+            ProfileMigrationJournal.write(
+                directory, prepared.copy(phase = ProfileMigrationJournal.Phase.COPYING)
+            )
+            ProfileMigrationJournal.write(
+                directory, prepared.copy(phase = ProfileMigrationJournal.Phase.VERIFIED)
+            )
             ProfileMigrationJournal.write(
                 directory, prepared.copy(phase = ProfileMigrationJournal.Phase.COMPLETED)
             )
