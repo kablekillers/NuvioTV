@@ -275,7 +275,7 @@ class ProfileMigrationCopyCoordinatorTest {
         } finally { dir.deleteRecursively() }
     }
     @Test fun invalidAccountIdsNeverCreateMigrationFiles() {
-        val invalidIds = listOf("", " ", " account-a", "account-a ", "account\\nother", "account\\rother")
+        val invalidIds = listOf("", " ", " account-a", "account-a ", "account\nother", "account\rother")
         for (accountId in invalidIds) {
             val dir = Files.createTempDirectory("profile-copy-invalid-account").toFile()
             try {
