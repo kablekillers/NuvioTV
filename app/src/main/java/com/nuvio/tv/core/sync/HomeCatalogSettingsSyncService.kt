@@ -213,6 +213,11 @@ class HomeCatalogSettingsSyncService @Inject constructor(
     }
 
     private suspend fun pushPayload(syncScope: HomeCatalogSyncScope, payload: SyncHomeCatalogPayload) {
+        // The shared master login is not proof of administrator authority.
+        // Recheck at the RPC boundary so no indirect caller can upload customer changes.
+        check(SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, deviceLocalProfilesEnabled)) {
+            "Customer devices cannot overwrite master home catalog settings"
+        }
         val jsonElement = mergedSharedPayloadJson(syncScope, payload)
 
         val params = buildJsonObject {
