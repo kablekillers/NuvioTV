@@ -248,7 +248,9 @@ class HomeCatalogSettingsSyncService @Inject constructor(
             postgrest.rpc("sync_push_home_catalog_settings", params)
         }
         // Never cache an upload as belonging to an account that changed in flight.
-        if (currentScope(syncScope.profileId) == syncScope) {
+        if (SharedLayoutScope.canEditConfiguration(
+                profileManager.activeProfileId.value, deviceLocalProfilesEnabled
+            ) && currentScope(syncScope.profileId) == syncScope) {
             cachedSharedSettings = CachedSharedSettings(scope = syncScope, settingsJson = jsonElement)
         }
     }
