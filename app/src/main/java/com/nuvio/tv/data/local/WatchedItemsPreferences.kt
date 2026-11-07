@@ -79,6 +79,9 @@ class WatchedItemsPreferences @Inject constructor(
      */
     suspend fun advanceLastSuccessfulPushMs(timestampMs: Long, profileId: Int = profileManager.activeProfileId.value) {
         store(profileId).edit { prefs ->
+            // Recheck inside the queued transaction; a caller's pre-edit
+            // identity check may be stale by the time this edit executes.
+            validateBeforeMutation()
             val stored = prefs[lastSuccessfulPushMsKey] ?: 0L
             prefs[lastSuccessfulPushMsKey] = maxOf(stored, timestampMs)
         }
@@ -94,7 +97,12 @@ class WatchedItemsPreferences @Inject constructor(
         return prefs[deltaInitializedKey] ?: false
     }
 
-    suspend fun setDeltaState(cursor: Long, initialized: Boolean = true, profileId: Int = profileManager.activeProfileId.value) {
+    suspend fun setDeltaState(
+        cursor: Long,
+        initialized: Boolean = true,
+        profileId: Int = profileManager.activeProfileId.value,
+        validateBeforeMutation: () -> Unit = {}
+    ) {
         store(profileId).edit { prefs ->
             prefs[deltaCursorKey] = cursor.coerceAtLeast(0L)
             prefs[deltaInitializedKey] = initialized
