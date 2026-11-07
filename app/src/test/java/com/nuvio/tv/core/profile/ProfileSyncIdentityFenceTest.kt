@@ -54,7 +54,7 @@ class ProfileSyncIdentityFenceTest {
         assertTrue(runCatching { fence.capture() }.isFailure)
     }
     @Test fun rejectsControlCharactersBeforePersonalSyncBegins() {
-        for (id in listOf("account\\nother", "account\\rother", "account\\u0000other")) {
+        for (id in listOf("account\nother", "account\rother", "account\u0000other")) {
             val fence = ProfileSyncIdentityFence(
                 { id }, { AccountProfileMode.LEGACY_CLOUD }
             )
