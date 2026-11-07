@@ -36,7 +36,11 @@ internal object ProfileMigrationJournal {
             "Unresolved migration journal temporary file"
         }
         val previous = read(directory)
-        if (previous != null) {
+        if (previous == null) {
+            require(entry.phase == Phase.PREPARED) {
+                "A new profile migration journal must begin in PREPARED"
+            }
+        } else {
             require(previous.accountId == entry.accountId &&
                 previous.sourceId == entry.sourceId && previous.targetId == entry.targetId) {
                 "Another profile migration is already journaled"
