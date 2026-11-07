@@ -1,5 +1,6 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.AccountProfileMode
 import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
 import io.mockk.every
@@ -31,7 +32,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(12L, "upsert", libraryItem("delta"))
             )
         )
-        val service = LibrarySyncService(remote, local, legacyModeProvider())
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.syncFromRemote(profileId = 3).getOrThrow()
 
@@ -59,7 +60,7 @@ class LibrarySyncServiceTest {
             LibrarySyncState(deltaInitialized = true)
         )
         val remote = FakeLibrarySyncRemote(events = events)
-        val service = LibrarySyncService(remote, local, legacyModeProvider())
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.syncFromRemote(profileId = 5).getOrThrow()
 
@@ -89,7 +90,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(5L, "delete", localItem)
             )
         )
-        val service = LibrarySyncService(remote, local, legacyModeProvider())
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.syncFromRemote(profileId = 1).getOrThrow()
 
@@ -112,7 +113,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local, legacyModeProvider())
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.pushToRemote(profileId = 2)
 
@@ -134,7 +135,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote(deleteFailure = IllegalStateException("offline"))
-        val service = LibrarySyncService(remote, local, legacyModeProvider())
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.pushToRemote(profileId = 1)
 
@@ -151,7 +152,7 @@ class LibrarySyncServiceTest {
             )
         )
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local, legacyModeProvider())
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.pushToRemote(profileId = 1)
 
@@ -169,7 +170,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pending)
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+        val service = newService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
 
         val result = service.pushToRemote(profileId = 2)
 
@@ -184,7 +185,7 @@ class LibrarySyncServiceTest {
     fun customerSecondaryLibraryMustNeverDownload() = runBlocking {
         val local = InMemoryLibrarySyncStore()
         val remote = FakeLibrarySyncRemote(snapshot = listOf(libraryItem("remote")))
-        val service = LibrarySyncService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+        val service = newService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
 
         val result = service.syncFromRemote(profileId = 2)
 
@@ -197,10 +198,21 @@ class LibrarySyncServiceTest {
     fun customerMainLibraryIsAlsoPrivate() = runBlocking {
         val local = InMemoryLibrarySyncStore()
         val remote = FakeLibrarySyncRemote(snapshot = listOf(libraryItem("remote")))
-        val service = LibrarySyncService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+        val service = newService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
 
         assertTrue(service.syncFromRemote(profileId = 1).isFailure)
         assertTrue(remote.calls.isEmpty())
+    }
+
+    private fun newService(
+        remote: LibrarySyncRemoteDataSource,
+        local: LibrarySyncLocalStore,
+        modeProvider: AuthenticatedProfileModeProvider
+    ): LibrarySyncService {
+        val auth = mockk<AuthManager> {
+            every { verifiedProfileAccountId } returns "test-account"
+        }
+        return LibrarySyncService(remote, local, modeProvider, auth)
     }
 
     private fun legacyModeProvider(): AuthenticatedProfileModeProvider =
