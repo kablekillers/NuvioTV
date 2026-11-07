@@ -197,7 +197,14 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun deleteProfileData(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
-        if (!ProfileSyncBoundary.maySyncProfileMetadata(profileId, deviceLocalProfilesEnabled)) {
+        // All customer devices share one account. Deleting even Main (profile 1)
+        // through the legacy account-wide RPC could erase another customer's
+        // cloud data. Device-local profile deletion must never call this RPC.
+        if (deviceLocalProfilesEnabled) {
+            Log.w(TAG, "Skipping account-wide profile deletion for device-local customer")
+            return@withContext Result.success(Unit)
+        }
+        if (!ProfileSyncBoundary.maySyncProfileMetadata(profileId, false)) {
             return@withContext Result.success(Unit)
         }
         try {
