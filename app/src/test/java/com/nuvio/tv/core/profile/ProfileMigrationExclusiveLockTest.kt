@@ -51,6 +51,21 @@ class ProfileMigrationExclusiveLockTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun suspendingMigrationReleasesLockAfterFailure() = runBlocking {
+        val directory = Files.createTempDirectory("migration-exclusive").toFile()
+        try {
+            val failed = runCatching {
+                ProfileMigrationExclusiveLock.tryWithSuspendingLock(directory) {
+                    yield()
+                    error("interrupted verification")
+                }
+            }
+            assertTrue(failed.isFailure)
+            assertEquals("recovered",
+                ProfileMigrationExclusiveLock.tryWithLock(directory) { "recovered" })
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun refusesSymbolicLinkLockFileWithoutChangingTarget() {
         val directory = Files.createTempDirectory("migration-exclusive").toFile()
         val outside = Files.createTempFile("migration-lock-outside", ".txt").toFile()
