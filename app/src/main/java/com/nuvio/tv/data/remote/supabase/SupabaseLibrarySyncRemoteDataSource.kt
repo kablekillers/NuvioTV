@@ -1,6 +1,8 @@
 package com.nuvio.tv.data.remote.supabase
 
 import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.profile.ProfileSyncIdentityFence
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
 import com.nuvio.tv.core.sync.SyncClientIdentity
 import com.nuvio.tv.core.sync.library.LIBRARY_MUTATION_BATCH_SIZE
 import com.nuvio.tv.core.sync.library.LibrarySyncRemoteDataSource
@@ -26,7 +28,8 @@ import javax.inject.Singleton
 class SupabaseLibrarySyncRemoteDataSource @Inject constructor(
     private val authManager: AuthManager,
     private val postgrest: Postgrest,
-    private val syncClientIdentity: SyncClientIdentity
+    private val syncClientIdentity: SyncClientIdentity,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider
 ) : LibrarySyncRemoteDataSource {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -119,14 +122,26 @@ class SupabaseLibrarySyncRemoteDataSource @Inject constructor(
     }
 
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
-        return try {
+        // A request may suspend while the user switches accounts. Never retry
+        // under the new session or accept a response from the previous one.
+        val fence = ProfileSyncIdentityFence(
+            { authManager.verifiedProfileAccountId },
+            { accountProfileModeProvider.currentMode() }
+        )
+        val identity = fence.capture()
+        fence.requireCurrent(identity)
+        val result = try {
             block()
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
+            fence.requireCurrent(identity)
             if (!authManager.refreshSessionIfJwtExpired(error)) throw error
+            fence.requireCurrent(identity)
             block()
         }
+        fence.requireCurrent(identity)
+        return result
     }
 }
 
