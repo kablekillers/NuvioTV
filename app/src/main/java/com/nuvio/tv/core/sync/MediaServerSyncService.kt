@@ -135,6 +135,7 @@ class MediaServerSyncService @Inject constructor(
         if (!canSync(profileId)) return null
         val params = buildJsonObject { put("p_profile_id", profileId) }
         val response = withJwtRefreshRetry {
+            check(canSync(profileId)) { "Media server pull cancelled after profile or mode change" }
             postgrest.rpc("sync_pull_media_servers", params)
         }
         return response.decodeList<SupabaseMediaServers>().firstOrNull()?.servers
@@ -148,8 +149,10 @@ class MediaServerSyncService @Inject constructor(
             putSyncOriginClientId(syncClientIdentity)
         }
         withJwtRefreshRetry {
+            check(canSync(snapshot.profileId)) { "Media server push cancelled after profile or mode change" }
             postgrest.rpc("sync_push_media_servers", params)
         }
+        if (!canSync(snapshot.profileId)) return
         repository.markPushed(snapshot)
         Log.d(TAG, "Pushed ${snapshot.servers.size} media servers for profile ${snapshot.profileId}")
     }
