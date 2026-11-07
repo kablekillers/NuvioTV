@@ -416,6 +416,9 @@ class ProfileSettingsSyncService @Inject constructor(
         profileId: Int,
         settingsJson: JsonObject? = null
     ) {
+        check(!deviceLocalProfilesEnabled) {
+            "Account-wide profile settings upload is forbidden in customer device-local mode"
+        }
         val resolvedSettingsJson = settingsJson ?: exportSettingsBlob(profileId)
         val params = buildJsonObject {
             put("p_profile_id", profileId)
@@ -429,6 +432,9 @@ class ProfileSettingsSyncService @Inject constructor(
     }
 
     private suspend fun pullProfileFromRemote(profileId: Int): JsonObject? {
+        check(!deviceLocalProfilesEnabled) {
+            "Account-wide profile settings download is forbidden in customer device-local mode"
+        }
         val params = buildJsonObject {
             put("p_profile_id", profileId)
             put("p_platform", SETTINGS_SYNC_PLATFORM)
@@ -452,6 +458,7 @@ class ProfileSettingsSyncService @Inject constructor(
     }
 
     private suspend fun pullInheritedPluginSettings(profileId: Int): Boolean {
+        if (deviceLocalProfilesEnabled) return false
         val profile = profileManager.profiles.value.firstOrNull { it.id == profileId }
         if (profileId == 1 || profile?.usesPrimaryPlugins != true) return false
         val features = pullProfileFromRemote(1)?.get("features") as? JsonObject ?: return false
@@ -592,7 +599,7 @@ class ProfileSettingsSyncService @Inject constructor(
             profileManager.activeProfileId
                 .flatMapLatest { profileId ->
                     // Local-only profiles must not observe or trigger account-wide
-                    // settings pushes. Main remains the sole cloud settings owner.
+                    // settings pushes. Customer mode disables cloud profile settings for every profile, including Main.
                     if (!maySyncProfileSettings(profileId)) {
                         return@flatMapLatest kotlinx.coroutines.flow.flowOf("device-local-profile")
                     }
