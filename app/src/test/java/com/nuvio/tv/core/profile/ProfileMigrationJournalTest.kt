@@ -225,6 +225,36 @@ class ProfileMigrationJournalTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun corruptCompletedJournalCannotActivateCustomerMode() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            directory.resolve("profile_migration_journal").writeText(
+                "profile-migration-v1\\naccount-a\\n2\\n7\\nCOMPLETED\\nextra\\n"
+            )
+            assertFalse(ProfileMigrationJournal.hasCompletedMigrationForAccount(
+                directory, "account-a"
+            ))
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun completedJournalWithInterruptedReplacementCannotAuthorizeOrAdvance() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            val completed = ProfileMigrationJournal.Entry(
+                "account-a", 2, 5, ProfileMigrationJournal.Phase.COMPLETED
+            )
+            advanceTo(directory, completed)
+            directory.resolve("profile_migration_journal.tmp").writeText("interrupted")
+            assertFalse(ProfileMigrationJournal.hasCompletedMigrationForAccount(
+                directory, "account-a"
+            ))
+            assertTrue(runCatching {
+                ProfileMigrationJournal.write(directory, completed)
+            }.isFailure)
+            assertEquals(completed, ProfileMigrationJournal.read(directory))
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun invalidJournalFailsClosed() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
