@@ -3,6 +3,8 @@ package com.nuvio.tv.core.sync
 import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.mediaserver.ServerRepository
 import com.nuvio.tv.data.mediaserver.ServerSyncSnapshot
@@ -38,6 +40,7 @@ class MediaServerSyncService @Inject constructor(
     private val authManager: AuthManager,
     private val profileManager: ProfileManager,
     private val repository: ServerRepository,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val syncClientIdentity: SyncClientIdentity
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -129,6 +132,7 @@ class MediaServerSyncService @Inject constructor(
     }
 
     private suspend fun pull(profileId: Int): List<SyncedServer>? {
+        if (!maySyncMediaServers()) return null
         val params = buildJsonObject { put("p_profile_id", profileId) }
         val response = withJwtRefreshRetry {
             postgrest.rpc("sync_pull_media_servers", params)
@@ -137,6 +141,7 @@ class MediaServerSyncService @Inject constructor(
     }
 
     private suspend fun push(snapshot: ServerSyncSnapshot) {
+        if (!maySyncMediaServers()) return
         val params = buildJsonObject {
             put("p_profile_id", snapshot.profileId)
             put("p_servers", snapshot.servers.toSyncPayload())
@@ -149,8 +154,12 @@ class MediaServerSyncService @Inject constructor(
         Log.d(TAG, "Pushed ${snapshot.servers.size} media servers for profile ${snapshot.profileId}")
     }
 
+    private fun maySyncMediaServers(): Boolean =
+        !AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+
     private fun canSync(profileId: Int): Boolean =
-        authManager.authState.value is AuthState.FullAccount &&
+        maySyncMediaServers() &&
+            authManager.authState.value is AuthState.FullAccount &&
             profileManager.activeProfileId.value == profileId
 
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T =
