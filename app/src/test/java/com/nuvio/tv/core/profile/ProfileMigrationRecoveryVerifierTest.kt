@@ -72,7 +72,9 @@ class ProfileMigrationRecoveryVerifierTest {
     @Test fun rejectsIncompleteJournalAndTemporaryWrite() {
         val dir = verifiedDirectory()
         try {
-            writeJournalThrough(
+            // verifiedDirectory() already advanced through PREPARED, COPYING and VERIFIED.
+            // Complete from VERIFIED rather than restarting an existing journal.
+            ProfileMigrationJournal.write(
                 dir, ProfileMigrationJournal.Entry(
                     "customer-a", 2, 5, ProfileMigrationJournal.Phase.COMPLETED
                 )
