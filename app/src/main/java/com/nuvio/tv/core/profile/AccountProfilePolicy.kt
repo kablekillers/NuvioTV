@@ -19,7 +19,7 @@ internal object AccountProfilePolicy {
 
     fun maySyncProfileMetadata(profileId: Int, mode: AccountProfileMode): Boolean {
         require(profileId > 0)
-        return !usesDeviceOnlySecondaries(mode) || profileId == 1
+        return !usesDeviceOnlySecondaries(mode)
     }
 
     /**
