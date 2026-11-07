@@ -66,12 +66,21 @@ jobs:
       - name: Run release unit tests with CI-only Trakt credentials
         run: bash ./gradlew :app:testFullReleaseUnitTest -PciTraktTestCredentials=true --stacktrace --no-daemon
 
-      - name: Require real Trakt credentials for signed APK
+      - name: Configure real Trakt credentials for signed APK
+        env:
+          TRAKT_CLIENT_ID_SECRET: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
         run: |
           set -euo pipefail
+          umask 077
+          if [ -n "$TRAKT_CLIENT_ID_SECRET" ] && [ -n "$TRAKT_CLIENT_SECRET_SECRET" ]; then
+            # Override stale local.properties values with the dedicated GitHub secrets.
+            sed -i -E '/^[[:space:]]*TRAKT_CLIENT_(ID|SECRET)[[:space:]]*=/d' local.properties
+            printf '\nTRAKT_CLIENT_ID=%s\nTRAKT_CLIENT_SECRET=%s\n' "$TRAKT_CLIENT_ID_SECRET" "$TRAKT_CLIENT_SECRET_SECRET" >> local.properties
+          fi
           for name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET; do
             if ! grep -Eq "^[[:space:]]*${name}[[:space:]]*=[[:space:]]*[^[:space:]]+" local.properties; then
-              echo "::error::Missing $name in LOCAL_PROPERTIES_BASE64; refusing to package CI test credentials"
+              echo "::error::Missing real $name: configure GitHub Actions secrets TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET (or include both in LOCAL_PROPERTIES_BASE64)"
               exit 1
             fi
           done
