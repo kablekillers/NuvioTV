@@ -204,6 +204,26 @@ class LibrarySyncServiceTest {
         assertTrue(remote.calls.isEmpty())
     }
 
+    @Test
+    fun accountSwitchDuringSnapshotMustNotApplyRemoteLibrary() = runBlocking {
+        var accountId = "account-a"
+        val local = InMemoryLibrarySyncStore()
+        val remote = FakeLibrarySyncRemote(
+            snapshot = listOf(libraryItem("other-account-item")),
+            onSnapshot = { accountId = "account-b" }
+        )
+        val auth = mockk<AuthManager> {
+            every { verifiedProfileAccountId } answers { accountId }
+        }
+        val service = LibrarySyncService(remote, local, legacyModeProvider(), auth)
+
+        val result = service.syncFromRemote(profileId = 1)
+
+        assertTrue(result.isFailure)
+        assertTrue(local.state.items.isEmpty())
+        assertEquals(listOf("cursor:1", "snapshot:1"), remote.calls)
+    }
+
     private fun newService(
         remote: LibrarySyncRemoteDataSource,
         local: LibrarySyncLocalStore,
@@ -295,7 +315,8 @@ private class FakeLibrarySyncRemote(
     private val snapshot: List<SavedLibraryItem> = emptyList(),
     private val cursor: Long = 0L,
     private val events: List<LibraryDeltaEvent> = emptyList(),
-    private val deleteFailure: Exception? = null
+    private val deleteFailure: Exception? = null,
+    private val onSnapshot: () -> Unit = {}
 ) : LibrarySyncRemoteDataSource {
     val calls = mutableListOf<String>()
     val pushedItems = mutableListOf<SavedLibraryItem>()
@@ -306,6 +327,7 @@ private class FakeLibrarySyncRemote(
         pageSize: Int
     ): List<SavedLibraryItem> {
         calls += "snapshot:$profileId"
+        onSnapshot()
         return snapshot
     }
 
