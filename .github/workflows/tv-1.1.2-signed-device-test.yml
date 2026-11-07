@@ -66,26 +66,23 @@ jobs:
       - name: Run release unit tests with CI-only Trakt credentials
         run: bash ./gradlew :app:testFullReleaseUnitTest -PciTraktTestCredentials=true --stacktrace --no-daemon
 
-      - name: Configure real Trakt credentials for signed APK
+      - name: Configure optional Trakt integration for signed APK
         env:
           TRAKT_CLIENT_ID_SECRET: ${{ secrets.TRAKT_CLIENT_ID }}
           TRAKT_CLIENT_SECRET_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           umask 077
+          # Trakt is optional. Do not package test credentials or require an account.
+          sed -i -E '/^[[:space:]]*TRAKT_CLIENT_(ID|SECRET)[[:space:]]*=/d' local.properties
           if [ -n "$TRAKT_CLIENT_ID_SECRET" ] && [ -n "$TRAKT_CLIENT_SECRET_SECRET" ]; then
-            # Override stale local.properties values with the dedicated GitHub secrets.
-            sed -i -E '/^[[:space:]]*TRAKT_CLIENT_(ID|SECRET)[[:space:]]*=/d' local.properties
             printf '\nTRAKT_CLIENT_ID=%s\nTRAKT_CLIENT_SECRET=%s\n' "$TRAKT_CLIENT_ID_SECRET" "$TRAKT_CLIENT_SECRET_SECRET" >> local.properties
+            echo "Trakt integration configured"
+          else
+            echo "Trakt integration disabled (no credentials supplied)"
           fi
-          for name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET; do
-            if ! grep -Eq "^[[:space:]]*${name}[[:space:]]*=[[:space:]]*[^[:space:]]+" local.properties; then
-              echo "::error::Missing real $name: configure GitHub Actions secrets TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET (or include both in LOCAL_PROPERTIES_BASE64)"
-              exit 1
-            fi
-          done
 
-      - name: Build signed APK with real application credentials
+      - name: Build signed APK with optional Trakt integration
         run: bash ./gradlew :app:assembleFullRelease --stacktrace --no-daemon
 
       - name: Verify signature and version without publishing
