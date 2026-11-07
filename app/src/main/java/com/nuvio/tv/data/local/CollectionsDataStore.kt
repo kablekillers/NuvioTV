@@ -62,8 +62,14 @@ class CollectionsDataStore @Inject constructor(
             }
         }
 
-    suspend fun setCollections(collections: List<Collection>) {
-        store().edit { prefs ->
+    suspend fun setCollections(
+        collections: List<Collection>,
+        profileId: Int = profileManager.activeProfileId.value,
+        validateBeforeMutation: () -> Unit = {}
+    ) {
+        store(profileId).edit { prefs ->
+            // DataStore may delay an edit until after a logout or profile switch.
+            validateBeforeMutation()
             if (collections.isEmpty()) {
                 prefs.remove(collectionsKey)
             } else {
