@@ -362,6 +362,57 @@ class WatchStateSyncServiceTest {
         coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
     }
 
+    @Test
+    fun `single progress push never acknowledges after account switch`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val remote = mockk<Postgrest>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            account = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val mutations = mockk<WatchStateMutationStore>(relaxed = true)
+        val service = progressService(remote, mockk(relaxed = true), mutations, authManager = auth)
+
+        assertTrue(service.pushSingleToRemote("one", progress("one"), 2).isFailure)
+        coVerify(exactly = 0) { mutations.acknowledgeProgressUpserts(any(), any()) }
+    }
+
+    @Test
+    fun `progress delete never acknowledges after account switch`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val remote = mockk<Postgrest>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            account = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val mutations = mockk<WatchStateMutationStore>(relaxed = true)
+        val service = progressService(remote, mockk(relaxed = true), mutations, authManager = auth)
+
+        assertTrue(service.deleteFromRemote(listOf("one"), 2).isFailure)
+        coVerify(exactly = 0) { mutations.acknowledgeProgressDeletes(any(), any()) }
+    }
+
+    @Test
+    fun `watched delete never acknowledges after account switch`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val remote = mockk<Postgrest>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            account = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val mutations = mockk<WatchStateMutationStore>(relaxed = true)
+        val service = watchedService(remote, mockk(relaxed = true), mutations, authManager = auth)
+
+        assertTrue(service.deleteFromRemote("one", null, null, 2).isFailure)
+        coVerify(exactly = 0) { mutations.acknowledgeWatchedDeletes(any(), any()) }
+    }
+
     private fun progressService(
         postgrest: Postgrest,
         preferences: WatchProgressPreferences,
