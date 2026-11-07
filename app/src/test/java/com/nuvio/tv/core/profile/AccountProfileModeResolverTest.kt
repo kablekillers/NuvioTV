@@ -51,6 +51,23 @@ class AccountProfileModeResolverTest {
         )
     }
 
+    @Test fun controlCharactersCannotActivateCustomerOrFamilyMode() {
+        for (accountId in listOf("customer\\naccount", "customer\\raccount", "customer\\taccount", "customer\\u0000account")) {
+            assertEquals(
+                AccountProfileMode.LEGACY_CLOUD,
+                AccountProfileModeResolver.resolve(accountId, accountId, "customer_device_local", true)
+            )
+            assertEquals(
+                AccountProfileMode.LEGACY_CLOUD,
+                AccountProfileModeResolver.resolve(accountId, accountId, "family_cloud", true)
+            )
+        }
+        assertEquals(
+            AccountProfileMode.LEGACY_CLOUD,
+            AccountProfileModeResolver.resolve("customer-account", "customer\\naccount", "customer_device_local", true)
+        )
+    }
+
     @Test fun migrationGateOverridesMatchingCustomerAssignment() {
         assertEquals(
             AccountProfileMode.LEGACY_CLOUD,
