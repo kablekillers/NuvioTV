@@ -258,7 +258,14 @@ class HomeCatalogSettingsSyncService @Inject constructor(
             put("p_profile_id", profileId)
             put("p_platform", HOME_CATALOG_SHARED_SYNC_PLATFORM)
         }
+        val expectedScope = currentScope(profileId)
+            ?: return null
         val response = withJwtRefreshRetry {
+            // A JWT refresh can resume under a different signed-in account.
+            // Do not fetch shared configuration for a stale account/profile.
+            check(currentScope(profileId) == expectedScope) {
+                "Shared catalog read is no longer scoped to the original account"
+            }
             postgrest.rpc("sync_pull_home_catalog_settings", params)
         }
         return response.decodeList<SupabaseHomeCatalogSettingsBlob>().firstOrNull()
