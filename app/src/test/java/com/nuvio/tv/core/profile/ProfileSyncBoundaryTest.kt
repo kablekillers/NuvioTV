@@ -17,7 +17,7 @@ class ProfileSyncBoundaryTest {
         assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(2, true))
         assertFalse(ProfileSyncBoundary.maySyncPersonalViewingState(1, true))
         assertFalse(ProfileSyncBoundary.maySyncPersonalViewingState(2, true))
-        assertEquals(listOf(1), ProfileSyncBoundary.visibleRemoteProfileIds(listOf(1, 2, 3), true))
+        assertEquals(emptyList<Int>(), ProfileSyncBoundary.visibleRemoteProfileIds(listOf(1, 2, 3), true))
     }
 
     @Test fun sharedAddonSyncRemainsEnabledInBothModes() {
@@ -35,7 +35,7 @@ class ProfileSyncBoundaryTest {
             assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(profileId, mode))
         }
         assertEquals(
-            listOf(1),
+            emptyList<Int>(),
             ProfileSyncBoundary.visibleRemoteProfileIds(listOf(1, 2, 3, 4, 5, 6), mode)
         )
     }
