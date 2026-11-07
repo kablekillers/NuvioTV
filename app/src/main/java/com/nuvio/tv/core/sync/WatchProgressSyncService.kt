@@ -411,7 +411,7 @@ class WatchProgressSyncService @Inject constructor(
                 if (cursorBeforeSnapshot != null) {
                     fence.requireCurrent(identity)
                     fence.requireCurrent(identity)
-                watchProgressPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
+                watchProgressPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId, validateBeforeMutation = { fence.requireCurrent(identity) })
                 }
                 Result.success(result)
             } catch (e: Exception) {
@@ -464,7 +464,7 @@ class WatchProgressSyncService @Inject constructor(
                     validateBeforeMutation = { fence.requireCurrent(identity) }
                 )
                 fence.requireCurrent(identity)
-                watchProgressPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId)
+                watchProgressPreferences.setDeltaState(cursorBeforeSnapshot, initialized = true, profileId = profileId, validateBeforeMutation = { fence.requireCurrent(identity) })
                 val finalLocalCount = watchProgressPreferences.getAllRawEntries(profileId).size
                 Log.d(TAG, "syncDeltaFromRemote: initialized cursor $cursorBeforeSnapshot with ${remoteEntries.size} snapshot entries for profile $profileId finalLocalCount=$finalLocalCount preservedLocal=$hadUnsyncedProgress")
                 return Result.success(
@@ -531,7 +531,7 @@ class WatchProgressSyncService @Inject constructor(
                 preservedLocalItems = preservedLocalItems || pagePreservedLocal
                 cursor = maxOf(cursor, events.maxOf { it.eventId })
                 fence.requireCurrent(identity)
-                watchProgressPreferences.setDeltaState(cursor, initialized = true, profileId = profileId)
+                watchProgressPreferences.setDeltaState(cursor, initialized = true, profileId = profileId, validateBeforeMutation = { fence.requireCurrent(identity) })
                 totalUpserts += upserts.size
                 totalDeletes += deletes.size
                 Log.d(TAG, "syncDeltaFromRemote: applied page $page for profile $profileId newCursor=$cursor pageUpserts=${upserts.size} pageDeletes=${deletes.size}")
@@ -578,7 +578,7 @@ class WatchProgressSyncService @Inject constructor(
         )
         if (resetDeltaState) {
             fence.requireCurrent(identity)
-            watchProgressPreferences.setDeltaState(0L, initialized = false, profileId = profileId)
+            watchProgressPreferences.setDeltaState(0L, initialized = false, profileId = profileId, validateBeforeMutation = { fence.requireCurrent(identity) })
         }
         val finalLocalCount = watchProgressPreferences.getAllRawEntries(profileId).size
         Log.d(TAG, "pullSnapshotFromRemote: applied ${remoteEntries.size} snapshot entries for profile $profileId finalLocalCount=$finalLocalCount preservedLocal=$hadUnsyncedProgress resetDeltaState=$resetDeltaState")
