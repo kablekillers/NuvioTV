@@ -21,7 +21,7 @@ internal object ProfileSyncBoundary {
     ): List<Int> = AccountProfilePolicy.visibleRemoteProfileIds(remoteProfileIds, mode)
 
     fun maySyncProfileMetadata(profileId: Int, deviceLocalModeEnabled: Boolean): Boolean =
-        !deviceLocalModeEnabled || profileId == 1
+        !deviceLocalModeEnabled
 
     fun maySyncPersonalViewingState(profileId: Int, deviceLocalModeEnabled: Boolean): Boolean =
         !deviceLocalModeEnabled
