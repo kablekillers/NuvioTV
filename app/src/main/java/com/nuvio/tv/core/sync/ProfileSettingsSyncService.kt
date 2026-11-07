@@ -273,8 +273,18 @@ class ProfileSettingsSyncService @Inject constructor(
             try {
                 val profileId = profileManager.activeProfileId.value
                 if (!maySyncProfileSettings(profileId)) return@withLock Result.success(false)
+                val fence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+                    { authManager.verifiedProfileAccountId },
+                    { accountProfileModeProvider.currentMode() }
+                )
+                val identity = fence.capture()
                 val inheritedPluginSettingsApplied = pullInheritedPluginSettings(profileId)
+                fence.requireCurrent(identity)
                 val blob = pullProfileFromRemote(profileId)
+                fence.requireCurrent(identity)
+                check(maySyncProfileSettings(profileId)) {
+                    "Profile settings sync mode changed before applying remote data"
+                }
                 lastForegroundPullAtMs = SystemClock.elapsedRealtime()
                 if (blob == null) {
                     Log.d(TAG, "No remote profile settings blob for profile $profileId; keeping local settings")
@@ -290,6 +300,10 @@ class ProfileSettingsSyncService @Inject constructor(
                     return@withLock Result.success(inheritedPluginSettingsApplied)
                 }
 
+                fence.requireCurrent(identity)
+                check(profileManager.activeProfileId.value == profileId) {
+                    "Active profile changed before applying remote settings"
+                }
                 applySettingsBlob(profileId, featuresJson, remoteSignature)
                 Log.d(TAG, "Applied remote profile settings blob for profile $profileId")
                 Result.success(true)
