@@ -225,8 +225,9 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun pullProfileLockStates(): Result<Map<Int, Boolean>> = withContext(Dispatchers.IO) {
-        // Keep Main's existing lock intact, but never expose remote secondary
-        // PIN flags as if they belonged to device-only customer profiles.
+        // All customer devices share one login: even Main's remote PIN belongs
+        // to the shared account, not to this device's local Main profile.
+        if (deviceLocalProfilesEnabled) return@withContext Result.success(emptyMap())
         try {
             val response = withJwtRefreshRetry {
                 postgrest.rpc("sync_pull_profile_locks")
@@ -243,8 +244,8 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun setProfilePin(profileId: Int, pin: String, currentPin: String? = null): SetProfilePinResult = withContext(Dispatchers.IO) {
-        if (deviceLocalProfilesEnabled && profileId != 1) {
-            return@withContext SetProfilePinResult.Failure(IllegalStateException("Device-local profile PIN sync is disabled"))
+        if (deviceLocalProfilesEnabled) {
+            return@withContext SetProfilePinResult.Failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
         }
         try {
             val params = buildJsonObject {
@@ -272,8 +273,8 @@ class ProfileSyncService @Inject constructor(
         e.message?.contains("Current PIN is required", ignoreCase = true) == true
 
     suspend fun clearProfilePin(profileId: Int, currentPin: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
-        if (deviceLocalProfilesEnabled && profileId != 1) {
-            return@withContext Result.failure(IllegalStateException("Device-local profile PIN sync is disabled"))
+        if (deviceLocalProfilesEnabled) {
+            return@withContext Result.failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
         }
         try {
             val params = buildJsonObject {
@@ -293,8 +294,8 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun verifyProfilePin(profileId: Int, pin: String): Result<SupabaseProfilePinVerifyResult> = withContext(Dispatchers.IO) {
-        if (deviceLocalProfilesEnabled && profileId != 1) {
-            return@withContext Result.failure(IllegalStateException("Device-local profile PIN sync is disabled"))
+        if (deviceLocalProfilesEnabled) {
+            return@withContext Result.failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
         }
         try {
             val params = buildJsonObject {
