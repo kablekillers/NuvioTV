@@ -181,6 +181,11 @@ class HomeCatalogSettingsSyncService @Inject constructor(
                 return@withContext Result.success(false)
             }
 
+            // Parsing and loading may outlive a profile/account switch. Never
+            // apply a previous account's shared catalog to the new session.
+            if (currentScope(profileId) != syncScope) {
+                return@withContext Result.success(false)
+            }
             isSyncingFromRemote = true
             try {
                 layoutPreferenceDataStore.applyCatalogSettingsFromRemote(remotePayload)
