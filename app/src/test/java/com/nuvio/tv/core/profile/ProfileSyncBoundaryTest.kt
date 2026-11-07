@@ -12,8 +12,8 @@ class ProfileSyncBoundaryTest {
         assertEquals(listOf(1, 2, 3), ProfileSyncBoundary.visibleRemoteProfileIds(listOf(1, 2, 3), false))
     }
 
-    @Test fun localModeAllowsMainMetadataButNoPersonalViewingSync() {
-        assertTrue(ProfileSyncBoundary.maySyncProfileMetadata(1, true))
+    @Test fun localModeBlocksAllMetadataAndPersonalViewingSync() {
+        assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(1, true))
         assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(2, true))
         assertFalse(ProfileSyncBoundary.maySyncPersonalViewingState(1, true))
         assertFalse(ProfileSyncBoundary.maySyncPersonalViewingState(2, true))
@@ -30,7 +30,7 @@ class ProfileSyncBoundaryTest {
         for (profileId in 1..6) {
             assertFalse(ProfileSyncBoundary.maySyncPersonalViewingState(profileId, mode))
         }
-        assertTrue(ProfileSyncBoundary.maySyncProfileMetadata(1, mode))
+        assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(1, mode))
         for (profileId in 2..6) {
             assertFalse(ProfileSyncBoundary.maySyncProfileMetadata(profileId, mode))
         }
