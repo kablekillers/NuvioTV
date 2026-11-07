@@ -274,4 +274,25 @@ class ProfileMigrationCopyCoordinatorTest {
             assertTrue(ProfileMigrationJournal.read(dir) == null)
         } finally { dir.deleteRecursively() }
     }
+    @Test fun invalidAccountIdsNeverCreateMigrationFiles() {
+        val invalidIds = listOf("", " ", " account-a", "account-a ", "account\\nother", "account\\rother")
+        for (accountId in invalidIds) {
+            val dir = Files.createTempDirectory("profile-copy-invalid-account").toFile()
+            try {
+                val source = dir.resolve("settings_p2.preferences_pb")
+                source.writeText("preserve viewing data")
+                assertTrue("Must reject account ID: " + accountId, runCatching {
+                    ProfileMigrationCopyCoordinator.copyWithJournal(
+                        dir, accountId, 2, 5,
+                        mapOf("settings_p2.preferences_pb" to "settings_p5.preferences_pb")
+                    )
+                }.isFailure)
+                assertEquals("preserve viewing data", source.readText())
+                assertTrue(!dir.resolve("settings_p5.preferences_pb").exists())
+                assertTrue(!dir.resolve("profile_migration_journal").exists())
+                assertTrue(!dir.resolve("profile_migration_journal.tmp").exists())
+            } finally { dir.deleteRecursively() }
+        }
+    }
+
 }
