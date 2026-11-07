@@ -7,6 +7,28 @@ import org.junit.Test
 import java.nio.file.Files
 
 class ProfileMigrationJournalTest {
+    private fun advanceTo(directory: java.io.File, entry: ProfileMigrationJournal.Entry) {
+        for (phase in ProfileMigrationJournal.Phase.values()) {
+            ProfileMigrationJournal.write(directory, entry.copy(phase = phase))
+            if (phase == entry.phase) break
+        }
+    }
+
+    @Test fun newJournalCannotSkipPreparation() {
+        val directory = Files.createTempDirectory("profile-journal").toFile()
+        try {
+            val entry = ProfileMigrationJournal.Entry(
+                "account-a", 2, 7, ProfileMigrationJournal.Phase.COMPLETED
+            )
+            assertTrue(runCatching {
+                ProfileMigrationJournal.write(directory, entry)
+            }.isFailure)
+            assertFalse(directory.resolve("profile_migration_journal").exists())
+            advanceTo(directory, entry)
+            assertTrue(ProfileMigrationJournal.hasCompletedMigrationForAccount(directory, "account-a"))
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun missingJournalDoesNotProveCustomerMigrationCompleted() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
@@ -22,7 +44,7 @@ class ProfileMigrationJournalTest {
             val entry = ProfileMigrationJournal.Entry(
                 "account-a", 2, 5, ProfileMigrationJournal.Phase.VERIFIED
             )
-            ProfileMigrationJournal.write(directory, entry)
+            advanceTo(directory, entry)
             assertFalse(ProfileMigrationJournal.hasCompletedMigrationForAccount(
                 directory, "account-a"
             ))
@@ -45,12 +67,9 @@ class ProfileMigrationJournalTest {
     @Test fun completedJournalCannotAuthorizeAnotherAccount() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
-            ProfileMigrationJournal.write(
-                directory,
-                ProfileMigrationJournal.Entry(
-                    "account-a", 2, 7, ProfileMigrationJournal.Phase.COMPLETED
-                )
-            )
+            advanceTo(directory, ProfileMigrationJournal.Entry(
+                "account-a", 2, 7, ProfileMigrationJournal.Phase.COMPLETED
+            ))
             assertFalse(ProfileMigrationJournal.hasUnresolvedMigration(directory, "account-a"))
             assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory, "account-b"))
         } finally { directory.deleteRecursively() }
@@ -59,12 +78,9 @@ class ProfileMigrationJournalTest {
     @Test fun pendingJournalBlocksEvenItsOriginalAccount() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
-            ProfileMigrationJournal.write(
-                directory,
-                ProfileMigrationJournal.Entry(
-                    "account-a", 2, 7, ProfileMigrationJournal.Phase.VERIFIED
-                )
-            )
+            advanceTo(directory, ProfileMigrationJournal.Entry(
+                "account-a", 2, 7, ProfileMigrationJournal.Phase.VERIFIED
+            ))
             assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory, "account-a"))
             assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory, "account-b"))
         } finally { directory.deleteRecursively() }
@@ -151,7 +167,7 @@ class ProfileMigrationJournalTest {
             val verified = ProfileMigrationJournal.Entry(
                 "account-a", 2, 7, ProfileMigrationJournal.Phase.VERIFIED
             )
-            ProfileMigrationJournal.write(directory, verified)
+            advanceTo(directory, verified)
             assertTrue(runCatching {
                 ProfileMigrationJournal.write(
                     directory, verified.copy(phase = ProfileMigrationJournal.Phase.COPYING)
@@ -194,12 +210,9 @@ class ProfileMigrationJournalTest {
     @Test fun completedJournalDoesNotOverrideInterruptedTemporaryWrite() {
         val directory = Files.createTempDirectory("profile-journal").toFile()
         try {
-            ProfileMigrationJournal.write(
-                directory,
-                ProfileMigrationJournal.Entry(
-                    "account-a", 2, 7, ProfileMigrationJournal.Phase.COMPLETED
-                )
-            )
+            advanceTo(directory, ProfileMigrationJournal.Entry(
+                "account-a", 2, 7, ProfileMigrationJournal.Phase.COMPLETED
+            ))
             assertFalse(ProfileMigrationJournal.hasUnresolvedMigration(directory))
             directory.resolve("profile_migration_journal.tmp").writeText("interrupted")
             assertTrue(ProfileMigrationJournal.hasUnresolvedMigration(directory))
