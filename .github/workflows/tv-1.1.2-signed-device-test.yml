@@ -63,12 +63,21 @@ jobs:
             echo "CI_USE_DEBUG_SIGNING=false"
           } >> "$GITHUB_ENV"
 
-      - name: Configure deterministic Trakt credentials for unit tests
-        run: |
-          printf '\nTRAKT_CLIENT_ID=ci-unit-test-client\nTRAKT_CLIENT_SECRET=ci-unit-test-secret\n' >> local.properties
+      - name: Run release unit tests with CI-only Trakt credentials
+        run: bash ./gradlew :app:testFullReleaseUnitTest -PciTraktTestCredentials=true --stacktrace --no-daemon
 
-      - name: Run release unit tests and build signed test APK
-        run: bash ./gradlew :app:testFullReleaseUnitTest -PciTraktTestCredentials=true :app:assembleFullRelease --stacktrace --no-daemon
+      - name: Require real Trakt credentials for signed APK
+        run: |
+          set -euo pipefail
+          for name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET; do
+            if ! grep -Eq "^[[:space:]]*${name}[[:space:]]*=[[:space:]]*[^[:space:]]+" local.properties; then
+              echo "::error::Missing $name in LOCAL_PROPERTIES_BASE64; refusing to package CI test credentials"
+              exit 1
+            fi
+          done
+
+      - name: Build signed APK with real application credentials
+        run: bash ./gradlew :app:assembleFullRelease --stacktrace --no-daemon
 
       - name: Verify signature and version without publishing
         run: |
