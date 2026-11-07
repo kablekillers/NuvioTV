@@ -1,6 +1,11 @@
 name: Kable Killers TV 1.1.2 Signed Device Test (No Publish)
 
 on:
+  push:
+    branches:
+      - tv-1.1.2-performance-test
+    paths:
+      - .github/workflows/tv-1.1.2-signed-device-test.yml
   workflow_dispatch:
 
 permissions:
