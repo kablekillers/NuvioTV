@@ -175,7 +175,11 @@ class CollectionSyncService @Inject constructor(
             isSyncingFromRemote = true
             try {
                 requireSyncIdentity(profileId, fence, identity)
-                collectionsDataStore.setCollections(remoteCollections)
+                collectionsDataStore.setCollections(
+                    remoteCollections,
+                    profileId = profileId,
+                    validateBeforeMutation = { requireSyncIdentity(profileId, fence, identity) }
+                )
             } finally {
                 isSyncingFromRemote = false
             }
