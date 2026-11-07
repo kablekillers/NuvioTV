@@ -13,6 +13,14 @@ import java.io.File
 import java.nio.file.Files
 
 class ProfileMigrationCompletionCoordinatorTest {
+    private fun writeJournalThrough(directory: java.io.File, entry: ProfileMigrationJournal.Entry) {
+        for (phase in ProfileMigrationJournal.Phase.values()) {
+            ProfileMigrationJournal.write(directory, entry.copy(phase = phase))
+            if (phase == entry.phase) break
+        }
+    }
+
+
     private val originals = listOf(
         UserProfile(id = 1, name = "Main", avatarColorHex = "#123456"),
         UserProfile(id = 2, name = "Personal", avatarColorHex = "#234567")
@@ -25,7 +33,7 @@ class ProfileMigrationCompletionCoordinatorTest {
         val dir = Files.createTempDirectory("profile-completion").toFile()
         dir.resolve("history_p2.preferences_pb").writeText("preserve personal history")
         dir.resolve("history_p5.preferences_pb").writeText("preserve personal history")
-        ProfileMigrationJournal.write(
+        writeJournalThrough(
             dir, ProfileMigrationJournal.Entry(
                 "customer-a", 2, 5, ProfileMigrationJournal.Phase.VERIFIED
             )
