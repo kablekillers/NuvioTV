@@ -515,6 +515,8 @@ class WatchedItemsSyncService @Inject constructor(
         profileId: Int
     ): Result<Unit> {
         return try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val distinctKeys = keys.filterNot { ServerItemRef.isServerId(it.contentId) }.toSet()
             if (distinctKeys.isEmpty()) return Result.success(Unit)
 
@@ -531,10 +533,12 @@ class WatchedItemsSyncService @Inject constructor(
                 })
                 putSyncOriginClientId(syncClientIdentity)
             }
+            fence.requireCurrent(identity)
             withJwtRefreshRetry {
                 postgrest.rpc("sync_delete_watched_items", params)
             }
 
+            fence.requireCurrent(identity)
             mutationStore.acknowledgeWatchedDeletes(distinctKeys, profileId)
             Log.d(TAG, "Deleted ${distinctKeys.size} watched items from remote for profile $profileId")
             Result.success(Unit)
