@@ -126,6 +126,12 @@ class ProfileSyncService @Inject constructor(
             // Capture the effective mode for the whole pull. A migration or
             // mode transition must invalidate the response, not reinterpret it.
             val modeAtStart = deviceLocalProfilesEnabled
+            // The master login is shared across customer devices. No cloud profile
+            // metadata, including Main, is device-specific. Never pull it into
+            // customer-local profiles; shared addons/catalogs sync separately.
+            if (modeAtStart) {
+                return@withLock Result.success(profileManager.profiles.value)
+            }
             if (!force && userId != null &&
                 pullFreshness.deviceLocalModeEnabled == modeAtStart &&
                 pullFreshness.isRecent(userId, now)) {
