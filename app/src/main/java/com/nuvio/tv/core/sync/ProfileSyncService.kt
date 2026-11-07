@@ -174,14 +174,10 @@ class ProfileSyncService @Inject constructor(
                 }
 
                 if (profiles.isNotEmpty()) {
-                    if (modeAtStart) {
-                        profiles.firstOrNull { it.id == 1 }?.let { main ->
-                            profileDataStore.mergeRemoteMainProfile(main)
-                        }
-                    } else {
-                        profileDataStore.replaceAllProfiles(profiles)
-                    }
-                    Log.d(TAG, "Applied remote profile metadata (deviceLocalMode=$modeAtStart)")
+                    // Customer mode returns before the RPC; never merge remote
+                    // Main metadata into a customer's local Main profile.
+                    profileDataStore.replaceAllProfiles(profiles)
+                    Log.d(TAG, "Applied legacy remote profile metadata")
                 }
 
                 val currentUserId = (authManager.authState.value as? AuthState.FullAccount)?.userId
