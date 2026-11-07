@@ -63,8 +63,12 @@ jobs:
             echo "CI_USE_DEBUG_SIGNING=false"
           } >> "$GITHUB_ENV"
 
+      - name: Configure deterministic Trakt credentials for unit tests
+        run: |
+          printf '\nTRAKT_CLIENT_ID=ci-unit-test-client\nTRAKT_CLIENT_SECRET=ci-unit-test-secret\n' >> local.properties
+
       - name: Run release unit tests and build signed test APK
-        run: bash ./gradlew :app:testFullReleaseUnitTest :app:assembleFullRelease --stacktrace --no-daemon
+        run: bash ./gradlew :app:testFullReleaseUnitTest -PciTraktTestCredentials=true :app:assembleFullRelease --stacktrace --no-daemon
 
       - name: Verify signature and version without publishing
         run: |
