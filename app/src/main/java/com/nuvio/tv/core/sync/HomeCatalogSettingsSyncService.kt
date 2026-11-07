@@ -228,9 +228,19 @@ class HomeCatalogSettingsSyncService @Inject constructor(
         }
 
         withJwtRefreshRetry {
+            // JWT refresh may suspend while the active profile or account changes.
+            // Check again on every attempt, immediately before the shared write.
+            check(SharedLayoutScope.canEditConfiguration(
+                profileManager.activeProfileId.value, deviceLocalProfilesEnabled
+            ) && currentScope(syncScope.profileId) == syncScope) {
+                "Shared catalog write is no longer authorized for this profile and account"
+            }
             postgrest.rpc("sync_push_home_catalog_settings", params)
         }
-        cachedSharedSettings = CachedSharedSettings(scope = syncScope, settingsJson = jsonElement)
+        // Never cache an upload as belonging to an account that changed in flight.
+        if (currentScope(syncScope.profileId) == syncScope) {
+            cachedSharedSettings = CachedSharedSettings(scope = syncScope, settingsJson = jsonElement)
+        }
     }
 
     private suspend fun fetchRemoteBlob(profileId: Int): SupabaseHomeCatalogSettingsBlob? {
