@@ -13,9 +13,12 @@ internal class ProfileSyncIdentityFence(
 ) {
     data class Snapshot(val verifiedAccountId: String, val mode: AccountProfileMode)
 
+    private fun validAccountId(id: String?): Boolean =
+        !id.isNullOrBlank() && id == id.trim() && id.none { it.isISOControl() }
+
     fun capture(): Snapshot {
         val id = currentVerifiedAccountId()
-        require(!id.isNullOrBlank() && id == id.trim()) {
+        require(validAccountId(id)) {
             "Personal-state sync requires a verified account"
         }
         val mode = currentMode()
@@ -26,7 +29,8 @@ internal class ProfileSyncIdentityFence(
     }
 
     fun isCurrent(snapshot: Snapshot): Boolean =
-        currentVerifiedAccountId() == snapshot.verifiedAccountId &&
+        validAccountId(snapshot.verifiedAccountId) &&
+            currentVerifiedAccountId() == snapshot.verifiedAccountId &&
             currentMode() == snapshot.mode
 
     fun requireCurrent(snapshot: Snapshot) {
