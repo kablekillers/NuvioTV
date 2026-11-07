@@ -11,11 +11,18 @@ import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.nuvio.tv.R
+import com.nuvio.tv.core.profile.DeviceProfileMetadataRemapPlanner
+import com.nuvio.tv.core.profile.ProfileMigrationJournal
+import com.nuvio.tv.core.profile.ProfileMigrationExclusiveLock
+import com.nuvio.tv.core.profile.ProfileMigrationMetadataReconciliation
+import com.nuvio.tv.core.profile.ProfileMigrationRecoveryVerifier
+import java.io.File
 import com.nuvio.tv.domain.model.UserProfile
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -132,6 +139,140 @@ class ProfileDataStore @Inject constructor(
                 prefs[activeProfileIdKey] = 1
             }
         }
+    }
+
+    /**
+     * Device-local profile mode: refresh only the shared Main profile.
+     * Never replace local secondary profiles or reset the selected local profile.
+     * The caller must filter remote profiles to Main before invoking this method.
+     */
+    suspend fun mergeRemoteMainProfile(mainProfile: UserProfile) {
+        require(mainProfile.id == 1) { "Only the Main profile may be merged from cloud" }
+        dataStore.edit { prefs ->
+            val local = parseProfiles(prefs[profilesJsonKey])
+            val merged = local.map { if (it.id == 1) mainProfile else it }
+            prefs[profilesJsonKey] = serializeProfiles(normalizeProfiles(merged))
+        }
+    }
+
+    /**
+     * Migration-only metadata commit, deliberately not called from startup.
+     *
+     * The copy-only coordinator must first verify all profile-scoped files and
+     * leave a VERIFIED journal for this exact account and ID remap. This edit
+     * atomically updates profile metadata and active selection. If anything has
+     * changed since the caller captured the snapshot, leave data untouched.
+     *
+     * The migration journal intentionally remains VERIFIED afterwards: an
+     * independent recovery/reconciliation stage must validate persistence and
+     * explicitly mark COMPLETED before enabling customer device-local mode.
+     */
+    suspend fun commitVerifiedProfileMetadataRemap(
+        verifiedAccountId: String,
+        sourceProfileId: Int,
+        targetProfileId: Int,
+        expectedProfiles: List<UserProfile>,
+        expectedActiveProfileId: Int,
+        verifiedFileManifest: Map<String, String>,
+        currentVerifiedAccountId: () -> String?
+    ) {
+        require(verifiedAccountId.isNotBlank() &&
+            verifiedAccountId == verifiedAccountId.trim() &&
+            currentVerifiedAccountId() == verifiedAccountId) {
+            "The same verified account must be signed in before migration"
+        }
+        val directory = File(context.filesDir, "datastore")
+        // Serialize the metadata stage with journal creation and completion.
+        // This advisory lock does not stop ordinary DataStore writers; the
+        // future orchestrator must quiesce them before beginning migration.
+        val committed = ProfileMigrationExclusiveLock.tryWithSuspendingLock(directory) {
+            dataStore.edit { prefs ->
+            // DataStore edits may be queued. Never trust account identity
+            // captured before this suspend point if logout/login occurred.
+            check(currentVerifiedAccountId() == verifiedAccountId) {
+                "The signed-in account changed during profile migration"
+            }
+            val journal = ProfileMigrationJournal.read(directory)
+                ?: error("No verified profile migration journal")
+            check(journal.accountId == verifiedAccountId &&
+                journal.sourceId == sourceProfileId &&
+                journal.targetId == targetProfileId &&
+                journal.phase == ProfileMigrationJournal.Phase.VERIFIED) {
+                "Profile migration journal is not verified for this account and remap"
+            }
+            check(!File(directory, "profile_migration_journal.tmp").exists()) {
+                "Unresolved migration journal temporary file"
+            }
+
+            check(ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                directory = directory,
+                verifiedAccountId = verifiedAccountId,
+                sourceProfileId = sourceProfileId,
+                targetProfileId = targetProfileId,
+                manifest = verifiedFileManifest
+            )) {
+                "Profile-scoped file inventory or checksum verification failed"
+            }
+
+            val currentProfiles = parseProfiles(prefs[profilesJsonKey])
+            val currentActiveId = prefs[activeProfileIdKey] ?: 1
+            check(currentProfiles == expectedProfiles &&
+                currentActiveId == expectedActiveProfileId) {
+                "Profile metadata changed during migration; reconciliation required"
+            }
+            val proposed = DeviceProfileMetadataRemapPlanner.propose(
+                existingProfiles = currentProfiles,
+                activeProfileId = currentActiveId,
+                localIdRemap = mapOf(sourceProfileId to targetProfileId)
+            )
+            // Recheck after potentially slow checksum and metadata validation,
+            // before mutating either key in the atomic DataStore edit.
+            check(currentVerifiedAccountId() == verifiedAccountId) {
+                "The signed-in account changed before metadata commit"
+            }
+            prefs[profilesJsonKey] = serializeProfiles(proposed.profiles)
+            prefs[activeProfileIdKey] = proposed.activeProfileId
+            }
+            true
+        }
+        check(committed == true) { "Another migration holds the profile storage lock" }
+    }
+
+    /**
+     * Read-only checkpoint after the metadata commit. This does not complete
+     * migration or authorize device-local mode. A future recovery coordinator
+     * must independently reconcile journal ownership and every data source.
+     */
+    suspend fun verifyPersistedProfileMetadataRemap(
+        verifiedAccountId: String,
+        sourceProfileId: Int,
+        targetProfileId: Int,
+        originalProfiles: List<UserProfile>,
+        originalActiveProfileId: Int,
+        verifiedFileManifest: Map<String, String>
+    ): Boolean {
+        return runCatching {
+            val directory = File(context.filesDir, "datastore")
+            if (!ProfileMigrationRecoveryVerifier.verifyCopiedFiles(
+                    directory,
+                    verifiedAccountId,
+                    sourceProfileId,
+                    targetProfileId,
+                    verifiedFileManifest
+                )
+            ) return@runCatching false
+
+            val persisted = dataStore.data.first()
+            val persistedJson = persisted[profilesJsonKey] ?: return@runCatching false
+            ProfileMigrationMetadataReconciliation.matches(
+                originalProfiles = originalProfiles,
+                originalActiveId = originalActiveProfileId,
+                sourceId = sourceProfileId,
+                targetId = targetProfileId,
+                persistedProfiles = parseProfiles(persistedJson),
+                persistedActiveId = persisted[activeProfileIdKey] ?: 1
+            )
+        }.getOrDefault(false)
     }
 
     suspend fun clearAll() {

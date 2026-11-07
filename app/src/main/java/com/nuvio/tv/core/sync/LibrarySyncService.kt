@@ -1,6 +1,10 @@
 package com.nuvio.tv.core.sync
 
 import android.util.Log
+import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.profile.ProfileSyncIdentityFence
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 import com.nuvio.tv.core.sync.library.LIBRARY_DELTA_PAGE_SIZE
 import com.nuvio.tv.core.sync.library.LIBRARY_SNAPSHOT_PAGE_SIZE
 import com.nuvio.tv.core.sync.library.LibrarySyncLocalStore
@@ -29,18 +33,37 @@ data class LibraryRemoteSyncResult(
 @Singleton
 class LibrarySyncService @Inject constructor(
     private val remoteDataSource: LibrarySyncRemoteDataSource,
-    private val localStore: LibrarySyncLocalStore
+    private val localStore: LibrarySyncLocalStore,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
+    private val authManager: AuthManager
 ) {
     private val syncMutex = Mutex()
 
+    private fun identityFence() = ProfileSyncIdentityFence(
+        { authManager.verifiedProfileAccountId },
+        { accountProfileModeProvider.currentMode() }
+    )
+
+    private fun mayCloudSync(profileId: Int): Boolean =
+        profileId > 0 && AccountProfilePolicy.maySyncViewingState(profileId, accountProfileModeProvider.currentMode())
+
+    private fun requireCloudSync(profileId: Int) {
+        check(mayCloudSync(profileId)) { "Cloud library sync is disabled for this profile" }
+    }
+
     suspend fun pushToRemote(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
+            if (!mayCloudSync(profileId)) return@withLock Result.success(Unit)
             try {
+                val fence = identityFence()
+                val identity = fence.capture()
                 var state = localStore.getSyncState(profileId)
                 if (!state.deltaInitialized) {
                     state = localStore.queueAllItemsForPush(profileId)
                 }
-                pushPendingMutations(profileId, state)
+                fence.requireCurrent(identity)
+                pushPendingMutations(profileId, state) { fence.requireCurrent(identity) }
+                fence.requireCurrent(identity)
                 Result.success(Unit)
             } catch (error: CancellationException) {
                 throw error
@@ -55,7 +78,12 @@ class LibrarySyncService @Inject constructor(
         profileId: Int
     ): Result<LibraryRemoteSyncResult> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
+            if (!mayCloudSync(profileId)) return@withLock Result.failure(
+                IllegalStateException("Cloud library sync is disabled for this profile")
+            )
             try {
+                val fence = identityFence()
+                val identity = fence.capture()
                 var state = localStore.getSyncState(profileId)
                 var usedSnapshot = false
                 var preservedLocalItems = false
@@ -63,11 +91,13 @@ class LibrarySyncService @Inject constructor(
                 var appliedDeletes = 0
 
                 if (!state.deltaInitialized) {
+                    requireCloudSync(profileId)
                     val cursorBeforeSnapshot = remoteDataSource.getDeltaCursor(profileId)
                     val remoteItems = remoteDataSource.pullSnapshot(
                         profileId = profileId,
                         pageSize = LIBRARY_SNAPSHOT_PAGE_SIZE
                     )
+                    fence.requireCurrent(identity)
                     val snapshotResult = localStore.applyRemoteSnapshot(
                         profileId = profileId,
                         remoteItems = remoteItems,
@@ -82,6 +112,8 @@ class LibrarySyncService @Inject constructor(
                     initialCursor = state.deltaCursorEventId,
                     pageSize = LIBRARY_DELTA_PAGE_SIZE,
                     fetchPage = { cursor, limit ->
+                        requireCloudSync(profileId)
+                        fence.requireCurrent(identity)
                         remoteDataSource.pullDelta(
                             profileId = profileId,
                             sinceEventId = cursor,
@@ -89,6 +121,7 @@ class LibrarySyncService @Inject constructor(
                         )
                     },
                     applyPage = { events, _ ->
+                        fence.requireCurrent(identity)
                         val deltaResult = localStore.applyRemoteDelta(
                             profileId = profileId,
                             events = events
@@ -100,7 +133,9 @@ class LibrarySyncService @Inject constructor(
                 )
 
                 state = localStore.getSyncState(profileId)
-                val pushed = pushPendingMutations(profileId, state)
+                fence.requireCurrent(identity)
+                val pushed = pushPendingMutations(profileId, state) { fence.requireCurrent(identity) }
+                fence.requireCurrent(identity)
                 val result = LibraryRemoteSyncResult(
                     appliedUpserts = appliedUpserts,
                     appliedDeletes = appliedDeletes,
@@ -127,14 +162,20 @@ class LibrarySyncService @Inject constructor(
 
     private suspend fun pushPendingMutations(
         profileId: Int,
-        state: LibrarySyncState
+        state: LibrarySyncState,
+        requireIdentity: () -> Unit
     ): Pair<Int, Int> {
         if (!state.hasPendingMutations) return 0 to 0
 
         val upsertItems = LibrarySyncReducer.pendingUpsertItems(state).filterNot { ServerItemRef.isServerId(it.id) }
         val deleteKeys = state.pendingDeleteKeys.filterNot { ServerItemRef.isServerId(it.contentId) }
+        requireCloudSync(profileId)
+        requireIdentity()
         remoteDataSource.pushItems(profileId, upsertItems)
+        requireCloudSync(profileId)
+        requireIdentity()
         remoteDataSource.deleteItems(profileId, deleteKeys)
+        requireIdentity()
         val acknowledged = localStore.acknowledgePush(
             profileId = profileId,
             expectedMutationRevision = state.mutationRevision

@@ -3,6 +3,8 @@ package com.nuvio.tv.core.sync
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 import com.nuvio.tv.data.local.AddonPreferences
 import com.nuvio.tv.data.remote.supabase.SupabaseAddon
 import io.github.jan.supabase.postgrest.Postgrest
@@ -24,6 +26,7 @@ class AddonSyncService @Inject constructor(
     private val authManager: AuthManager,
     private val addonPreferences: AddonPreferences,
     private val profileManager: ProfileManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val syncClientIdentity: SyncClientIdentity
 ) {
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
@@ -45,6 +48,9 @@ class AddonSyncService @Inject constructor(
             val profileId = profileManager.activeProfileId.value
             Log.d(TAG, "pushToRemote: activeProfile=${activeProfile?.id} isPrimary=${activeProfile?.isPrimary} usesPrimaryAddons=${activeProfile?.usesPrimaryAddons} profileId=$profileId")
 
+            if (!AccountProfilePolicy.canEditSharedConfiguration(profileId, accountProfileModeProvider.currentMode())) {
+                return@withContext Result.success(Unit)
+            }
             if (activeProfile != null && !activeProfile.isPrimary && activeProfile.usesPrimaryAddons) {
                 Log.d(TAG, "Profile ${activeProfile.id} uses primary addons, skipping push")
                 return@withContext Result.success(Unit)
@@ -94,7 +100,8 @@ class AddonSyncService @Inject constructor(
                 )
 
             val activeProfile = profileManager.activeProfile
-            val profileId = if (activeProfile != null && !activeProfile.isPrimary && activeProfile.usesPrimaryAddons) 1
+            val profileId = if (AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())) 1
+                            else if (activeProfile != null && !activeProfile.isPrimary && activeProfile.usesPrimaryAddons) 1
                             else profileManager.activeProfileId.value
 
             val remoteAddons = withJwtRefreshRetry {

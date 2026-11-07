@@ -4,6 +4,7 @@ import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingProgressProviderRegistry
 import com.nuvio.tv.data.local.TraktSettingsDataStore
+import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.domain.model.WatchProgress
@@ -134,20 +135,302 @@ class WatchStateSyncServiceTest {
         }
     }
 
+    @Test
+    fun `progress push discards RPC result if account switches before acknowledgment`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var current = "account-a"
+        every { auth.verifiedProfileAccountId } answers { current }
+        val postgrest = mockk<Postgrest>()
+        val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
+        val pending = progress("pending")
+        coEvery { mutationStore.pendingProgressDeletes(2) } returns emptySet()
+        coEvery { mutationStore.pendingProgressUpserts(2) } returns mapOf("pending" to pending)
+        coEvery { postgrest.rpc(any(), any<JsonObject>()) } coAnswers {
+            current = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val service = progressService(postgrest, mockk(relaxed = true), mutationStore,
+            authManager = auth)
+
+        assertTrue(service.pushToRemote(2).isFailure)
+        coVerify(exactly = 0) {
+            mutationStore.acknowledgeProgressUpserts(any(), any())
+        }
+    }
+
+    @Test
+    fun `watched push discards RPC result if account switches before acknowledgment`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var current = "account-a"
+        every { auth.verifiedProfileAccountId } answers { current }
+        val postgrest = mockk<Postgrest>()
+        val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
+        val pending = watched("pending")
+        coEvery { mutationStore.pendingWatchedDeletes(2) } returns emptySet()
+        coEvery { mutationStore.pendingWatchedUpserts(2) } returns mapOf(pending.mutationKey() to pending)
+        coEvery { postgrest.rpc(any(), any<JsonObject>()) } coAnswers {
+            current = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val service = watchedService(postgrest, mockk(relaxed = true), mutationStore,
+            authManager = auth)
+
+        assertTrue(service.pushToRemote(2).isFailure)
+        coVerify(exactly = 0) {
+            mutationStore.acknowledgeWatchedUpserts(any(), any())
+        }
+    }
+
+    @Test
+    fun `progress batch stops before upsert if login switches after delete`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var current = "account-a"
+        every { auth.verifiedProfileAccountId } answers { current }
+        val postgrest = mockk<Postgrest>()
+        val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
+        val calls = mutableListOf<String>()
+        coEvery { mutationStore.pendingProgressDeletes(2) } returns setOf("old")
+        coEvery { mutationStore.pendingProgressUpserts(2) } returns mapOf("new" to progress("new"))
+        coEvery { postgrest.rpc(any(), any<JsonObject>()) } coAnswers {
+            calls += firstArg<String>()
+            current = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val service = progressService(postgrest, mockk(relaxed = true), mutationStore,
+            authManager = auth)
+        assertTrue(service.pushToRemote(2).isFailure)
+        assertEquals(listOf("sync_delete_watch_progress"), calls)
+        coVerify(exactly = 0) { mutationStore.acknowledgeProgressUpserts(any(), any()) }
+        coVerify(exactly = 0) { mutationStore.acknowledgeProgressDeletes(any(), any()) }
+    }
+
+    @Test
+    fun `watched batch stops before upsert if login switches after delete`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var current = "account-a"
+        every { auth.verifiedProfileAccountId } answers { current }
+        val postgrest = mockk<Postgrest>()
+        val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
+        val calls = mutableListOf<String>()
+        coEvery { mutationStore.pendingWatchedDeletes(2) } returns setOf(watched("old").mutationKey())
+        coEvery { mutationStore.pendingWatchedUpserts(2) } returns
+            mapOf(watched("new").mutationKey() to watched("new"))
+        coEvery { postgrest.rpc(any(), any<JsonObject>()) } coAnswers {
+            calls += firstArg<String>()
+            current = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val service = watchedService(postgrest, mockk(relaxed = true), mutationStore,
+            authManager = auth)
+        assertTrue(service.pushToRemote(2).isFailure)
+        assertEquals(listOf("sync_delete_watched_items"), calls)
+        coVerify(exactly = 0) { mutationStore.acknowledgeWatchedUpserts(any(), any()) }
+        coVerify(exactly = 0) { mutationStore.acknowledgeWatchedDeletes(any(), any()) }
+    }
+
+    @Test
+    fun `progress snapshot skips remote work after login changes during provider selection`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } coAnswers {
+            account = "account-b"
+            WatchProgressSource.NUVIO_SYNC
+        }
+        val remote = mockk<Postgrest>()
+        val preferences = mockk<WatchProgressPreferences>(relaxed = true)
+        val service = progressService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncSnapshotFromRemote(2).isFailure)
+        coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
+        coVerify(exactly = 0) { preferences.mergeRemoteEntries(any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
+    @Test
+    fun `watched snapshot skips remote work after login changes during provider selection`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } coAnswers {
+            account = "account-b"
+            WatchProgressSource.NUVIO_SYNC
+        }
+        val remote = mockk<Postgrest>()
+        val preferences = mockk<WatchedItemsPreferences>(relaxed = true)
+        val service = watchedService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncSnapshotFromRemote(2).isFailure)
+        coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
+        coVerify(exactly = 0) { preferences.replaceWithRemoteItems(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
+    @Test
+    fun `progress snapshot rejects fallback after account changes during cursor request`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } returns WatchProgressSource.NUVIO_SYNC
+        val remote = mockk<Postgrest>()
+        val requests = mutableListOf<String>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            requests.add(firstArg())
+            account = "account-b"
+            throw IllegalStateException("cursor failed during account switch")
+        }
+        val preferences = mockk<WatchProgressPreferences>(relaxed = true)
+        val service = progressService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncSnapshotFromRemote(2).isFailure)
+        assertEquals(listOf("sync_get_watch_progress_delta_cursor"), requests)
+        coVerify(exactly = 0) { preferences.mergeRemoteEntries(any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
+    @Test
+    fun `watched snapshot rejects fallback after account changes during cursor request`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } returns WatchProgressSource.NUVIO_SYNC
+        val remote = mockk<Postgrest>()
+        val requests = mutableListOf<String>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            requests.add(firstArg())
+            account = "account-b"
+            throw IllegalStateException("cursor failed during account switch")
+        }
+        val preferences = mockk<WatchedItemsPreferences>(relaxed = true)
+        val service = watchedService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncSnapshotFromRemote(2).isFailure)
+        assertEquals(listOf("sync_get_watched_items_delta_cursor"), requests)
+        coVerify(exactly = 0) { preferences.replaceWithRemoteItems(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
+    @Test
+    fun `progress delta rejects account switch during provider selection before RPC`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } coAnswers {
+            account = "account-b"
+            WatchProgressSource.NUVIO_SYNC
+        }
+        val remote = mockk<Postgrest>()
+        val preferences = mockk<WatchProgressPreferences>(relaxed = true)
+        coEvery { preferences.isDeltaInitialized(2) } returns true
+        coEvery { preferences.getDeltaCursor(2) } returns 10L
+        val service = progressService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncDeltaFromRemote(2).isFailure)
+        coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
+    @Test
+    fun `watched delta rejects account switch during provider selection before RPC`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val trakt = mockk<TraktSettingsDataStore>()
+        coEvery { trakt.getWatchProgressSource(2) } coAnswers {
+            account = "account-b"
+            WatchProgressSource.NUVIO_SYNC
+        }
+        val remote = mockk<Postgrest>()
+        val preferences = mockk<WatchedItemsPreferences>(relaxed = true)
+        coEvery { preferences.isDeltaInitialized(2) } returns true
+        coEvery { preferences.getDeltaCursor(2) } returns 10L
+        val service = watchedService(remote, preferences, mockk(relaxed = true),
+            authManager = auth, traktSettingsDataStore = trakt)
+
+        assertTrue(service.syncDeltaFromRemote(2).isFailure)
+        coVerify(exactly = 0) { remote.rpc(any(), any<JsonObject>()) }
+        coVerify(exactly = 0) { preferences.setDeltaState(any(), any(), any()) }
+    }
+
+    @Test
+    fun `single progress push never acknowledges after account switch`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val remote = mockk<Postgrest>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            account = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val mutations = mockk<WatchStateMutationStore>(relaxed = true)
+        val service = progressService(remote, mockk(relaxed = true), mutations, authManager = auth)
+
+        assertTrue(service.pushSingleToRemote("one", progress("one"), 2).isFailure)
+        coVerify(exactly = 0) { mutations.acknowledgeProgressUpserts(any(), any()) }
+    }
+
+    @Test
+    fun `progress delete never acknowledges after account switch`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val remote = mockk<Postgrest>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            account = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val mutations = mockk<WatchStateMutationStore>(relaxed = true)
+        val service = progressService(remote, mockk(relaxed = true), mutations, authManager = auth)
+
+        assertTrue(service.deleteFromRemote(listOf("one"), 2).isFailure)
+        coVerify(exactly = 0) { mutations.acknowledgeProgressDeletes(any(), any()) }
+    }
+
+    @Test
+    fun `watched delete never acknowledges after account switch`() = runTest {
+        val auth = mockk<AuthManager>(relaxed = true)
+        var account = "account-a"
+        every { auth.verifiedProfileAccountId } answers { account }
+        val remote = mockk<Postgrest>()
+        coEvery { remote.rpc(any(), any<JsonObject>()) } coAnswers {
+            account = "account-b"
+            mockk<PostgrestResult>(relaxed = true)
+        }
+        val mutations = mockk<WatchStateMutationStore>(relaxed = true)
+        val service = watchedService(remote, mockk(relaxed = true), mutations, authManager = auth)
+
+        assertTrue(service.deleteFromRemote("one", null, null, 2).isFailure)
+        coVerify(exactly = 0) { mutations.acknowledgeWatchedDeletes(any(), any()) }
+    }
+
     private fun progressService(
         postgrest: Postgrest,
         preferences: WatchProgressPreferences,
         mutationStore: WatchStateMutationStore,
-        canRefreshJwt: Boolean = false
+        canRefreshJwt: Boolean = false,
+        authManager: AuthManager = mockk<AuthManager>(relaxed = true).also {
+            every { it.verifiedProfileAccountId } returns "verified-sync-test-account"
+        },
+        traktSettingsDataStore: TraktSettingsDataStore = mockk(relaxed = true)
     ): WatchProgressSyncService {
-        val authManager = mockk<AuthManager>(relaxed = true)
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns canRefreshJwt
         return WatchProgressSyncService(
             authManager = authManager,
+            accountProfileModeProvider = mockk(relaxed = true),
             postgrest = postgrest,
             watchProgressPreferences = preferences,
             trackingProviderRegistry = TrackingProgressProviderRegistry(emptySet()),
-            traktSettingsDataStore = mockk(relaxed = true),
+            traktSettingsDataStore = traktSettingsDataStore,
             profileManager = profileManager(),
             syncClientIdentity = syncClientIdentity(),
             mutationStore = mutationStore
@@ -157,16 +440,20 @@ class WatchStateSyncServiceTest {
     private fun watchedService(
         postgrest: Postgrest,
         preferences: WatchedItemsPreferences,
-        mutationStore: WatchStateMutationStore
+        mutationStore: WatchStateMutationStore,
+        authManager: AuthManager = mockk<AuthManager>(relaxed = true).also {
+            every { it.verifiedProfileAccountId } returns "verified-sync-test-account"
+        },
+        traktSettingsDataStore: TraktSettingsDataStore = mockk(relaxed = true)
     ): WatchedItemsSyncService {
-        val authManager = mockk<AuthManager>(relaxed = true)
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns false
         return WatchedItemsSyncService(
             authManager = authManager,
+            accountProfileModeProvider = mockk(relaxed = true),
             postgrest = postgrest,
             watchedItemsPreferences = preferences,
             trackingProviderRegistry = TrackingProgressProviderRegistry(emptySet()),
-            traktSettingsDataStore = mockk(relaxed = true),
+            traktSettingsDataStore = traktSettingsDataStore,
             profileManager = profileManager(),
             syncClientIdentity = syncClientIdentity(),
             mutationStore = mutationStore

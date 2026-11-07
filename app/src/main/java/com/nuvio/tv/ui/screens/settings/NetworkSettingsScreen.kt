@@ -433,6 +433,41 @@ fun AdvancedSettingsContent(
             }
         }
 
+        item(key = "cache_settings") {
+            SettingsGroupCard(
+                modifier = Modifier.fillMaxWidth(),
+                title = stringResource(R.string.advanced_cache_group)
+            ) {
+                SettingsToggleRow(
+                    title = stringResource(R.string.advanced_cache_auto_clear),
+                    subtitle = stringResource(R.string.advanced_cache_auto_clear_subtitle),
+                    checked = uiState.autoClearCacheOnStartup,
+                    onToggle = {
+                        viewModel.onEvent(AdvancedSettingsEvent.SetAutoClearCacheOnStartup(!uiState.autoClearCacheOnStartup))
+                    }
+                )
+                SettingsToggleRow(
+                    title = stringResource(R.string.advanced_cache_smart_cleanup),
+                    subtitle = stringResource(R.string.advanced_cache_smart_cleanup_subtitle),
+                    checked = uiState.smartCacheCleanup,
+                    onToggle = {
+                        viewModel.onEvent(AdvancedSettingsEvent.SetSmartCacheCleanup(!uiState.smartCacheCleanup))
+                    }
+                )
+                SettingsActionRow(
+                    title = stringResource(R.string.advanced_cache_clear_now),
+                    subtitle = stringResource(R.string.advanced_cache_clear_now_subtitle),
+                    value = when {
+                        uiState.clearingCache -> stringResource(R.string.advanced_cache_clearing)
+                        uiState.cacheClearSucceeded == true -> stringResource(R.string.advanced_cache_cleared)
+                        uiState.cacheClearSucceeded == false -> stringResource(R.string.advanced_cache_clear_failed)
+                        else -> null
+                    },
+                    onClick = { viewModel.onEvent(AdvancedSettingsEvent.ClearCacheNow) }
+                )
+            }
+        }
+
         item(key = "performance_settings") {
             SettingsGroupCard(
                 modifier = Modifier.fillMaxWidth(),

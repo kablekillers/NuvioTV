@@ -1,9 +1,13 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+
 import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.data.local.ProfileDataStore
 import com.nuvio.tv.data.remote.supabase.SupabaseProfileLockState
 import com.nuvio.tv.data.remote.supabase.SupabaseProfile
@@ -27,7 +31,8 @@ private const val PROFILE_PULL_MIN_INTERVAL_MS = 10_000L
 
 internal data class ProfilePullFreshness(
     val userId: String? = null,
-    val pulledAtMs: Long = 0L
+    val pulledAtMs: Long = 0L,
+    val deviceLocalModeEnabled: Boolean = false
 ) {
     fun isRecent(candidateUserId: String, nowMs: Long): Boolean {
         return userId == candidateUserId &&
@@ -46,11 +51,17 @@ sealed class SetProfilePinResult {
 @Singleton
 class ProfileSyncService @Inject constructor(
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val postgrest: Postgrest,
     private val profileDataStore: ProfileDataStore,
     private val profileManager: ProfileManager,
     private val syncClientIdentity: SyncClientIdentity
 ) {
+    // Migration gate remains disabled until every personal viewing-state sync path
+    // is isolated. Legacy shared-account behavior must not change yet.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+
     private val pullMutex = Mutex()
     private var pullFreshness = ProfilePullFreshness()
     private var lastPulledProfiles = emptyList<UserProfile>()
@@ -66,7 +77,16 @@ class ProfileSyncService @Inject constructor(
 
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val profiles = profileManager.profiles.value
+            // The legacy sync_push_profiles RPC may treat omitted profiles as deletions.
+            // Until a verified Main-only upsert RPC exists, never send a filtered
+            // profile list: that could erase existing server-side secondary profiles.
+            if (deviceLocalProfilesEnabled) {
+                Log.w(TAG, "Skipping legacy profile-list push in device-local mode; Main-only upsert pending")
+                return@withContext Result.success(Unit)
+            }
+            val profiles = profileManager.profiles.value.filter {
+                ProfileSyncBoundary.maySyncProfileMetadata(it.id, deviceLocalProfilesEnabled)
+            }
 
             val params = buildJsonObject {
                 put("p_client_max_profiles", ProfileManager.MAX_PROFILES)
@@ -87,7 +107,13 @@ class ProfileSyncService @Inject constructor(
                 })
                 putSyncOriginClientId(syncClientIdentity)
             }
+            // Recheck immediately before the destructive legacy list-sync RPC.
+            // A mode transition during payload construction must not publish it.
+            if (deviceLocalProfilesEnabled) {
+                return@withContext Result.success(Unit)
+            }
             withJwtRefreshRetry {
+                check(!deviceLocalProfilesEnabled) { "Customer profile metadata upload blocked" }
                 postgrest.rpc("sync_push_profiles", params)
             }
 
@@ -103,7 +129,18 @@ class ProfileSyncService @Inject constructor(
         pullMutex.withLock {
             val userId = (authManager.authState.value as? AuthState.FullAccount)?.userId
             val now = SystemClock.elapsedRealtime()
-            if (!force && userId != null && pullFreshness.isRecent(userId, now)) {
+            // Capture the effective mode for the whole pull. A migration or
+            // mode transition must invalidate the response, not reinterpret it.
+            val modeAtStart = deviceLocalProfilesEnabled
+            // The master login is shared across customer devices. No cloud profile
+            // metadata, including Main, is device-specific. Never pull it into
+            // customer-local profiles; shared addons/catalogs sync separately.
+            if (modeAtStart) {
+                return@withLock Result.success(profileManager.profiles.value)
+            }
+            if (!force && userId != null &&
+                pullFreshness.deviceLocalModeEnabled == modeAtStart &&
+                pullFreshness.isRecent(userId, now)) {
                 return@withLock Result.success(lastPulledProfiles)
             }
             try {
@@ -114,7 +151,21 @@ class ProfileSyncService @Inject constructor(
 
                 Log.d(TAG, "pullFromRemote: fetched ${remote.size} profiles from Supabase")
 
-                val profiles = remote.map { entry ->
+                // Authentication can change while the remote request is suspended.
+                // Never apply a previous account's profiles to the new account's
+                // local DataStore, including when the previous account was logged out.
+                val authenticatedUserIdNow =
+                    (authManager.authState.value as? AuthState.FullAccount)?.userId
+                if (userId == null || authenticatedUserIdNow != userId ||
+                    deviceLocalProfilesEnabled != modeAtStart) {
+                    return@withLock Result.failure(
+                        IllegalStateException("Profile pull discarded after account or mode change")
+                    )
+                }
+
+                val profiles = remote.filter { entry ->
+                    ProfileSyncBoundary.maySyncProfileMetadata(entry.profileIndex, modeAtStart)
+                }.map { entry ->
                     UserProfile(
                         id = entry.profileIndex,
                         name = entry.name,
@@ -129,16 +180,20 @@ class ProfileSyncService @Inject constructor(
                 }
 
                 if (profiles.isNotEmpty()) {
+                    // Customer mode returns before the RPC; never merge remote
+                    // Main metadata into a customer's local Main profile.
                     profileDataStore.replaceAllProfiles(profiles)
-                    Log.d(TAG, "Merged ${profiles.size} remote profiles into local store")
+                    Log.d(TAG, "Applied legacy remote profile metadata")
                 }
 
                 val currentUserId = (authManager.authState.value as? AuthState.FullAccount)?.userId
-                if (userId != null && currentUserId == userId) {
+                if (userId != null && currentUserId == userId &&
+                    deviceLocalProfilesEnabled == modeAtStart) {
                     lastPulledProfiles = profiles
                     pullFreshness = ProfilePullFreshness(
                         userId = userId,
-                        pulledAtMs = SystemClock.elapsedRealtime()
+                        pulledAtMs = SystemClock.elapsedRealtime(),
+                        deviceLocalModeEnabled = modeAtStart
                     )
                 }
                 Result.success(profiles)
@@ -150,12 +205,28 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun deleteProfileData(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        // All customer devices share one account. Deleting even Main (profile 1)
+        // through the legacy account-wide RPC could erase another customer's
+        // cloud data. Device-local profile deletion must never call this RPC.
+        if (!AccountProfilePolicy.mayDeleteRemoteProfileData(accountProfileModeProvider.currentMode())) {
+            Log.w(TAG, "Skipping account-wide profile deletion for device-local customer")
+            return@withContext Result.success(Unit)
+        }
+        if (!ProfileSyncBoundary.maySyncProfileMetadata(profileId, false)) {
+            return@withContext Result.success(Unit)
+        }
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
                 putSyncOriginClientId(syncClientIdentity)
             }
+            if (!AccountProfilePolicy.mayDeleteRemoteProfileData(accountProfileModeProvider.currentMode())) {
+                return@withContext Result.success(Unit)
+            }
             withJwtRefreshRetry {
+                check(AccountProfilePolicy.mayDeleteRemoteProfileData(accountProfileModeProvider.currentMode())) {
+                    "Customer profile deletion blocked"
+                }
                 postgrest.rpc("sync_delete_profile_data", params)
             }
 
@@ -168,12 +239,17 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun pullProfileLockStates(): Result<Map<Int, Boolean>> = withContext(Dispatchers.IO) {
+        // All customer devices share one login: even Main's remote PIN belongs
+        // to the shared account, not to this device's local Main profile.
+        if (!AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) return@withContext Result.success(emptyMap())
         try {
             val response = withJwtRefreshRetry {
                 postgrest.rpc("sync_pull_profile_locks")
             }
             val remote = response.decodeList<SupabaseProfileLockState>()
-            val result = remote.associate { it.profileIndex to it.pinEnabled }
+            val result = remote
+                .filter { !deviceLocalProfilesEnabled || it.profileIndex == 1 }
+                .associate { it.profileIndex to it.pinEnabled }
             Result.success(result)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to pull profile lock states", e)
@@ -182,6 +258,9 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun setProfilePin(profileId: Int, pin: String, currentPin: String? = null): SetProfilePinResult = withContext(Dispatchers.IO) {
+        if (!AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) {
+            return@withContext SetProfilePinResult.Failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
+        }
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
@@ -208,6 +287,9 @@ class ProfileSyncService @Inject constructor(
         e.message?.contains("Current PIN is required", ignoreCase = true) == true
 
     suspend fun clearProfilePin(profileId: Int, currentPin: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) {
+            return@withContext Result.failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
+        }
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
@@ -226,6 +308,9 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun verifyProfilePin(profileId: Int, pin: String): Result<SupabaseProfilePinVerifyResult> = withContext(Dispatchers.IO) {
+        if (!AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) {
+            return@withContext Result.failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
+        }
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)

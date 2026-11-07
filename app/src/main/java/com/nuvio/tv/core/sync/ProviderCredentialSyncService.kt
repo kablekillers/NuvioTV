@@ -5,6 +5,8 @@ import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.debrid.DebridProviders
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
 import com.nuvio.tv.data.local.AnimeSkipSettingsDataStore
 import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.MDBListSettingsDataStore
@@ -52,6 +54,7 @@ class ProviderCredentialSyncService @Inject constructor(
     private val postgrest: Postgrest,
     private val authManager: AuthManager,
     private val profileManager: ProfileManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val debridSettingsDataStore: DebridSettingsDataStore,
     private val mdbListSettingsDataStore: MDBListSettingsDataStore,
     private val animeSkipSettingsDataStore: AnimeSkipSettingsDataStore,
@@ -245,6 +248,9 @@ class ProviderCredentialSyncService @Inject constructor(
     private fun currentScope(profileId: Int): ProviderCredentialScope? {
         val state = authManager.authState.value as? AuthState.FullAccount ?: return null
         if (profileManager.activeProfileId.value != profileId) return null
+        // Never upload or download personal secondary-profile credentials on a
+        // shared customer account. This protects foreground and background paths.
+        if (!AccountProfilePolicy.maySyncProfileMetadata(profileId, accountProfileModeProvider.currentMode())) return null
         return ProviderCredentialScope(state.userId, profileId)
     }
 

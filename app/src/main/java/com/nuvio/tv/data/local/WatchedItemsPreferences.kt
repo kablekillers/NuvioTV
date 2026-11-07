@@ -94,8 +94,15 @@ class WatchedItemsPreferences @Inject constructor(
         return prefs[deltaInitializedKey] ?: false
     }
 
-    suspend fun setDeltaState(cursor: Long, initialized: Boolean = true, profileId: Int = profileManager.activeProfileId.value) {
+    suspend fun setDeltaState(
+        cursor: Long,
+        initialized: Boolean = true,
+        profileId: Int = profileManager.activeProfileId.value,
+        validateBeforeMutation: () -> Unit = {}
+    ) {
         store(profileId).edit { prefs ->
+            // Recheck after queued DataStore edits are admitted.
+            validateBeforeMutation()
             prefs[deltaCursorKey] = cursor.coerceAtLeast(0L)
             prefs[deltaInitializedKey] = initialized
         }
@@ -230,7 +237,8 @@ class WatchedItemsPreferences @Inject constructor(
         deletes: List<Triple<String, Int?, Int?>>,
         pendingUpsertKeys: Set<WatchedMutationKey> = emptySet(),
         pendingDeleteKeys: Set<WatchedMutationKey> = emptySet(),
-        profileId: Int = profileManager.activeProfileId.value
+        profileId: Int = profileManager.activeProfileId.value,
+        validateBeforeMutation: () -> Unit = {}
     ) {
         if (upserts.isEmpty() && deletes.isEmpty()) {
             Log.d(TAG, "applyRemoteChanges: no changes for profile $profileId")
@@ -239,6 +247,9 @@ class WatchedItemsPreferences @Inject constructor(
         var beforeCount = 0
         var afterCount = 0
         store(profileId).edit { preferences ->
+            // Reject queued delta edits after an account/mode change, at the
+            // DataStore transaction boundary rather than only before suspend.
+            validateBeforeMutation()
             val current = preferences[watchedItemsKey] ?: emptySet()
             beforeCount = current.size
             val itemsByKey = linkedMapOf<Triple<String, Int?, Int?>, WatchedItem>()
@@ -275,10 +286,14 @@ class WatchedItemsPreferences @Inject constructor(
         pendingUpsertKeys: Set<WatchedMutationKey> = emptySet(),
         pendingDeleteKeys: Set<WatchedMutationKey> = emptySet(),
         lastSuccessfulPushMs: Long? = null,
-        profileId: Int = profileManager.activeProfileId.value
+        profileId: Int = profileManager.activeProfileId.value,
+        validateBeforeMutation: () -> Unit = {}
     ): Boolean {
         var preservedLocalItems = false
         store(profileId).edit { preferences ->
+            // DataStore edits can queue after a remote response. Validate inside
+            // the actual edit, not only before awaiting the edit transaction.
+            validateBeforeMutation()
             val current = preferences[watchedItemsKey] ?: emptySet()
             Log.d(TAG, "replaceWithRemoteItems: profile=$profileId current=${current.size} remote=${remoteItems.size}")
             val deduped = linkedMapOf<Triple<String, Int?, Int?>, WatchedItem>()

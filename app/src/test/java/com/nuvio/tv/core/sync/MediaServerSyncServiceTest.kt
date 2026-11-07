@@ -1,6 +1,8 @@
 package com.nuvio.tv.core.sync
 
 import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.profile.AccountProfileMode
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.mediaserver.FakeServerProvider
 import com.nuvio.tv.data.mediaserver.MemoryServerPersistence
@@ -44,14 +46,27 @@ class MediaServerSyncServiceTest {
     private val calls = mutableListOf<String>()
     private val authState = MutableStateFlow<AuthState>(AuthState.FullAccount("user", "user@example.com"))
     private val activeProfileId = MutableStateFlow(1)
+    private var accountMode = AccountProfileMode.LEGACY_CLOUD
     private val repository = ServerRepository(MemoryServerPersistence(), listOf(FakeServerProvider()), CoroutineScope(Dispatchers.Unconfined))
     private val service = MediaServerSyncService(
         postgrest = postgrest(),
         authManager = mockk<AuthManager>(relaxed = true) { every { authState } returns this@MediaServerSyncServiceTest.authState },
         profileManager = mockk<ProfileManager> { every { activeProfileId } returns this@MediaServerSyncServiceTest.activeProfileId },
         repository = repository,
+        accountProfileModeProvider = mockk<AuthenticatedProfileModeProvider> {
+            every { currentMode() } answers { accountMode }
+        },
         syncClientIdentity = mockk { every { currentClientId() } returns "tv-test" }
     )
+
+    @Test
+    fun customerModeKeepsMediaServerTokensOnThisDevice() = runBlocking {
+        accountMode = AccountProfileMode.CUSTOMER_DEVICE_LOCAL
+        repository.store(connection("local-a", server = "s1"), token = "private-token")
+        service.syncFromRemote(1).getOrThrow()
+        assertTrue(calls.isEmpty())
+        assertEquals("private-token", repository.session("local-a")?.token)
+    }
 
     @Test
     fun firstSyncMergesServersByIdentityAndKeepsLocalIds() = runBlocking {

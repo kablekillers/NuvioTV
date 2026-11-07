@@ -3382,4 +3382,14 @@
     <string name="autosync_toast_failed_no_reference">Sync failed: this video has no embedded subtitles to compare with.</string>
     <string name="autosync_toast_failed_unsupported">Sync failed: Auto Sync doesn\'t support this subtitle format.</string>
     <string name="autosync_label_synced">Auto synced</string>
+    <string name="advanced_cache_group">Cache Management</string>
+    <string name="advanced_cache_auto_clear">Auto-Clear Cache on Startup</string>
+    <string name="advanced_cache_auto_clear_subtitle">Clear disposable images, HTTP responses, and unused probe files when the app process starts. Does not run on every return from the Home screen.</string>
+    <string name="advanced_cache_smart_cleanup">Smart Cache Cleanup</string>
+    <string name="advanced_cache_smart_cleanup_subtitle">On startup, remove eligible HTTP responses and unused probe files older than 7 days. Recent files are kept. Auto-clear takes priority when enabled.</string>
+    <string name="advanced_cache_clear_now">Clear Cache Now</string>
+    <string name="advanced_cache_clear_now_subtitle">Clear disposable caches safely. Addons, settings, watch history, subtitles, and playback buffers are kept.</string>
+    <string name="advanced_cache_clearing">Clearing…</string>
+    <string name="advanced_cache_cleared">Cache cleared</string>
+    <string name="advanced_cache_clear_failed">Some files could not be cleared. Try again.</string>
 </resources>

@@ -27,6 +27,32 @@ class WatchProgressPreferencesStorageTest {
     private val gson = Gson()
 
     @Test
+    fun `stale account cannot advance watch progress sync cursor`() = runTest {
+        val harness = harness(emptyMap())
+        harness.preferences.setDeltaState(15L, initialized = true, profileId = 1)
+        assertTrue(runCatching {
+            harness.preferences.setDeltaState(
+                99L,
+                initialized = true,
+                profileId = 1,
+                validateBeforeMutation = {
+                    error("Account changed while waiting for DataStore cursor edit")
+                }
+            )
+        }.isFailure)
+        assertEquals(15L, harness.preferences.getDeltaCursor(1))
+        assertTrue(harness.preferences.isDeltaInitialized(1))
+
+        harness.preferences.setDeltaState(
+            18L,
+            initialized = true,
+            profileId = 1,
+            validateBeforeMutation = {}
+        )
+        assertEquals(18L, harness.preferences.getDeltaCursor(1))
+    }
+
+    @Test
     fun `empty legacy storage initializes without writing bucket files`() = runTest {
         val harness = harness(emptyMap())
 
@@ -223,6 +249,58 @@ class WatchProgressPreferencesStorageTest {
         assertEquals(remote, result["remote"])
         assertTrue("remote" in harness.recent.keys())
         assertEquals(WATCH_PROGRESS_RECENT_LIMIT, harness.recent.keys().size)
+    }
+
+    @Test
+    fun `stale account cannot apply remote progress snapshot to local buckets`() = runTest {
+        val original = progress("original", 100L)
+        val harness = harness(mapOf("original" to original))
+        harness.preferences.getAllRawEntries()
+        harness.resetUpdateCounts()
+        var account = "account-b"
+
+        assertTrue(runCatching {
+            harness.preferences.mergeRemoteEntries(
+                remoteEntries = mapOf("foreign" to progress("foreign", 200L)),
+                profileId = 1,
+                validateBeforeMutation = {
+                    check(account == "account-a") { "Changed identity" }
+                }
+            )
+        }.isFailure)
+        assertEquals(mapOf("original" to original), harness.preferences.getAllRawEntries())
+        assertEquals(0, harness.recent.updateCount)
+        assertEquals(0, harness.archive.updateCount)
+
+        account = "account-a"
+        harness.preferences.mergeRemoteEntries(
+            remoteEntries = mapOf("trusted" to progress("trusted", 300L)),
+            profileId = 1,
+            validateBeforeMutation = {
+                check(account == "account-a") { "Changed identity" }
+            }
+        )
+        assertEquals(setOf("trusted"), harness.preferences.getAllRawEntries().keys)
+    }
+
+    @Test
+    fun `stale account cannot apply remote progress delta to local buckets`() = runTest {
+        val original = progress("original", 100L)
+        val harness = harness(mapOf("original" to original))
+        harness.preferences.getAllRawEntries()
+        harness.resetUpdateCounts()
+
+        assertTrue(runCatching {
+            harness.preferences.applyRemoteChanges(
+                upserts = mapOf("foreign" to progress("foreign", 200L)),
+                deletes = listOf("original"),
+                profileId = 1,
+                validateBeforeMutation = { error("Account switched") }
+            )
+        }.isFailure)
+        assertEquals(mapOf("original" to original), harness.preferences.getAllRawEntries())
+        assertEquals(0, harness.recent.updateCount)
+        assertEquals(0, harness.archive.updateCount)
     }
 
     @Test

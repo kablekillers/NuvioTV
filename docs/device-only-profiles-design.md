@@ -1,0 +1,39 @@
+# Kable Killers TV: device-only household profiles (v1.1.2 development specification)
+
+Status: design only. No runtime implementation or migration has been completed. Do not publish until tested.
+
+## Requirements
+- Preserve the existing shared main profile and current account sign-in behavior. Main profile remains server-backed.
+- **Global shared configuration:** addons, plugins, addon/plugin configuration, enabled catalogs, and related source settings are managed on the main profile and synchronized to every device and every local profile. Personal profiles must consume the same global configuration; they must not fork or override it.
+- Addon/plugin changes made through the main profile should propagate using the existing supported account synchronization mechanism, including removals. Avoid copying the addon list into local profile records. If the existing service only syncs per-profile, implementation must explicitly bridge or move shared configuration to account scope rather than assuming it already syncs.
+- Other profiles are **device-local**, scoped by an app-installation identifier and opaque local profile ID. Never upload profile metadata, favorites, history, or Continue Watching to the shared account.
+- Each local profile has its own Continue Watching, playback progress, watch history, and favorites. Every read and write must be scoped to active profile ID, including background workers, autoplay, resume, detail pages, search, and playback callbacks.
+- New installs display the main profile plus local profiles created on that device only. Remote profiles from the shared account must not be listed as local profiles. Do not delete or mutate remote profiles on the server as part of hiding them.
+- Use private app storage (Room/DataStore as appropriate); local data is not a server backup. Android backup/restore behavior must be explicitly defined and tested to avoid cross-household leakage.
+- Switching profiles must invalidate profile-specific cached UI state and pending writes; use stable IDs rather than names as keys.
+- Local profile deletion deletes only that local profile's data; never deletes the shared main account or another profile.
+- Shared-account Trakt, cloud progress, favorites, and viewing-history synchronization calls must be disabled or isolated for local profiles. **Do not disable account-level addon/plugin configuration synchronization**; local profiles need read access to the shared configuration. Ensure background sync does not replay locally collected events to the main account.
+- Preserve app package name, signing lineage, current user settings, Watch Party, catalogs, plugin configuration, and update path.
+- Existing remote profiles must not be silently migrated into local profiles or exposed across households. Introduce an explicit migration/visibility policy after source audit.
+
+## Deferred: PIN and administrator lock
+PIN entry, administrator credential changes, and server-enforced permission changes are **out of scope for the first device-local profiles release**. Keep existing main-profile access and addon management behavior unchanged for now. Do not imply the shared account is protected against edits by customers. Revisit access control in a separate future change.
+
+## Implementation gates
+1. Locate profile models, profile switcher, cloud synchronization, Continue Watching, favorites, history, playback progress, and Trakt integration in the current branch.
+2. Document every persistence path and sync endpoint; identify which operations are shared-account (especially addon/plugin installation and settings) and which are local. Verify addon/plugin changes made on the main profile actually reach all devices and profiles.
+3. Add local profile persistence and scoped repositories; enforce isolation at the data layer, not just the UI.
+4. Add tests for two devices sharing one login, two profiles on one device, switch during playback, background synchronization, app restart, profile deletion, upgrade from v1.1.1, and propagation of main-profile addon/plugin add, remove, and configuration changes.
+5. Build both ARMv7 and ARM64 test APKs; test production-signed install-over and verify settings/logins remain intact.
+6. Only publish with user approval after CI and device tests pass.
+
+## Privacy invariant
+For any two distinct devices A and B sharing the same main account, creating, viewing, or changing local profile P on A must not cause any profile P data to appear on B or in server account state.
+
+## Required shared home-screen layout (2026-10-27)
+- The Main Profile is the authoritative configuration for **all home-screen rows, catalog order, row visibility, custom catalog titles, hero/catalog selection, and home layout/display settings**. Every local personal profile uses this configuration live; do not snapshot/copy it once on profile creation.
+- Continue Watching occupies the same configured row position in every profile but its **contents** are device-local and profile-specific. Likewise, favorites and history contents remain private.
+- Main-profile layout changes must synchronize across devices using the existing account sync path, then apply to every local profile. Secondary profiles must not overwrite shared layout.
+- Current `LayoutPreferenceDataStore` uses per-profile `profileFlow`, and only catalog order/disabled/custom title reads conditionally inherit primary data when `usesPrimaryAddons` is true. This is insufficient for the exact shared layout. Audit all layout reads and writes before implementing.
+- `HomeCatalogSettingsSyncService` currently syncs by active profile ID; the shared layout must be synchronized from primary profile scope, not each local profile.
+- Tests: newly created local profile shows exact main layout, switching profiles preserves row placement, main reorder/visibility/title edits appear in existing profiles on another device, and Continue Watching items remain private.
