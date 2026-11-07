@@ -51,7 +51,7 @@ class AccountProfilePolicyTest {
         assertFalse(AccountProfilePolicy.maySyncViewingState(1, mode))
         assertEquals(listOf(1), AccountProfilePolicy.visibleRemoteProfileIds(listOf(1, 2, 3), mode))
         assertFalse(AccountProfilePolicy.canEditSharedConfiguration(2, mode))
-        assertTrue(AccountProfilePolicy.canEditSharedConfiguration(1, mode))
+        assertFalse(AccountProfilePolicy.canEditSharedConfiguration(1, mode))
     }
 
     @Test fun existingAccountsKeepLegacyCloudBehaviorByDefault() {
@@ -68,9 +68,19 @@ class AccountProfilePolicyTest {
             assertFalse(AccountProfilePolicy.maySyncProfileMetadata(profileId, customer))
             assertFalse(AccountProfilePolicy.maySyncViewingState(profileId, customer))
         }
-        assertTrue(AccountProfilePolicy.canEditSharedConfiguration(1, customer))
+        assertFalse(AccountProfilePolicy.canEditSharedConfiguration(1, customer))
         assertTrue(AccountProfilePolicy.maySyncProfileMetadata(1, customer))
         assertFalse(AccountProfilePolicy.maySyncViewingState(1, customer))
+    }
+
+    @Test fun sharedLoginMainIsNotAnAdministratorCredential() {
+        val customer = AccountProfileMode.CUSTOMER_DEVICE_LOCAL
+        for (id in 1..6) {
+            assertFalse(AccountProfilePolicy.canEditSharedConfiguration(id, customer))
+            assertFalse(AccountProfilePolicy.canEditSharedConfiguration(id, customer, false))
+        }
+        assertTrue(AccountProfilePolicy.canEditSharedConfiguration(1, customer, true))
+        assertFalse(AccountProfilePolicy.canEditSharedConfiguration(2, customer, true))
     }
 
     @Test fun familyAndLegacyModesRetainCloudSyncForAllProfiles() {
