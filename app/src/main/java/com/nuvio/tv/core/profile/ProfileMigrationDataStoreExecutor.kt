@@ -1,19 +1,21 @@
 package com.nuvio.tv.core.profile
 
 import com.nuvio.tv.data.local.ProfileDataStoreFactory
+import com.nuvio.tv.core.sync.StartupSyncService
 import java.io.File
 
 /**
  * Explicit developer-only DataStore copy orchestration.
  *
  * Not invoked by login, startup, or profile selection. The caller must first
- * stop background/realtime sync and all other profile writers. The factory
+ * stop independent background/realtime sync and all other profile writers. The factory
  * barrier only covers stores managed by that factory. This never activates
  * customer-local mode or marks the account migration COMPLETED.
  */
 internal object ProfileMigrationDataStoreExecutor {
     suspend fun copyGuardedDataStores(
         factory: ProfileDataStoreFactory,
+        startupSyncService: StartupSyncService,
         directory: File,
         verifiedAccountId: String,
         sourceId: Int,
@@ -27,8 +29,12 @@ internal object ProfileMigrationDataStoreExecutor {
         check(currentVerifiedAccountId() == verifiedAccountId) {
             "Authenticated account changed before migration"
         }
-        return ProfileMigrationExclusiveLock.tryWithSuspendingLock(directory) {
-            factory.withGuardedProfileRemap(
+        return startupSyncService.withStartupSyncPausedForMigration {
+            check(currentVerifiedAccountId() == verifiedAccountId) {
+                "Authenticated account changed while pausing startup sync"
+            }
+            ProfileMigrationExclusiveLock.tryWithSuspendingLock(directory) {
+                factory.withGuardedProfileRemap(
                 verifiedAccountId, sourceId, targetId, currentVerifiedAccountId
             ) { preview ->
                 val items = ProfileMigrationStoreManifest.fromFactoryPreview(
@@ -40,6 +46,7 @@ internal object ProfileMigrationDataStoreExecutor {
                 ProfileMigrationTransaction.copyBatchWithJournal(
                     directory, verifiedAccountId, sourceId, targetId, items
                 )
+                }
             }
         }
     }
