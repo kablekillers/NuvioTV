@@ -20,6 +20,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -81,6 +83,24 @@ class StartupSyncService @Inject constructor(
         ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var migrationPauseRequested = false
+    private val migrationPauseMutex = kotlinx.coroutines.sync.Mutex()
+
+    /** Developer-only barrier. Does not cover independent sync services or storage writers. */
+    suspend fun <T> withStartupSyncPausedForMigration(operation: suspend () -> T): T =
+        migrationPauseMutex.withLock {
+            check(!migrationPauseRequested) { "Startup synchronization is already paused" }
+            migrationPauseRequested = true
+            try {
+                startupPullJob?.cancelAndJoin()
+                activityPullJob?.cancelAndJoin()
+                periodicSurfacePullJob?.cancelAndJoin()
+                operation()
+            } finally {
+                migrationPauseRequested = false
+            }
+        }
+
     private var startupPullJob: Job? = null
     private var activityPullJob: Job? = null
     private var periodicSurfacePullJob: Job? = null
@@ -134,6 +154,7 @@ class StartupSyncService @Inject constructor(
     }
 
     fun startPeriodicSurfacePulls() {
+        if (migrationPauseRequested) return
         if (periodicSurfacePullJob?.isActive == true) return
         periodicSurfacePullJob = scope.launch {
             while (true) {
@@ -149,6 +170,7 @@ class StartupSyncService @Inject constructor(
     }
 
     fun requestSyncNow(includeProfileSettings: Boolean = true) {
+        if (migrationPauseRequested) return
         forceSyncRequested = true
         forceSyncIncludesProfileSettings = forceSyncIncludesProfileSettings || includeProfileSettings
         when (val state = authManager.authState.value) {
@@ -165,6 +187,7 @@ class StartupSyncService @Inject constructor(
     }
 
     fun requestForegroundSync() {
+        if (migrationPauseRequested) return
         scheduleActivityPull(
             reason = "foreground",
             delayMs = FOREGROUND_ACTIVITY_PULL_DELAY_MS,
@@ -178,6 +201,7 @@ class StartupSyncService @Inject constructor(
     val manualAddonRefreshes: SharedFlow<Unit> = _manualAddonRefreshes.asSharedFlow()
 
     fun requestAddonSyncNow() {
+        if (migrationPauseRequested) return
         val profileId = profileManager.activeProfileId.value
         // Manual refresh also performs removeMissingLocal reconciliation.
         // Never run it under a local secondary until Main-backed addon storage
@@ -223,6 +247,7 @@ class StartupSyncService @Inject constructor(
     }
 
     fun requestRealtimeSurfacePull(profileId: Int, surface: String) {
+        if (migrationPauseRequested) return
         if (!authManager.isAuthenticated) return
         // Customer profile metadata is exclusively local, including Main.
         // Shared-account realtime profile events must not mutate or refresh
@@ -332,6 +357,7 @@ class StartupSyncService @Inject constructor(
         delayMs: Long = 0L,
         minIntervalMs: Long = 0L
     ): Boolean {
+        if (migrationPauseRequested) return false
         val state = authManager.authState.value as? AuthState.FullAccount ?: return false
         val key = pullKey(state.userId)
         val now = SystemClock.elapsedRealtime()
@@ -409,6 +435,7 @@ class StartupSyncService @Inject constructor(
         force: Boolean = false,
         includeProfileSettings: Boolean = true
     ): Boolean {
+        if (migrationPauseRequested) return false
         val key = pullKey(userId)
         val now = SystemClock.elapsedRealtime()
         val sameKey = lastPulledKey == key
