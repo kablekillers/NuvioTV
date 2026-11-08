@@ -90,6 +90,7 @@ class ProviderCredentialSyncService @Inject constructor(
             try {
                 val credentialScope = currentScope(profileId) ?: return@withLock Result.success(false)
                 val localSnapshot = currentSnapshot(profileId)
+                requireCurrentScope(credentialScope)
                 val shouldPush = synchronized(stateLock) {
                     val baseline = baselineSnapshots.getOrPut(credentialScope) {
                         observedSnapshots[profileId] ?: localSnapshot
@@ -97,22 +98,28 @@ class ProviderCredentialSyncService @Inject constructor(
                     credentialScope in pendingScopes || baseline != localSnapshot
                 }
                 if (shouldPush) {
+                    requireCurrentScope(credentialScope)
                     pushSnapshot(localSnapshot)
+                    requireCurrentScope(credentialScope)
                     synchronized(stateLock) {
                         pendingScopes.remove(credentialScope)
                         baselineSnapshots[credentialScope] = localSnapshot
                     }
                 }
 
+                requireCurrentScope(credentialScope)
                 val rows = pullRows(profileId)
+                requireCurrentScope(credentialScope)
                 if (shouldSeedProviderCredentials(localSnapshot, rows)) {
+                    requireCurrentScope(credentialScope)
                     seedSnapshot(localSnapshot)
+                    requireCurrentScope(credentialScope)
                 }
                 requireCurrentScope(credentialScope)
                 val remoteSnapshot = localSnapshot.mergeRemote(rows)
                 val applied = remoteSnapshot != localSnapshot
                 if (applied) {
-                    applySnapshot(remoteSnapshot)
+                    applySnapshot(remoteSnapshot, credentialScope)
                 }
                 requireCurrentScope(credentialScope)
                 synchronized(stateLock) {
@@ -227,9 +234,12 @@ class ProviderCredentialSyncService @Inject constructor(
         )
     }
 
-    private suspend fun applySnapshot(snapshot: ProviderCredentialSnapshot) {
+    private suspend fun applySnapshot(
+        snapshot: ProviderCredentialSnapshot,
+        expectedScope: ProviderCredentialScope
+    ) {
         snapshot.values.forEach { credential ->
-            check(profileManager.activeProfileId.value == snapshot.profileId)
+            requireCurrentScope(expectedScope)
             when {
                 credential.provider.startsWith("debrid:") -> {
                     val providerId = credential.provider.substringAfter("debrid:")
@@ -243,6 +253,7 @@ class ProviderCredentialSyncService @Inject constructor(
                 }
             }
         }
+        requireCurrentScope(expectedScope)
     }
 
     private fun currentScope(profileId: Int): ProviderCredentialScope? {
