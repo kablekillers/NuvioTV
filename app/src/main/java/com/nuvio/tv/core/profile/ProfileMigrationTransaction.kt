@@ -34,6 +34,7 @@ internal object ProfileMigrationTransaction {
             verifiedAccountId == verifiedAccountId.trim() &&
             verifiedAccountId.none { it.isISOControl() })
         require(sourceId > 1 && targetId > 1 && sourceId != targetId)
+        ProfileMigrationBatchCopy.preflight(items)
         ProfileMigrationJournal.write(directory, prepared)
         ProfileMigrationJournal.write(
             directory, prepared.copy(phase = ProfileMigrationJournal.Phase.COPYING)
