@@ -40,6 +40,22 @@ class ProfileMigrationCopyVerifierTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun rejectsSameSourceAndDestination() {
+        val directory = Files.createTempDirectory("profile-copy").toFile()
+        try {
+            val source = directory.resolve("source")
+            source.writeText("must remain untouched")
+            try {
+                ProfileMigrationCopyVerifier.copyAndVerify(source, source)
+            } finally {
+                assertEquals("must remain untouched", source.readText())
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun rejectsMissingSource() {
         val directory = Files.createTempDirectory("profile-copy").toFile()
         try {
