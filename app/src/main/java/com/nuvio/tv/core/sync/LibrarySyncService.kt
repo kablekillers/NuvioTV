@@ -59,6 +59,7 @@ class LibrarySyncService @Inject constructor(
                 val identity = fence.capture()
                 var state = localStore.getSyncState(profileId)
                 if (!state.deltaInitialized) {
+                    fence.requireCurrent(identity)
                     state = localStore.queueAllItemsForPush(profileId)
                 }
                 fence.requireCurrent(identity)
@@ -91,8 +92,10 @@ class LibrarySyncService @Inject constructor(
                 var appliedDeletes = 0
 
                 if (!state.deltaInitialized) {
+                    fence.requireCurrent(identity)
                     requireCloudSync(profileId)
                     val cursorBeforeSnapshot = remoteDataSource.getDeltaCursor(profileId)
+                    fence.requireCurrent(identity)
                     val remoteItems = remoteDataSource.pullSnapshot(
                         profileId = profileId,
                         pageSize = LIBRARY_SNAPSHOT_PAGE_SIZE
@@ -132,6 +135,7 @@ class LibrarySyncService @Inject constructor(
                     }
                 )
 
+                fence.requireCurrent(identity)
                 state = localStore.getSyncState(profileId)
                 fence.requireCurrent(identity)
                 val pushed = pushPendingMutations(profileId, state) { fence.requireCurrent(identity) }
@@ -172,9 +176,11 @@ class LibrarySyncService @Inject constructor(
         requireCloudSync(profileId)
         requireIdentity()
         remoteDataSource.pushItems(profileId, upsertItems)
+        requireIdentity()
         requireCloudSync(profileId)
         requireIdentity()
         remoteDataSource.deleteItems(profileId, deleteKeys)
+        requireCloudSync(profileId)
         requireIdentity()
         val acknowledged = localStore.acknowledgePush(
             profileId = profileId,
