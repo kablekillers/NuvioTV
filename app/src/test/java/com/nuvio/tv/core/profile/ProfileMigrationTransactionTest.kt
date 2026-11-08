@@ -30,7 +30,7 @@ class ProfileMigrationTransactionTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun existingDestinationLeavesRecoveryJournalUnresolved() {
+    fun existingDestinationIsRejectedBeforeJournalCreation() {
         val directory = Files.createTempDirectory("profile-transaction").toFile()
         try {
             val source = directory.resolve("source")
@@ -44,8 +44,7 @@ class ProfileMigrationTransactionTest {
             } finally {
                 assertEquals("other profile", destination.readText())
                 assertEquals("original", source.readText())
-                assertEquals(ProfileMigrationJournal.Phase.COPYING,
-                    ProfileMigrationJournal.read(directory)?.phase)
+                assertEquals(null, ProfileMigrationJournal.read(directory))
             }
         } finally {
             directory.deleteRecursively()
