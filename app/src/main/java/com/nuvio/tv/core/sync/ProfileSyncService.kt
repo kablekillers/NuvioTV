@@ -2,6 +2,7 @@ package com.nuvio.tv.core.sync
 
 import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
 import com.nuvio.tv.core.profile.AccountProfilePolicy
+import com.nuvio.tv.core.profile.ProfileSyncIdentityFence
 
 import android.os.SystemClock
 import android.util.Log
@@ -62,6 +63,11 @@ class ProfileSyncService @Inject constructor(
     private val deviceLocalProfilesEnabled: Boolean
         get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
 
+    private fun identityFence() = ProfileSyncIdentityFence(
+        { authManager.verifiedProfileAccountId },
+        { accountProfileModeProvider.currentMode() }
+    )
+
     private val pullMutex = Mutex()
     private var pullFreshness = ProfilePullFreshness()
     private var lastPulledProfiles = emptyList<UserProfile>()
@@ -84,6 +90,8 @@ class ProfileSyncService @Inject constructor(
                 Log.w(TAG, "Skipping legacy profile-list push in device-local mode; Main-only upsert pending")
                 return@withContext Result.success(Unit)
             }
+            val fence = identityFence()
+            val identity = fence.capture()
             val profiles = profileManager.profiles.value.filter {
                 ProfileSyncBoundary.maySyncProfileMetadata(it.id, deviceLocalProfilesEnabled)
             }
@@ -112,9 +120,12 @@ class ProfileSyncService @Inject constructor(
             if (deviceLocalProfilesEnabled) {
                 return@withContext Result.success(Unit)
             }
+            fence.requireCurrent(identity)
             withJwtRefreshRetry {
+                fence.requireCurrent(identity)
                 check(!deviceLocalProfilesEnabled) { "Customer profile metadata upload blocked" }
                 postgrest.rpc("sync_push_profiles", params)
+                fence.requireCurrent(identity)
             }
 
             Log.d(TAG, "Pushed ${profiles.size} profiles to remote")
@@ -144,9 +155,13 @@ class ProfileSyncService @Inject constructor(
                 return@withLock Result.success(lastPulledProfiles)
             }
             try {
+                val fence = identityFence()
+                val identity = fence.capture()
                 val response = withJwtRefreshRetry {
+                    fence.requireCurrent(identity)
                     postgrest.rpc("sync_pull_profiles")
                 }
+                fence.requireCurrent(identity)
                 val remote = response.decodeList<SupabaseProfile>()
 
                 Log.d(TAG, "pullFromRemote: fetched ${remote.size} profiles from Supabase")
@@ -180,6 +195,7 @@ class ProfileSyncService @Inject constructor(
                 }
 
                 if (profiles.isNotEmpty()) {
+                    fence.requireCurrent(identity)
                     // Customer mode returns before the RPC; never merge remote
                     // Main metadata into a customer's local Main profile.
                     profileDataStore.replaceAllProfiles(profiles)
