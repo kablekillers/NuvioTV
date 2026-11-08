@@ -8,6 +8,45 @@ import java.io.File
  * and never deletes the source or destination for automatic recovery.
  */
 internal object ProfileMigrationTransaction {
+    /**
+     * Journal a complete explicitly supplied batch. This remains a development
+     * primitive: VERIFIED is not evidence that the inventory is exhaustive.
+     */
+    fun copyBatchWithJournal(
+        directory: File,
+        verifiedAccountId: String,
+        sourceId: Int,
+        targetId: Int,
+        items: List<ProfileMigrationBatchCopy.Item>
+    ): ProfileMigrationBatchCopy.Result {
+        require(items.isNotEmpty()) { "Migration batch must not be empty" }
+        require(!ProfileMigrationJournal.hasUnresolvedMigration(directory)) {
+            "An unresolved migration must be reconciled before starting another"
+        }
+        require(ProfileMigrationJournal.read(directory) == null) {
+            "Existing migration journal requires explicit reconciliation"
+        }
+        val prepared = ProfileMigrationJournal.Entry(
+            verifiedAccountId, sourceId, targetId, ProfileMigrationJournal.Phase.PREPARED
+        )
+        // Validate identity and journal eligibility before mutating files.
+        require(verifiedAccountId.isNotBlank() &&
+            verifiedAccountId == verifiedAccountId.trim() &&
+            verifiedAccountId.none { it.isISOControl() })
+        require(sourceId > 1 && targetId > 1 && sourceId != targetId)
+        ProfileMigrationJournal.write(directory, prepared)
+        ProfileMigrationJournal.write(
+            directory, prepared.copy(phase = ProfileMigrationJournal.Phase.COPYING)
+        )
+        val result = ProfileMigrationBatchCopy.copyAll(items)
+        if (result.allVerified) {
+            ProfileMigrationJournal.write(
+                directory, prepared.copy(phase = ProfileMigrationJournal.Phase.VERIFIED)
+            )
+        }
+        return result
+    }
+
     fun copyWithJournal(
         directory: File,
         verifiedAccountId: String,
