@@ -10,9 +10,12 @@ import java.io.File
 internal object ProfileMigrationStoreManifest {
     fun fromFactoryPreview(
         datastoreDirectory: File,
-        preview: Map<String, String>
+        preview: Map<String, String>,
+        sourceId: Int,
+        targetId: Int
     ): List<ProfileMigrationBatchCopy.Item> {
         require(datastoreDirectory.isDirectory) { "DataStore directory is unavailable" }
+        require(sourceId in 2..6 && targetId in 2..6 && sourceId != targetId) { "Invalid profile remap" }
         require(preview.isNotEmpty()) { "Profile DataStore preview is empty" }
         val root = datastoreDirectory.canonicalFile.toPath()
         val items = preview.entries.sortedBy { it.key }.map { (sourceName, targetName) ->
@@ -22,13 +25,14 @@ internal object ProfileMigrationStoreManifest {
                 sourceName.isNotBlank() && targetName.isNotBlank()) {
                 "Profile store names must be plain file names"
             }
-            require(sourceName.endsWith(".preferences_pb") ||
-                sourceName.endsWith(".preferences_pb.bak")) {
-                "Unexpected profile store source extension"
-            }
-            require(targetName.endsWith(".preferences_pb") ||
-                targetName.endsWith(".preferences_pb.bak")) {
-                "Unexpected profile store destination extension"
+            val backupSuffix = if (sourceName.endsWith(".bak")) ".bak" else ""
+            val sourceSuffix = "_p$sourceId.preferences_pb" + backupSuffix
+            val targetSuffix = "_p$targetId.preferences_pb" + backupSuffix
+            require(sourceName.matches(Regex("[A-Za-z0-9_-]+[.]preferences_pb([.]bak)?")) &&
+                targetName.matches(Regex("[A-Za-z0-9_-]+[.]preferences_pb([.]bak)?")) &&
+                sourceName.endsWith(sourceSuffix) &&
+                targetName == sourceName.removeSuffix(sourceSuffix) + targetSuffix) {
+                "Profile store mapping does not match source and target IDs"
             }
             val source = File(datastoreDirectory, sourceName)
             val destination = File(datastoreDirectory, targetName)
