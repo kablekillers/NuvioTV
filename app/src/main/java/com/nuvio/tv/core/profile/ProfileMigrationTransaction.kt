@@ -25,6 +25,12 @@ internal object ProfileMigrationTransaction {
         require(ProfileMigrationJournal.read(directory) == null) {
             "Existing migration journal requires explicit reconciliation"
         }
+        require(source.isFile && !java.nio.file.Files.isSymbolicLink(source.toPath())) {
+            "Migration source must be a regular file"
+        }
+        require(!java.nio.file.Files.exists(destination.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            "Migration destination must be absent before journaling"
+        }
         ProfileMigrationJournal.write(directory, prepared)
         ProfileMigrationJournal.write(
             directory, prepared.copy(phase = ProfileMigrationJournal.Phase.COPYING)
