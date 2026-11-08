@@ -35,7 +35,12 @@ internal object ProfileMigrationCopyVerifier {
         }
         // Verify the bytes we copied. A failed comparison must never be
         // mistaken for a successful migration or trigger source deletion.
-        return digest(source) contentEquals digest(destination)
+        val verified = digest(source) contentEquals digest(destination)
+        if (verified) {
+            // Persist copied bytes before the journal can advance to VERIFIED.
+            java.io.RandomAccessFile(destination, "rw").use { it.fd.sync() }
+        }
+        return verified
     }
 
     private fun digest(file: File): ByteArray {
