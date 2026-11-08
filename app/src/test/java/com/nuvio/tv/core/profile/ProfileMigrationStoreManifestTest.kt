@@ -50,6 +50,26 @@ class ProfileMigrationStoreManifestTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun invalidManifestDoesNotCreateJournalOrDestination() {
+        val dir = Files.createTempDirectory("profile-migration-invalid").toFile()
+        try {
+            dir.resolve("history_p2.preferences_pb").writeText("private history")
+            val failed = runCatching {
+                val items = ProfileMigrationStoreManifest.fromFactoryPreview(
+                    dir, mapOf("history_p2.preferences_pb" to "history_p4.preferences_pb"),
+                    2, 3
+                )
+                ProfileMigrationTransaction.copyBatchWithJournal(
+                    dir, "verified-account-123", 2, 3, items
+                )
+            }
+            assertTrue(failed.isFailure)
+            assertFalse(dir.resolve("profile_migration_journal").exists())
+            assertFalse(dir.resolve("history_p4.preferences_pb").exists())
+            assertEquals("private history", dir.resolve("history_p2.preferences_pb").readText())
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun rejectsWrongTargetProfile() {
         val dir = Files.createTempDirectory("profile-stores").toFile()
