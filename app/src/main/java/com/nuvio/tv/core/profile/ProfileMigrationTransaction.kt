@@ -31,6 +31,9 @@ internal object ProfileMigrationTransaction {
         require(!java.nio.file.Files.exists(destination.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             "Migration destination must be absent before journaling"
         }
+        require(java.nio.file.Files.isDirectory(destination.toPath().parent, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            "Migration destination parent must be an existing directory"
+        }
         ProfileMigrationJournal.write(directory, prepared)
         ProfileMigrationJournal.write(
             directory, prepared.copy(phase = ProfileMigrationJournal.Phase.COPYING)
