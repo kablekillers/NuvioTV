@@ -19,10 +19,14 @@ class DeviceProfileMigrationPlannerTest {
         assertEquals(emptyList<Int>(), plan.collidingSecondaryIds)
     }
 
-    @Test fun deduplicatesIdentifiersWithoutModifyingSource() {
-        val plan = DeviceProfileMigrationPlanner.inspect(listOf(3, 1, 3), listOf(1, 4, 4))
-        assertEquals(listOf(1, 3), plan.preservedCloudIds)
-        assertEquals(listOf(1, 4), plan.reservedLocalIds)
+    @Test(expected = IllegalArgumentException::class)
+    fun inspectionRejectsDuplicateCloudIds() {
+        DeviceProfileMigrationPlanner.inspect(listOf(3, 1, 3), listOf(1, 4))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun inspectionRejectsDuplicateDeviceIds() {
+        DeviceProfileMigrationPlanner.inspect(listOf(1, 3), listOf(1, 4, 4))
     }
 
     @Test fun proposesCollisionFreeSupportedLocalIdsWithoutChangingCloudIds() {
