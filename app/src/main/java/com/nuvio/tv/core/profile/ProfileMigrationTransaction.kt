@@ -25,7 +25,7 @@ internal object ProfileMigrationTransaction {
         require(ProfileMigrationJournal.read(directory) == null) {
             "Existing migration journal requires explicit reconciliation"
         }
-        require(source.isFile && !java.nio.file.Files.isSymbolicLink(source.toPath())) {
+        require(java.nio.file.Files.isRegularFile(source.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             "Migration source must be a regular file"
         }
         require(!java.nio.file.Files.exists(destination.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
