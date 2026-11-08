@@ -87,19 +87,20 @@ class StartupSyncService @Inject constructor(
     private val migrationPauseMutex = kotlinx.coroutines.sync.Mutex()
 
     /** Developer-only barrier. Does not cover independent sync services or storage writers. */
-    suspend fun <T> withStartupSyncPausedForMigration(operation: suspend () -> T): T =
-        migrationPauseMutex.withLock {
+    suspend fun <T> withStartupSyncPausedForMigration(operation: suspend () -> T): T {
+        migrationPauseMutex.lock()
+        try {
             check(!migrationPauseRequested) { "Startup synchronization is already paused" }
             migrationPauseRequested = true
-            try {
-                startupPullJob?.cancelAndJoin()
-                activityPullJob?.cancelAndJoin()
-                periodicSurfacePullJob?.cancelAndJoin()
-                operation()
-            } finally {
-                migrationPauseRequested = false
-            }
+            startupPullJob?.cancelAndJoin()
+            activityPullJob?.cancelAndJoin()
+            periodicSurfacePullJob?.cancelAndJoin()
+            return operation()
+        } finally {
+            migrationPauseRequested = false
+            migrationPauseMutex.unlock()
         }
+    }
 
     private var startupPullJob: Job? = null
     private var activityPullJob: Job? = null
