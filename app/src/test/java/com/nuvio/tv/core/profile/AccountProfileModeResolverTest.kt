@@ -52,7 +52,7 @@ class AccountProfileModeResolverTest {
     }
 
     @Test fun controlCharactersCannotActivateCustomerOrFamilyMode() {
-        for (accountId in listOf("customer\\naccount", "customer\\raccount", "customer\\taccount", "customer\\u0000account")) {
+        for (accountId in listOf("customer\naccount", "customer\raccount", "customer\taccount", "customer\u0000account")) {
             assertEquals(
                 AccountProfileMode.LEGACY_CLOUD,
                 AccountProfileModeResolver.resolve(accountId, accountId, "customer_device_local", true)
@@ -64,7 +64,7 @@ class AccountProfileModeResolverTest {
         }
         assertEquals(
             AccountProfileMode.LEGACY_CLOUD,
-            AccountProfileModeResolver.resolve("customer-account", "customer\\naccount", "customer_device_local", true)
+            AccountProfileModeResolver.resolve("customer-account", "customer\naccount", "customer_device_local", true)
         )
     }
 
