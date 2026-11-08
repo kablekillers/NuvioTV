@@ -14,6 +14,18 @@ internal object ProfileMigrationBatchCopy {
     data class Result(val verifiedFiles: Int, val allVerified: Boolean)
 
     fun copyAll(items: List<Item>): Result {
+        preflight(items)
+        var verified = 0
+        for (item in items) {
+            if (!ProfileMigrationCopyVerifier.copyAndVerify(item.source, item.destination)) {
+                return Result(verified, false)
+            }
+            verified++
+        }
+        return Result(verified, true)
+    }
+
+    fun preflight(items: List<Item>) {
         require(items.isNotEmpty()) { "Migration manifest must not be empty" }
         val destinations = items.map { it.destination.toPath().toAbsolutePath().normalize() }
         val sources = items.map { it.source.toPath().toAbsolutePath().normalize() }
@@ -42,15 +54,5 @@ internal object ProfileMigrationBatchCopy {
                 "Migration source and destination must differ"
             }
         }
-        var verified = 0
-        for (item in items) {
-            if (!ProfileMigrationCopyVerifier.copyAndVerify(item.source, item.destination)) {
-                return Result(verified, false)
-            }
-            verified++
-        }
-        // The caller must still verify the complete profile-store inventory,
-        // persist a recovery manifest, and reconcile partial copies.
-        return Result(verified, true)
     }
 }
