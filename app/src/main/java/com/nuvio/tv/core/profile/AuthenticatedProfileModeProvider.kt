@@ -1,7 +1,6 @@
 package com.nuvio.tv.core.profile
 
 import android.content.Context
-import java.io.File
 import com.nuvio.tv.core.auth.AuthManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -67,15 +66,13 @@ class AuthenticatedProfileModeProvider @Inject constructor(
             storedMode = storedMode,
             migrationEnabled = migrationComplete
         )
-        // A stored completion flag is not proof that profile data was migrated.
-        // Require an actual completed journal belonging to this signed-in
-        // account; missing, interrupted or corrupt journals fail closed.
+        // A single profile-remap journal, even with phase COMPLETED, cannot
+        // prove that every personal store and profile was migrated or that
+        // pending sync jobs were isolated. Never authorize customer-local
+        // mode from that legacy marker. A future account-wide completion
+        // certificate must be checked here after the full integration audit.
         if (resolved == AccountProfileMode.CUSTOMER_DEVICE_LOCAL) {
-            val migrationDirectory = File(context.filesDir, "datastore")
-            if (!ProfileMigrationJournal.hasCompletedMigrationForAccount(
-                    migrationDirectory, accountId
-                )
-            ) return AccountProfileMode.LEGACY_CLOUD
+            return AccountProfileMode.LEGACY_CLOUD
         }
         return resolved
     }
