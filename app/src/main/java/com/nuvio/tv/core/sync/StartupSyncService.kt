@@ -21,6 +21,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -85,6 +87,20 @@ class StartupSyncService @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var migrationPauseRequested = false
     private val migrationPauseMutex = kotlinx.coroutines.sync.Mutex()
+    private val onDemandJobsLock = Any()
+    private val onDemandJobs = mutableSetOf<Job>()
+
+    private fun launchTrackedOnDemand(block: suspend CoroutineScope.() -> Unit) {
+        synchronized(onDemandJobsLock) {
+            if (migrationPauseRequested) return
+            val job = scope.launch(start = CoroutineStart.LAZY, block = block)
+            onDemandJobs.add(job)
+            job.invokeOnCompletion {
+                synchronized(onDemandJobsLock) { onDemandJobs.remove(job) }
+            }
+            job.start()
+        }
+    }
 
     /** Developer-only barrier. Does not cover independent sync services or storage writers. */
     suspend fun <T> withStartupSyncPausedForMigration(operation: suspend () -> T): T {
@@ -95,6 +111,10 @@ class StartupSyncService @Inject constructor(
             startupPullJob?.cancelAndJoin()
             activityPullJob?.cancelAndJoin()
             periodicSurfacePullJob?.cancelAndJoin()
+            val pendingOnDemand = synchronized(onDemandJobsLock) {
+                onDemandJobs.toList().also { jobs -> jobs.forEach { it.cancel() } }
+            }
+            pendingOnDemand.joinAll()
             return operation()
         } finally {
             migrationPauseRequested = false
@@ -212,11 +232,11 @@ class StartupSyncService @Inject constructor(
             return
         }
         Log.d(TAG, "Manual addon sync enqueued for profile $profileId")
-        scope.launch {
+        launchTrackedOnDemand {
             // The selected profile may change while the request is queued.
             if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
                 Log.d(TAG, "Skipping queued addon sync after profile switch")
-                return@launch
+                return@launchTrackedOnDemand
             }
             Log.d(TAG, "Manual addon sync starting for profile $profileId")
 
@@ -227,7 +247,7 @@ class StartupSyncService @Inject constructor(
                 // personal profile while the remote request was in flight.
                 if (deviceLocalProfilesEnabled && profileManager.activeProfileId.value != 1) {
                     Log.d(TAG, "Skipping manual addon reconciliation after profile switch")
-                    return@launch
+                    return@launchTrackedOnDemand
                 }
 
                 addonRepository.reconcileWithRemoteAddonUrls(
@@ -272,13 +292,13 @@ class StartupSyncService @Inject constructor(
             return
         }
 
-        scope.launch {
+        launchTrackedOnDemand {
             // Realtime events can be queued while the user changes profiles.
             // Do not apply the previous profile's remote state to the newly
             // selected local profile.
             if (surface != "profiles" && profileManager.activeProfileId.value != profileId) {
                 Log.d(TAG, "Skipping queued realtime surface=$surface after profile switch")
-                return@launch
+                return@launchTrackedOnDemand
             }
             Log.i(TAG, "Realtime surface pull requested profile=$profileId surface=$surface")
             when (surface) {
@@ -311,7 +331,7 @@ class StartupSyncService @Inject constructor(
                 "provider_credentials" -> {
                     if (deviceLocalProfilesEnabled && (profileId != 1 || profileManager.activeProfileId.value != 1)) {
                         Log.d(TAG, "Skipping customer secondary profile credential pull")
-                        return@launch
+                        return@launchTrackedOnDemand
                     }
                     providerCredentialSyncService.syncFromRemote(profileId)
                         .onSuccess { applied ->
