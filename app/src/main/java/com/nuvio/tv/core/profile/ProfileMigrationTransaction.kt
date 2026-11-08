@@ -34,6 +34,14 @@ internal object ProfileMigrationTransaction {
             verifiedAccountId == verifiedAccountId.trim() &&
             verifiedAccountId.none { it.isISOControl() })
         require(sourceId > 1 && targetId > 1 && sourceId != targetId)
+        val journalPath = directory.resolve("profile_migration_journal").toPath().toAbsolutePath().normalize()
+        val tempJournalPath = directory.resolve("profile_migration_journal.tmp").toPath().toAbsolutePath().normalize()
+        require(items.none { item ->
+            val sourcePath = item.source.toPath().toAbsolutePath().normalize()
+            val destinationPath = item.destination.toPath().toAbsolutePath().normalize()
+            sourcePath == journalPath || sourcePath == tempJournalPath ||
+                destinationPath == journalPath || destinationPath == tempJournalPath
+        }) { "Migration batch must not contain recovery journal paths" }
         ProfileMigrationBatchCopy.preflight(items)
         ProfileMigrationJournal.write(directory, prepared)
         ProfileMigrationJournal.write(
