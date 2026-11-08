@@ -58,6 +58,12 @@ internal object DeviceProfileMigrationPlanner {
     ): Plan {
         require(existingCloudProfileIds.all { it > 0 })
         require(existingDeviceProfileIds.all { it > 0 })
+        require(existingCloudProfileIds.size == existingCloudProfileIds.distinct().size) {
+            "Duplicate cloud profile IDs must be repaired before migration inspection"
+        }
+        require(existingDeviceProfileIds.size == existingDeviceProfileIds.distinct().size) {
+            "Duplicate device profile IDs must be repaired before migration inspection"
+        }
         val cloud = existingCloudProfileIds.distinct().sorted()
         val local = existingDeviceProfileIds.distinct().sorted()
         // Local and cloud secondary IDs must never be conflated, even when
