@@ -53,6 +53,29 @@ class ProfileMigrationBatchCopyTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun destinationOverlappingAnotherSourceIsRejected() {
+        val dir = Files.createTempDirectory("profile-batch").toFile()
+        try {
+            val first = dir.resolve("first")
+            val second = dir.resolve("second")
+            first.writeText("one")
+            second.writeText("two")
+            try {
+                ProfileMigrationBatchCopy.copyAll(listOf(
+                    ProfileMigrationBatchCopy.Item(first, second),
+                    ProfileMigrationBatchCopy.Item(second, dir.resolve("second-copy"))
+                ))
+            } finally {
+                assertEquals("one", first.readText())
+                assertEquals("two", second.readText())
+                assertFalse(dir.resolve("second-copy").exists())
+            }
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun duplicateDestinationsAreRejected() {
         val dir = Files.createTempDirectory("profile-batch").toFile()
         try {
