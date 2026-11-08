@@ -19,6 +19,9 @@ internal object ProfileMigrationCopyVerifier {
         require(!Files.exists(destinationPath, LinkOption.NOFOLLOW_LINKS)) {
             "Migration destination must not already exist"
         }
+        require(sourcePath.toAbsolutePath().normalize() != destinationPath.toAbsolutePath().normalize()) {
+            "Migration source and destination must differ"
+        }
         require(Files.isDirectory(destinationPath.parent, LinkOption.NOFOLLOW_LINKS)) {
             "Migration destination directory must exist"
         }
