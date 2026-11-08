@@ -11,7 +11,8 @@ internal object AccountModeStorageKeys {
     )
 
     fun forVerifiedAccount(accountId: String): Keys {
-        require(accountId.isNotBlank() && accountId == accountId.trim()) {
+        require(accountId.isNotBlank() && accountId == accountId.trim() &&
+            accountId.none { it.isISOControl() }) {
             "A verified account ID is required"
         }
         val namespace = MessageDigest.getInstance("SHA-256")
