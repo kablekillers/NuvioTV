@@ -7,6 +7,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileMigrationTransactionTest {
+    @Test fun invalidBatchDoesNotCreateJournalOrPartialCopy() {
+        val directory = Files.createTempDirectory("profile-transaction").toFile()
+        try {
+            val history = directory.resolve("history")
+            history.writeText("progress")
+            val occupied = directory.resolve("occupied")
+            occupied.writeText("keep")
+            val failed = runCatching {
+                ProfileMigrationTransaction.copyBatchWithJournal(
+                    directory, "verified-account", 2, 3, listOf(
+                        ProfileMigrationBatchCopy.Item(history, directory.resolve("history-copy")),
+                        ProfileMigrationBatchCopy.Item(history, occupied)
+                    )
+                )
+            }.isFailure
+            assertTrue(failed)
+            assertEquals(null, ProfileMigrationJournal.read(directory))
+            assertFalse(directory.resolve("history-copy").exists())
+            assertEquals("keep", occupied.readText())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun journaledBatchVerifiesFilesButDoesNotCompleteMigration() {
         val directory = Files.createTempDirectory("profile-transaction").toFile()
         try {
