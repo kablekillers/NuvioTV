@@ -107,7 +107,7 @@ class StartupSyncService @Inject constructor(
         migrationPauseMutex.lock()
         try {
             check(!migrationPauseRequested) { "Startup synchronization is already paused" }
-            migrationPauseRequested = true
+            synchronized(onDemandJobsLock) { migrationPauseRequested = true }
             startupPullJob?.cancelAndJoin()
             activityPullJob?.cancelAndJoin()
             periodicSurfacePullJob?.cancelAndJoin()
@@ -117,7 +117,7 @@ class StartupSyncService @Inject constructor(
             pendingOnDemand.joinAll()
             return operation()
         } finally {
-            migrationPauseRequested = false
+            synchronized(onDemandJobsLock) { migrationPauseRequested = false }
             migrationPauseMutex.unlock()
         }
     }
