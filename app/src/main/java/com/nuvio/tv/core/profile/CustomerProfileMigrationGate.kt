@@ -55,16 +55,15 @@ internal object CustomerProfileMigrationGate {
         ) {
             return Decision(false, "Duplicate profile IDs require data repair before migration")
         }
-        if (existingDeviceProfileIds.distinct().size > localProfileCountLimit + 1) {
+        if (existingDeviceProfileIds.size > localProfileCountLimit + 1) {
             return Decision(false, "Local profile count exceeds the customer profile limit")
         }
         if (existingCloudProfileIds.any { it <= 0 } || existingDeviceProfileIds.any { it <= 0 }) {
             return Decision(false, "Invalid profile IDs require data repair before migration")
         }
         // The current profile manager supports Main (1) and local secondaries
-        // (2..6). A copy-only remap can propose IDs above six to avoid cloud
-        // collisions, but such IDs must never be activated before the profile
-        // manager and its persistence paths support them end to end.
+        // (2..6). Never activate unsupported IDs or assume a copy-only
+        // remap proposal makes them safe.
         if (existingDeviceProfileIds.any { it !in 1..6 }) {
             return Decision(false, "Local profile IDs exceed the supported device range")
         }
