@@ -232,6 +232,8 @@ class ProfileSyncService @Inject constructor(
             return@withContext Result.success(Unit)
         }
         try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
                 putSyncOriginClientId(syncClientIdentity)
@@ -239,11 +241,14 @@ class ProfileSyncService @Inject constructor(
             if (!AccountProfilePolicy.mayDeleteRemoteProfileData(accountProfileModeProvider.currentMode())) {
                 return@withContext Result.success(Unit)
             }
+            fence.requireCurrent(identity)
             withJwtRefreshRetry {
+                fence.requireCurrent(identity)
                 check(AccountProfilePolicy.mayDeleteRemoteProfileData(accountProfileModeProvider.currentMode())) {
                     "Customer profile deletion blocked"
                 }
                 postgrest.rpc("sync_delete_profile_data", params)
+                fence.requireCurrent(identity)
             }
 
             Log.d(TAG, "Deleted remote data for profile $profileId")
@@ -259,9 +264,13 @@ class ProfileSyncService @Inject constructor(
         // to the shared account, not to this device's local Main profile.
         if (!AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) return@withContext Result.success(emptyMap())
         try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val response = withJwtRefreshRetry {
+                fence.requireCurrent(identity)
                 postgrest.rpc("sync_pull_profile_locks")
             }
+            fence.requireCurrent(identity)
             val remote = response.decodeList<SupabaseProfileLockState>()
             val result = remote
                 .filter { !deviceLocalProfilesEnabled || it.profileIndex == 1 }
@@ -278,6 +287,8 @@ class ProfileSyncService @Inject constructor(
             return@withContext SetProfilePinResult.Failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
         }
         try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
                 put("p_pin", pin)
@@ -286,7 +297,12 @@ class ProfileSyncService @Inject constructor(
                 }
             }
             withJwtRefreshRetry {
+                fence.requireCurrent(identity)
+                check(AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) {
+                    "Account-wide PIN sync is disabled"
+                }
                 postgrest.rpc("set_profile_pin", params)
+                fence.requireCurrent(identity)
             }
             SetProfilePinResult.Success
         } catch (e: Exception) {
