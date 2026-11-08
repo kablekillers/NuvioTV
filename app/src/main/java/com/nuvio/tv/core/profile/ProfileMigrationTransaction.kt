@@ -34,6 +34,9 @@ internal object ProfileMigrationTransaction {
         require(java.nio.file.Files.isDirectory(destination.toPath().parent, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             "Migration destination parent must be an existing directory"
         }
+        require(!java.nio.file.Files.isSymbolicLink(destination.toPath().parent)) {
+            "Migration destination parent must not be a symbolic link"
+        }
         ProfileMigrationJournal.write(directory, prepared)
         ProfileMigrationJournal.write(
             directory, prepared.copy(phase = ProfileMigrationJournal.Phase.COPYING)
