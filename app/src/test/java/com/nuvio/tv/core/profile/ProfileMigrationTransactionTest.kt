@@ -53,6 +53,27 @@ class ProfileMigrationTransactionTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun corruptJournalBlocksNewMigrationWithoutTouchingData() {
+        val directory = Files.createTempDirectory("profile-transaction").toFile()
+        try {
+            directory.resolve("profile_migration_journal").writeText("corrupted")
+            val source = directory.resolve("source")
+            val destination = directory.resolve("destination")
+            source.writeText("original")
+            try {
+                ProfileMigrationTransaction.copyWithJournal(
+                    directory, "verified-account", 2, 3, source, destination
+                )
+            } finally {
+                assertEquals("original", source.readText())
+                assertFalse(destination.exists())
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun secondMigrationCannotReuseUnresolvedJournal() {
         val directory = Files.createTempDirectory("profile-transaction").toFile()
         try {
