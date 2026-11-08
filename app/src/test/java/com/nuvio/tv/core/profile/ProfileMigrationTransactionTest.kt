@@ -7,6 +7,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileMigrationTransactionTest {
+    @Test fun journaledBatchVerifiesFilesButDoesNotCompleteMigration() {
+        val directory = Files.createTempDirectory("profile-transaction").toFile()
+        try {
+            val history = directory.resolve("history")
+            val watchlist = directory.resolve("watchlist")
+            history.writeText("progress")
+            watchlist.writeText("favorites")
+            val result = ProfileMigrationTransaction.copyBatchWithJournal(
+                directory, "verified-account", 2, 3, listOf(
+                    ProfileMigrationBatchCopy.Item(history, directory.resolve("history-copy")),
+                    ProfileMigrationBatchCopy.Item(watchlist, directory.resolve("watchlist-copy"))
+                )
+            )
+            assertTrue(result.allVerified)
+            assertEquals(2, result.verifiedFiles)
+            assertEquals("progress", history.readText())
+            assertEquals("favorites", watchlist.readText())
+            assertEquals(ProfileMigrationJournal.Phase.VERIFIED,
+                ProfileMigrationJournal.read(directory)?.phase)
+            assertFalse(ProfileMigrationJournal.hasCompletedMigrationForAccount(
+                directory, "verified-account"
+            ))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun verifiedCopyDoesNotMarkEntireMigrationComplete() {
         val directory = Files.createTempDirectory("profile-transaction").toFile()
         try {
