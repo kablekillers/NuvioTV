@@ -16,6 +16,10 @@ internal object ProfileMigrationBatchCopy {
     fun copyAll(items: List<Item>): Result {
         require(items.isNotEmpty()) { "Migration manifest must not be empty" }
         val destinations = items.map { it.destination.toPath().toAbsolutePath().normalize() }
+        val sources = items.map { it.source.toPath().toAbsolutePath().normalize() }
+        require(destinations.none { it in sources }) {
+            "Migration destinations must not overlap any source in the batch"
+        }
         require(destinations.distinct().size == destinations.size) {
             "Migration manifest contains duplicate destinations"
         }
