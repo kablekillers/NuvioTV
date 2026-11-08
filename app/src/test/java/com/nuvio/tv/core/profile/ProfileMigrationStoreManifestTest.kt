@@ -14,9 +14,20 @@ class ProfileMigrationStoreManifestTest {
             val items = ProfileMigrationStoreManifest.fromFactoryPreview(dir, mapOf(
                 "history_p2.preferences_pb" to "history_p3.preferences_pb",
                 "history_p2.preferences_pb.bak" to "history_p3.preferences_pb.bak"
-            ))
+            ), 2, 3)
             assertEquals(2, items.size)
             assertTrue(items.any { it.destination.name.endsWith(".bak") })
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsWrongTargetProfile() {
+        val dir = Files.createTempDirectory("profile-stores").toFile()
+        try {
+            dir.resolve("history_p2.preferences_pb").writeText("history")
+            ProfileMigrationStoreManifest.fromFactoryPreview(
+                dir, mapOf("history_p2.preferences_pb" to "history_p4.preferences_pb"), 2, 3
+            )
         } finally { dir.deleteRecursively() }
     }
 
@@ -25,7 +36,7 @@ class ProfileMigrationStoreManifestTest {
         val dir = Files.createTempDirectory("profile-stores").toFile()
         try {
             ProfileMigrationStoreManifest.fromFactoryPreview(
-                dir, mapOf("../other.preferences_pb" to "history_p3.preferences_pb")
+                dir, mapOf("../other.preferences_pb" to "history_p3.preferences_pb"), 2, 3
             )
         } finally { dir.deleteRecursively() }
     }
