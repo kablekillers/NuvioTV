@@ -25,6 +25,9 @@ internal object ProfileMigrationCopyVerifier {
         require(Files.isDirectory(destinationPath.parent, LinkOption.NOFOLLOW_LINKS)) {
             "Migration destination directory must exist"
         }
+        require(!Files.isSymbolicLink(destinationPath.parent)) {
+            "Migration destination directory must not be a symbolic link"
+        }
         // Detect source changes while copying rather than validating a moving target.
         val sourceDigestBeforeCopy = digest(source)
         // CREATE_NEW refuses to replace a destination created by another writer.
