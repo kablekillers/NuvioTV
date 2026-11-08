@@ -7,6 +7,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileMigrationTransactionTest {
+    @Test fun reservedJournalDestinationIsRejectedBeforeMutation() {
+        val directory = Files.createTempDirectory("profile-transaction").toFile()
+        try {
+            val source = directory.resolve("history")
+            source.writeText("original")
+            val rejected = runCatching {
+                ProfileMigrationTransaction.copyBatchWithJournal(
+                    directory, "verified-account", 2, 3, listOf(
+                        ProfileMigrationBatchCopy.Item(
+                            source, directory.resolve("profile_migration_journal")
+                        )
+                    )
+                )
+            }.isFailure
+            assertTrue(rejected)
+            assertEquals(null, ProfileMigrationJournal.read(directory))
+            assertEquals("original", source.readText())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun invalidBatchDoesNotCreateJournalOrPartialCopy() {
         val directory = Files.createTempDirectory("profile-transaction").toFile()
         try {
