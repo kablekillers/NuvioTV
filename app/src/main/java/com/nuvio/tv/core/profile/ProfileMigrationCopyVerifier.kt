@@ -22,6 +22,8 @@ internal object ProfileMigrationCopyVerifier {
         require(Files.isDirectory(destinationPath.parent, LinkOption.NOFOLLOW_LINKS)) {
             "Migration destination directory must exist"
         }
+        // Detect source changes while copying rather than validating a moving target.
+        val sourceDigestBeforeCopy = digest(source)
         // CREATE_NEW refuses to replace a destination created by another writer.
         Files.newInputStream(sourcePath).use { input ->
             Files.newOutputStream(
@@ -35,7 +37,9 @@ internal object ProfileMigrationCopyVerifier {
         }
         // Verify the bytes we copied. A failed comparison must never be
         // mistaken for a successful migration or trigger source deletion.
-        val verified = digest(source) contentEquals digest(destination)
+        val sourceDigestAfterCopy = digest(source)
+        val verified = sourceDigestBeforeCopy.contentEquals(sourceDigestAfterCopy) &&
+            sourceDigestBeforeCopy.contentEquals(digest(destination))
         if (verified) {
             // Persist copied bytes before the journal can advance to VERIFIED.
             java.io.RandomAccessFile(destination, "rw").use { it.fd.sync() }
