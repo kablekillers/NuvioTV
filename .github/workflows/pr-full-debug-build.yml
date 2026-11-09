@@ -55,10 +55,10 @@ jobs:
 
       - name: Configure persistent test signing
         env:
-          TEST_KEYSTORE_BASE64: ${{ secrets.KABLE_KILLERS_TEST_KEYSTORE_BASE64 }}
-          TEST_KEY_ALIAS: ${{ secrets.KABLE_KILLERS_TEST_KEY_ALIAS }}
-          TEST_KEY_PASSWORD: ${{ secrets.KABLE_KILLERS_TEST_KEY_PASSWORD }}
-          TEST_STORE_PASSWORD: ${{ secrets.KABLE_KILLERS_TEST_STORE_PASSWORD }}
+          TEST_KEYSTORE_BASE64: ${{ secrets.KABLE_KILLERS_TV_KEYSTORE_BASE64 }}
+          TEST_KEY_ALIAS: ${{ secrets.KABLE_KILLERS_TV_KEY_ALIAS }}
+          TEST_KEY_PASSWORD: ${{ secrets.KABLE_KILLERS_TV_KEY_PASSWORD }}
+          TEST_STORE_PASSWORD: ${{ secrets.KABLE_KILLERS_TV_STORE_PASSWORD }}
         run: |
           set -euo pipefail
           for name in TEST_KEYSTORE_BASE64 TEST_KEY_ALIAS TEST_KEY_PASSWORD TEST_STORE_PASSWORD; do
