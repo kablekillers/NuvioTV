@@ -48,16 +48,18 @@ class CollectionsDataStore @Inject constructor(
         private const val FEATURE = "collections"
     }
 
+    // Collections are household-shared configuration, not personal watch data.
+    // Keep existing secondary-profile storage intact for rollback/migration.
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
-        factory.get(profileId, FEATURE)
+        factory.get(1, FEATURE)
 
     private val gson = Gson()
     private val collectionsKey = stringPreferencesKey("collections_json")
     private fun string(resId: Int, vararg args: Any): String = appContext.getString(resId, *args)
 
     val collections: Flow<List<Collection>> =
-        profileManager.activeProfileId.flatMapLatest { pid ->
-            factory.get(pid, FEATURE).data.map { prefs ->
+        profileManager.activeProfileId.flatMapLatest {
+            factory.get(1, FEATURE).data.map { prefs ->
                 parseCollections(prefs[collectionsKey])
             }
         }
