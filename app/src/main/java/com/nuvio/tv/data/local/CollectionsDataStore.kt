@@ -88,10 +88,15 @@ class CollectionsDataStore @Inject constructor(
         profileId: Int = profileManager.activeProfileId.value,
         validateBeforeMutation: () -> Unit = {}
     ) {
+        val editingMode = accountProfileModeProvider.currentMode()
         requireConfigurationEditor(profileId)
         store(profileId).edit { prefs ->
+            // A pending write must not cross a legacy/customer mode transition.
+            check(accountProfileModeProvider.currentMode() == editingMode) {
+                "Collection edit discarded after account mode changed"
+            }
             requireConfigurationEditor(profileId)
-            // DataStore may delay an edit until after a logout or profile switch.
+            // Sync callers also verify account and active profile before mutation.
             validateBeforeMutation()
             if (collections.isEmpty()) {
                 prefs.remove(collectionsKey)
