@@ -6,6 +6,11 @@ on:
       - tv-1.1.2-performance-test
     paths:
       - .github/workflows/tv-1.1.2-signed-device-test.yml
+      - 'app/src/**'
+      - 'app/build.gradle.kts'
+      - 'build.gradle.kts'
+      - 'gradle/**'
+      - 'gradle.properties'
   workflow_dispatch:
 
 permissions:
