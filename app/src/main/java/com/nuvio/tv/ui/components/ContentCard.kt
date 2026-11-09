@@ -313,14 +313,6 @@ fun ContentCard(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                // Compose TV cards are D-pad-first. Handle direct taps on phone test devices.
-                // detectTapGestures cancels on drag, preserving horizontal catalog scrolling.
-                .pointerInput(onClick, onLongPress) {
-                    detectTapGestures(
-                        onTap = { onClick() },
-                        onLongPress = if (onLongPress != null) ({ onLongPress() }) else null
-                    )
-                }
                 .onFocusChanged { state ->
                     val focusedNow = state.isFocused
                     if (needsFocusState) {
@@ -403,6 +395,14 @@ fun ContentCard(
                     .fillMaxWidth()
                     .height(baseCardHeight)
                     .clip(cardShape)
+                    // The TV Card's own pointer handling can consume phone taps before
+                    // an outer modifier sees them. Attach touch handling to its content.
+                    .pointerInput(onClick, onLongPress) {
+                        detectTapGestures(
+                            onTap = { onClick() },
+                            onLongPress = if (onLongPress != null) ({ onLongPress() }) else null
+                        )
+                    }
                     .nuvioCardDepth(
                         shape = cardShape,
                         surface = CardDepthSurface.POSTERS,
