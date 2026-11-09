@@ -105,9 +105,11 @@ class StartupSyncService @Inject constructor(
     /** Developer-only barrier. Does not cover independent sync services or storage writers. */
     suspend fun <T> withStartupSyncPausedForMigration(operation: suspend () -> T): T {
         migrationPauseMutex.lock()
+        var periodicWasRunning = false
         try {
             check(!migrationPauseRequested) { "Startup synchronization is already paused" }
             synchronized(onDemandJobsLock) { migrationPauseRequested = true }
+            periodicWasRunning = periodicSurfacePullJob?.isActive == true
             startupPullJob?.cancelAndJoin()
             activityPullJob?.cancelAndJoin()
             periodicSurfacePullJob?.cancelAndJoin()
@@ -118,6 +120,9 @@ class StartupSyncService @Inject constructor(
             return operation()
         } finally {
             synchronized(onDemandJobsLock) { migrationPauseRequested = false }
+            if (periodicWasRunning && authManager.authState.value is AuthState.FullAccount) {
+                startPeriodicSurfacePulls()
+            }
             migrationPauseMutex.unlock()
         }
     }
