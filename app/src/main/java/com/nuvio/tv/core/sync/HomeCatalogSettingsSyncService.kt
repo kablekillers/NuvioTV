@@ -1,8 +1,12 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.SharedLayoutScope
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.remote.supabase.SupabaseHomeCatalogSettingsBlob
@@ -73,12 +77,19 @@ internal fun mergeHomeCatalogSettingsJson(
 class HomeCatalogSettingsSyncService @Inject constructor(
     private val postgrest: Postgrest,
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val profileManager: ProfileManager,
     private val addonRepository: AddonRepository,
     private val collectionsDataStore: CollectionsDataStore,
     private val syncClientIdentity: SyncClientIdentity
 ) {
+    // Disabled until local-profile mode is migrated and verified end to end.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+    private fun sharedLayoutProfileId(activeId: Int): Int =
+        SharedLayoutScope.configurationProfileId(activeId, deviceLocalProfilesEnabled)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json {
         ignoreUnknownKeys = true
@@ -103,7 +114,11 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
     suspend fun pushToRemote(reason: String = "unspecified"): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val profileId = profileManager.activeProfileId.value
+            val activeId = profileManager.activeProfileId.value
+            if (!SharedLayoutScope.canEditConfiguration(activeId, deviceLocalProfilesEnabled)) {
+                return@withContext Result.success(Unit)
+            }
+            val profileId = sharedLayoutProfileId(activeId)
             val syncScope = currentScope(profileId)
                 ?: return@withContext Result.success(Unit)
             val payload = loadLocalPayload()
@@ -120,15 +135,22 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
     suspend fun pullFromRemote(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val profileId = profileManager.activeProfileId.value
+            val profileId = sharedLayoutProfileId(profileManager.activeProfileId.value)
             val syncScope = currentScope(profileId)
                 ?: return@withContext Result.success(false)
+            val initialProfileMode = accountProfileModeProvider.currentMode()
             val localState = layoutPreferenceDataStore.getHomeCatalogSettingsState()
             Log.d(TAG, "Pull start profile=$profileId ${localState.summary()}")
 
             if (localState.disabledKeys.any(::hasLegacyHomeCatalogDisabledKeyFormat)) {
                 val localPayload = loadLocalPayload()
                 if (localPayload.items.isNotEmpty()) {
+                    // The legacy-key migration is local, but its suspendable
+                    // payload load can outlive the original authenticated scope.
+                    if (currentScope(profileId) != syncScope ||
+                        accountProfileModeProvider.currentMode() != initialProfileMode) {
+                        return@withContext Result.success(false)
+                    }
                     isSyncingFromRemote = true
                     try {
                         layoutPreferenceDataStore.applyCatalogSettingsFromRemote(localPayload)
@@ -142,7 +164,8 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
             val localPayload = loadLocalPayload()
             val remoteBlob = fetchRemoteBlob(profileId)
-            if (currentScope(profileId) != syncScope) {
+            if (currentScope(profileId) != syncScope ||
+                accountProfileModeProvider.currentMode() != initialProfileMode) {
                 return@withContext Result.success(false)
             }
             cachedSharedSettings = CachedSharedSettings(
@@ -166,6 +189,12 @@ class HomeCatalogSettingsSyncService @Inject constructor(
                 return@withContext Result.success(false)
             }
 
+            // Parsing and loading may outlive a profile/account switch. Never
+            // apply a previous account's shared catalog to the new session.
+            if (currentScope(profileId) != syncScope ||
+                accountProfileModeProvider.currentMode() != initialProfileMode) {
+                return@withContext Result.success(false)
+            }
             isSyncingFromRemote = true
             try {
                 layoutPreferenceDataStore.applyCatalogSettingsFromRemote(remotePayload)
@@ -184,9 +213,25 @@ class HomeCatalogSettingsSyncService @Inject constructor(
     fun triggerPush() {
         if (isSyncingFromRemote) return
         if (!authManager.isAuthenticated) return
+        // A delayed push must never follow a profile switch or sign-in change.
+        // Otherwise a pending edit can be uploaded under a different identity.
+        val scheduledProfileId = profileManager.activeProfileId.value
+        val scheduledAccountId = authManager.verifiedProfileAccountId ?: return
+        val scheduledMode = accountProfileModeProvider.currentMode()
+        if (!SharedLayoutScope.canEditConfiguration(
+                scheduledProfileId, deviceLocalProfilesEnabled
+            )) return
         pushJob?.cancel()
         pushJob = scope.launch {
             delay(500)
+            if (!authManager.isAuthenticated ||
+                profileManager.activeProfileId.value != scheduledProfileId ||
+                authManager.verifiedProfileAccountId != scheduledAccountId ||
+                accountProfileModeProvider.currentMode() != scheduledMode ||
+                !SharedLayoutScope.canEditConfiguration(
+                    scheduledProfileId, deviceLocalProfilesEnabled
+                )
+            ) return@launch
             pushToRemote(reason = "triggerPush")
         }
     }
@@ -198,6 +243,11 @@ class HomeCatalogSettingsSyncService @Inject constructor(
     }
 
     private suspend fun pushPayload(syncScope: HomeCatalogSyncScope, payload: SyncHomeCatalogPayload) {
+        // The shared master login is not proof of administrator authority.
+        // Recheck at the RPC boundary so no indirect caller can upload customer changes.
+        check(SharedLayoutScope.canEditConfiguration(profileManager.activeProfileId.value, deviceLocalProfilesEnabled)) {
+            "Customer devices cannot overwrite master home catalog settings"
+        }
         val jsonElement = mergedSharedPayloadJson(syncScope, payload)
 
         val params = buildJsonObject {
@@ -208,9 +258,21 @@ class HomeCatalogSettingsSyncService @Inject constructor(
         }
 
         withJwtRefreshRetry {
+            // JWT refresh may suspend while the active profile or account changes.
+            // Check again on every attempt, immediately before the shared write.
+            check(SharedLayoutScope.canEditConfiguration(
+                profileManager.activeProfileId.value, deviceLocalProfilesEnabled
+            ) && currentScope(syncScope.profileId) == syncScope) {
+                "Shared catalog write is no longer authorized for this profile and account"
+            }
             postgrest.rpc("sync_push_home_catalog_settings", params)
         }
-        cachedSharedSettings = CachedSharedSettings(scope = syncScope, settingsJson = jsonElement)
+        // Never cache an upload as belonging to an account that changed in flight.
+        if (SharedLayoutScope.canEditConfiguration(
+                profileManager.activeProfileId.value, deviceLocalProfilesEnabled
+            ) && currentScope(syncScope.profileId) == syncScope) {
+            cachedSharedSettings = CachedSharedSettings(scope = syncScope, settingsJson = jsonElement)
+        }
     }
 
     private suspend fun fetchRemoteBlob(profileId: Int): SupabaseHomeCatalogSettingsBlob? {
@@ -218,7 +280,14 @@ class HomeCatalogSettingsSyncService @Inject constructor(
             put("p_profile_id", profileId)
             put("p_platform", HOME_CATALOG_SHARED_SYNC_PLATFORM)
         }
+        val expectedScope = currentScope(profileId)
+            ?: return null
         val response = withJwtRefreshRetry {
+            // A JWT refresh can resume under a different signed-in account.
+            // Do not fetch shared configuration for a stale account/profile.
+            check(currentScope(profileId) == expectedScope) {
+                "Shared catalog read is no longer scoped to the original account"
+            }
             postgrest.rpc("sync_pull_home_catalog_settings", params)
         }
         return response.decodeList<SupabaseHomeCatalogSettingsBlob>().firstOrNull()
@@ -251,7 +320,7 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
     private fun currentScope(profileId: Int): HomeCatalogSyncScope? {
         val state = authManager.authState.value as? AuthState.FullAccount ?: return null
-        if (profileManager.activeProfileId.value != profileId) return null
+        if (sharedLayoutProfileId(profileManager.activeProfileId.value) != profileId) return null
         return HomeCatalogSyncScope(userId = state.userId, profileId = profileId)
     }
 

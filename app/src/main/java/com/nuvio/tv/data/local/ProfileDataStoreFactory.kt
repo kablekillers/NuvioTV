@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.nuvio.tv.core.profile.ProfileShadowBackupMigrationPlan
 import com.nuvio.tv.domain.model.DiscoverLocation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -61,6 +62,7 @@ class ProfileDataStoreFactory @Inject constructor(
     private val cache = ConcurrentHashMap<String, ScopedDataStore>()
     private val deletedProfileIds = ConcurrentHashMap.newKeySet<Int>()
     private val lock = Any()
+    private val remapAccessGate = ProfileRemapStoreAccessGate()
     private val retainedStandaloneDataStoreNames = setOf(
         "app_onboarding",
         "auth_session_notice_store",
@@ -79,51 +81,287 @@ class ProfileDataStoreFactory @Inject constructor(
     fun get(profileId: Int, featureName: String): DataStore<Preferences> {
         val fileName = if (profileId == 1) featureName else "${featureName}_p$profileId"
         synchronized(lock) {
+            remapAccessGate.checkAccess(profileId)
             cache[fileName]?.let { return it.store }
             return createAndCache(fileName).store
         }
     }
 
+    /**
+     * Future migration orchestrators can hold this barrier while copying and
+     * reconciling source/target profile stores. Begin and get() share the
+     * factory monitor so no source or target store can open between the cache
+     * check and installation of the barrier.
+     *
+     * A barrier alone does NOT quiesce already handed-out DataStores, other
+     * processes, or background writers. Callers must stop those first, hold
+     * ProfileMigrationExclusiveLock as well, and close the token in finally.
+     */
+    internal fun beginProfileRemapAccessBlock(sourceId: Int, targetId: Int): AutoCloseable {
+        synchronized(lock) {
+            val cachedIds = cache.keys.mapNotNull { key ->
+                Regex("_p([0-9]+)$").find(key)?.groupValues?.get(1)?.toIntOrNull()
+            }.toSet()
+            remapAccessGate.begin(sourceId, targetId, cachedIds)
+        }
+        var released = false
+        return AutoCloseable {
+            synchronized(lock) {
+                // A stale or double-closed token must not release a later
+                // migration barrier for the same source/target IDs.
+                if (!released) {
+                    remapAccessGate.end(sourceId, targetId)
+                    released = true
+                }
+            }
+        }
+    }
+
+    /**
+     * A read-only, guarded migration preflight. The returned preparation keeps
+     * new source/target DataStores blocked until close() is called; the preview
+     * itself is built AFTER the access gate has been installed.
+     *
+     * This is not an authorization to run migration: it cannot stop references
+     * handed out outside this factory, background sync, or another process.
+     * A future orchestrator must independently stop writers, authenticate the
+     * account, and use ProfileMigrationExclusiveLock for each stage.
+     */
+    internal class ProfileRemapPreparation(
+        val manifest: Map<String, String>,
+        private val accessBlock: AutoCloseable
+    ) : AutoCloseable {
+        override fun close() = accessBlock.close()
+    }
+
+    internal fun prepareProfileRemap(sourceId: Int, targetId: Int): ProfileRemapPreparation {
+        val block = beginProfileRemapAccessBlock(sourceId, targetId)
+        try {
+            return ProfileRemapPreparation(
+                manifest = previewProfileFileMoves(sourceId, targetId),
+                accessBlock = block
+            )
+        } catch (failure: Throwable) {
+            block.close()
+            throw failure
+        }
+    }
+
+    /**
+     * Tracks writes even when callers already hold a DataStore returned by
+     * get(). A remap barrier refuses to start until these writes complete,
+     * and any later writes to blocked source/target IDs fail before the
+     * underlying DataStore is modified. This covers this factory's wrapped
+     * DataStores only; it does not quiesce other storage implementations.
+     */
+    internal suspend fun <T> withTrackedProfileStoreWrite(
+        fileName: String,
+        operation: suspend () -> T
+    ): T {
+        val profileId = Regex("_p([0-9]+)$").find(fileName)
+            ?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        synchronized(lock) { remapAccessGate.beginMutation(profileId) }
+        try {
+            return operation()
+        } finally {
+            synchronized(lock) { remapAccessGate.endMutation() }
+        }
+    }
+
+    /**
+     * Keep the factory's source/target access barrier held across a suspending
+     * migration operation, including checksum work and metadata checkpoints.
+     *
+     * This entry point is deliberately not invoked by login or app startup.
+     * The caller must still stop non-factory writers and background sync, and
+     * every mutating migration stage must independently hold its OS file lock
+     * and revalidate account identity before committing durable state.
+     *
+     * Aborts if the authenticated account changed during the operation.
+     * A failed or cancelled operation always releases the access barrier;
+     * durable journal recovery remains the responsibility of its caller.
+     */
+    internal suspend fun <T> withGuardedProfileRemap(
+        verifiedAccountId: String,
+        sourceId: Int,
+        targetId: Int,
+        currentVerifiedAccountId: () -> String?,
+        operation: suspend (Map<String, String>) -> T
+    ): T {
+        require(verifiedAccountId.isNotBlank() &&
+            verifiedAccountId == verifiedAccountId.trim() &&
+            currentVerifiedAccountId() == verifiedAccountId) {
+            "The verified migration account must be signed in"
+        }
+        val preparation = prepareProfileRemap(sourceId, targetId)
+        try {
+            check(currentVerifiedAccountId() == verifiedAccountId) {
+                "The authenticated account changed during migration preflight"
+            }
+            val result = operation(preparation.manifest)
+            check(currentVerifiedAccountId() == verifiedAccountId) {
+                "The authenticated account changed during profile migration"
+            }
+            return result
+        } finally {
+            preparation.close()
+        }
+    }
+
     suspend fun clearProfile(profileId: Int) {
         if (profileId == 1) return
-        deletedProfileIds.add(profileId)
-        val suffix = "_p$profileId"
-        val keysToRemove = synchronized(lock) {
-            cache.keys.filter { it.endsWith(suffix) }
-        }
-        for (key in keysToRemove) {
-            val scoped = synchronized(lock) { cache.remove(key) } ?: continue
-            runCatching { scoped.store.edit { it.clear() } }
-            // Cancel the scope so DataStore releases the file from its active-files
-            // registry. Wait for completion before any subsequent get() can create
-            // a fresh DataStore for the same path.
-            scoped.job.cancel()
-            scoped.job.join()
+        synchronized(lock) { remapAccessGate.beginMutation(profileId) }
+        try {
+            deletedProfileIds.add(profileId)
+            val suffix = "_p$profileId"
+            val keysToRemove = synchronized(lock) {
+                cache.keys.filter { it.endsWith(suffix) }
+            }
+            for (key in keysToRemove) {
+                val scoped = synchronized(lock) { cache.remove(key) } ?: continue
+                runCatching { scoped.store.edit { it.clear() } }
+                // Cancel the scope so DataStore releases the file from its
+                // active-files registry before it can be opened again.
+                scoped.job.cancel()
+                scoped.job.join()
+            }
+        } finally {
+            synchronized(lock) { remapAccessGate.endMutation() }
         }
     }
 
     suspend fun clearProfileScopedData() = withContext(Dispatchers.IO) {
-        val cachedStores = synchronized(lock) { cache.toMap() }
-        cachedStores.values.forEach { scoped ->
-            runCatching { scoped.store.edit { it.clear() } }
-        }
-        deletedProfileIds.clear()
-        corruptedFileNames.clear()
-
-        val cachedFileNames = cachedStores.keys.mapTo(mutableSetOf()) { "$it.preferences_pb" }
-        val dataStoreDir = File(context.filesDir, "datastore")
-        if (!dataStoreDir.exists()) return@withContext
-        dataStoreDir.listFiles()?.forEach { file ->
-            if (file.name !in cachedFileNames && isProfileScopedDataStoreFile(file.name)) {
-                file.delete()
+        synchronized(lock) { remapAccessGate.beginMutation() }
+        try {
+            val cachedStores = synchronized(lock) { cache.toMap() }
+            cachedStores.values.forEach { scoped ->
+                runCatching { scoped.store.edit { it.clear() } }
             }
+            deletedProfileIds.clear()
+            corruptedFileNames.clear()
+
+            val cachedFileNames = cachedStores.keys.mapTo(mutableSetOf()) { "$it.preferences_pb" }
+            val dataStoreDir = File(context.filesDir, "datastore")
+            if (!dataStoreDir.exists()) return@withContext
+            dataStoreDir.listFiles()?.forEach { file ->
+                if (file.name !in cachedFileNames && isProfileScopedDataStoreFile(file.name)) {
+                    file.delete()
+                }
+            }
+        } finally {
+            synchronized(lock) { remapAccessGate.endMutation() }
         }
+    }
+
+    /**
+     * Read-only inventory for a future profile-ID migration.
+     *
+     * Includes stores that are not currently cached/open. A migration must
+     * account for every returned file before changing any profile identifier.
+     * Never rename DataStore files while their instances are active.
+     */
+    fun inventoryProfileScopedFiles(profileId: Int): List<String> {
+        require(profileId > 1) { "Only secondary profiles can be remapped" }
+        val suffix = "_p$profileId.preferences_pb"
+        val directory = File(context.filesDir, "datastore")
+        return directory.listFiles()
+            ?.asSequence()
+            ?.filter { it.isFile && it.name.endsWith(suffix) }
+            ?.map { it.name }
+            ?.sorted()
+            ?.toList()
+            ?: emptyList()
+    }
+
+    /**
+     * Non-mutating remap audit. Refuse any target with existing data, including
+     * stores that have not yet been opened during this app session.
+     */
+    fun auditProfileRemapSourceAndTarget(sourceId: Int, targetId: Int): ProfileRemapInventory {
+        require(sourceId > 1 && targetId > 1 && sourceId != targetId) {
+            "Remapping requires distinct secondary profile IDs"
+        }
+        val source = inventoryProfileScopedFiles(sourceId)
+        val target = inventoryProfileScopedFiles(targetId)
+        val sourceSuffix = "_p$sourceId"
+        val targetSuffix = "_p$targetId"
+        val cachedSourceStores = synchronized(lock) {
+            cache.keys.filter { it.endsWith(sourceSuffix) }.sorted()
+        }
+        val cachedTargetStores = synchronized(lock) {
+            cache.keys.filter { it.endsWith(targetSuffix) }.sorted()
+        }
+        return ProfileRemapInventory(
+            sourceId = sourceId,
+            targetId = targetId,
+            sourceFiles = source,
+            cachedSourceStores = cachedSourceStores,
+            existingTargetFiles = target,
+            cachedTargetStores = cachedTargetStores,
+            mayProceedToSeparateMigrationStep = source.isNotEmpty() &&
+                cachedSourceStores.isEmpty() && target.isEmpty() && cachedTargetStores.isEmpty()
+        )
+    }
+
+    data class ProfileRemapInventory(
+        val sourceId: Int,
+        val targetId: Int,
+        val sourceFiles: List<String>,
+        val cachedSourceStores: List<String>,
+        val existingTargetFiles: List<String>,
+        val cachedTargetStores: List<String>,
+        val mayProceedToSeparateMigrationStep: Boolean
+    )
+
+    /**
+     * Construct a read-only file move manifest. Every destination must be empty
+     * and both profile stores must be closed before any future executor runs.
+     */
+    fun previewProfileFileMoves(sourceId: Int, targetId: Int): Map<String, String> {
+        val audit = auditProfileRemapSourceAndTarget(sourceId, targetId)
+        check(audit.mayProceedToSeparateMigrationStep) {
+            "Profile remapping is unsafe: source/target stores are active, missing, or occupied"
+        }
+        val sourceSuffix = "_p$sourceId.preferences_pb"
+        val manifest = audit.sourceFiles.associateWith { sourceFile ->
+            check(sourceFile.endsWith(sourceSuffix))
+            sourceFile.removeSuffix(sourceSuffix) + "_p$targetId.preferences_pb"
+        }
+        check(manifest.values.size == manifest.values.toSet().size) {
+            "Multiple source stores map to the same destination"
+        }
+        val directory = File(context.filesDir, "datastore")
+        val cachedDuringPreview = synchronized(lock) {
+            cache.keys.any { it.endsWith("_p$sourceId") || it.endsWith("_p$targetId") }
+        }
+        check(!cachedDuringPreview) {
+            "Profile DataStore opened during migration preview; refusing remap"
+        }
+        check(manifest.keys.all { sourceName ->
+            val source = File(directory, sourceName)
+            source.isFile && source.length() > 0L
+        }) {
+            "Source store is missing or empty; refusing remap"
+        }
+        check(manifest.values.none { File(directory, it).exists() }) {
+            "Destination store appeared after inventory; refusing remap"
+        }
+        // The copy coordinator expects a complete inventory including
+        // shadow recovery backups. A preview containing only primary files
+        // would be rejected whenever a profile has recovery data.
+        val backupPlan = ProfileShadowBackupMigrationPlan.inspect(
+            directory, sourceId, targetId, manifest
+        )
+        return manifest + backupPlan.backupsToCopy
     }
 
     fun isProfileDeleted(profileId: Int): Boolean = profileId in deletedProfileIds
 
     fun markProfileCreated(profileId: Int) {
-        deletedProfileIds.remove(profileId)
+        synchronized(lock) {
+            remapAccessGate.checkAccess(profileId)
+            deletedProfileIds.remove(profileId)
+        }
     }
 
     private fun isProfileScopedDataStoreFile(fileName: String): Boolean {
@@ -181,15 +419,33 @@ class ProfileDataStoreFactory @Inject constructor(
         return scoped
     }
 
-    internal fun writeShadowCopy(fileName: String, preferences: Preferences) {
+    internal fun writeShadowCopy(fileName: String, preferences: Preferences): Boolean {
         val sourceFile = File(File(context.filesDir, "datastore"), "$fileName.preferences_pb")
         val backupFile = File(File(context.filesDir, "datastore"), "$fileName.preferences_pb.bak")
-        try {
-            if (sourceFile.exists() && sourceFile.length() > 0) {
-                sourceFile.copyTo(backupFile, overwrite = true)
+        // Shadow backups are written asynchronously after DataStore changes.
+        // Count them as in-flight mutations so a remap cannot begin midway
+        // through a copy, and reject late writes to blocked source/target IDs.
+        val profileId = Regex("_p([0-9]+)$").find(fileName)
+            ?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        return try {
+            synchronized(lock) { remapAccessGate.beginMutation(profileId) }
+            try {
+                if (sourceFile.exists() && sourceFile.length() > 0) {
+                    sourceFile.copyTo(backupFile, overwrite = true)
+                    true
+                } else {
+                    false
+                }
+            } finally {
+                synchronized(lock) { remapAccessGate.endMutation() }
             }
+        } catch (_: IllegalStateException) {
+            // A remap barrier intentionally rejects late backup writes.
+            // The caller must not treat the skipped copy as persisted.
+            false
         } catch (e: Exception) {
             Log.w("ProfileDataStoreFactory", "Failed to write shadow copy for $fileName: ${e.message}")
+            false
         }
     }
 
@@ -235,8 +491,7 @@ private class ShadowCopyDataStore(
                     try {
                         val prefs = delegate.data.first()
                         if (prefs != emptyPreferences()) {
-                            factory.writeShadowCopy(fileName, prefs)
-                            shadowWritten = true
+                            shadowWritten = factory.writeShadowCopy(fileName, prefs)
                         }
                     } catch (_: Exception) { }
                 }
@@ -244,11 +499,12 @@ private class ShadowCopyDataStore(
         }
 
     override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
-        val result = delegate.updateData(transform)
+        val result = factory.withTrackedProfileStoreWrite(fileName) {
+            delegate.updateData(transform)
+        }
         scope.launch(Dispatchers.IO) {
             try {
-                factory.writeShadowCopy(fileName, result)
-                shadowWritten = true
+                shadowWritten = factory.writeShadowCopy(fileName, result)
             } catch (_: Exception) { }
         }
         return result

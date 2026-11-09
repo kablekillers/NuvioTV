@@ -1,5 +1,8 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+
 import android.os.SystemClock
 import android.util.Log
 import androidx.datastore.preferences.core.MutablePreferences
@@ -14,6 +17,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.data.local.ExperienceModeDataStore
 import com.nuvio.tv.data.local.PluginDataStore
@@ -175,6 +179,7 @@ internal fun shouldExcludePreferenceFromProfileSettingsSync(feature: String, key
 @Singleton
 class ProfileSettingsSyncService @Inject constructor(
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val postgrest: Postgrest,
     private val profileManager: ProfileManager,
     private val profileDataStoreFactory: ProfileDataStoreFactory,
@@ -185,6 +190,17 @@ class ProfileSettingsSyncService @Inject constructor(
     private val metaRepository: MetaRepository,
     private val cwEnrichmentCache: ContinueWatchingEnrichmentCache
 ) {
+    // Resolve on access so switching logins cannot retain the previous account's mode.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+    // This blob includes per-profile theme, player, trailer and credential-related
+    // settings. Main (ID 1) is shared by every customer login, so it must not
+    // push or pull this blob in device-local mode either. Shared addon/catalog
+    // configuration has separate sync services.
+    private fun maySyncProfileSettings(profileId: Int): Boolean =
+        !deviceLocalProfilesEnabled &&
+            ProfileSyncBoundary.maySyncProfileMetadata(profileId, false)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
 
@@ -217,18 +233,31 @@ class ProfileSettingsSyncService @Inject constructor(
     }
 
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
-        return try {
+        // Never retry a personal settings RPC using credentials from a different
+        // login, or return data fetched before the authenticated account changed.
+        val fence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+            { authManager.verifiedProfileAccountId },
+            { accountProfileModeProvider.currentMode() }
+        )
+        val identity = fence.capture()
+        fence.requireCurrent(identity)
+        val result = try {
             block()
         } catch (e: Exception) {
+            fence.requireCurrent(identity)
             if (!authManager.refreshSessionIfJwtExpired(e)) throw e
+            fence.requireCurrent(identity)
             block()
         }
+        fence.requireCurrent(identity)
+        return result
     }
 
     suspend fun pushCurrentProfileToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
             try {
                 val profileId = profileManager.activeProfileId.value
+                if (!maySyncProfileSettings(profileId)) return@withLock Result.success(Unit)
                 pushProfileToRemote(profileId)
                 Log.d(TAG, "Pushed profile settings blob for profile $profileId")
                 Result.success(Unit)
@@ -243,8 +272,19 @@ class ProfileSettingsSyncService @Inject constructor(
         syncMutex.withLock {
             try {
                 val profileId = profileManager.activeProfileId.value
+                if (!maySyncProfileSettings(profileId)) return@withLock Result.success(false)
+                val fence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+                    { authManager.verifiedProfileAccountId },
+                    { accountProfileModeProvider.currentMode() }
+                )
+                val identity = fence.capture()
                 val inheritedPluginSettingsApplied = pullInheritedPluginSettings(profileId)
+                fence.requireCurrent(identity)
                 val blob = pullProfileFromRemote(profileId)
+                fence.requireCurrent(identity)
+                check(maySyncProfileSettings(profileId)) {
+                    "Profile settings sync mode changed before applying remote data"
+                }
                 lastForegroundPullAtMs = SystemClock.elapsedRealtime()
                 if (blob == null) {
                     Log.d(TAG, "No remote profile settings blob for profile $profileId; keeping local settings")
@@ -260,7 +300,19 @@ class ProfileSettingsSyncService @Inject constructor(
                     return@withLock Result.success(inheritedPluginSettingsApplied)
                 }
 
-                applySettingsBlob(profileId, featuresJson, remoteSignature)
+                fence.requireCurrent(identity)
+                check(profileManager.activeProfileId.value == profileId) {
+                    "Active profile changed before applying remote settings"
+                }
+                applySettingsBlob(profileId, featuresJson, remoteSignature) {
+                    fence.requireCurrent(identity)
+                    check(profileManager.activeProfileId.value == profileId) {
+                        "Active profile changed during remote settings import"
+                    }
+                    check(maySyncProfileSettings(profileId)) {
+                        "Profile settings sync mode changed during remote import"
+                    }
+                }
                 Log.d(TAG, "Applied remote profile settings blob for profile $profileId")
                 Result.success(true)
             } catch (e: Exception) {
@@ -278,6 +330,29 @@ class ProfileSettingsSyncService @Inject constructor(
         withContext(Dispatchers.IO) {
             syncMutex.withLock {
                 try {
+                    // Shared layout and plugins are inherited, not copied to a
+                    // cloud-backed secondary profile. Never invoke the remote copy
+                    // RPC for a device-only target (it creates remote profile data).
+                    if (deviceLocalProfilesEnabled) {
+                        // Customer profiles are device-local even though every
+                        // device uses the same master account. Copy only local
+                        // settings; never call an account-wide profile RPC.
+                        require(sourceProfileId != targetProfileId)
+                        require(profileManager.profiles.value.any { it.id == sourceProfileId })
+                        require(profileManager.profiles.value.any { it.id == targetProfileId })
+                        val features = exportSettingsBlob(sourceProfileId)["features"]?.jsonObject
+                            ?: error("Source local TV settings are unavailable")
+                        applySettingsBlob(
+                            profileId = targetProfileId,
+                            featuresJson = features,
+                            signature = buildSettingsSignature(features)
+                        )
+                        if (copyProviderCredentials) {
+                            copyProviderCredentialsLocally(sourceProfileId, targetProfileId)
+                        }
+                        Log.d(TAG, "Copied profile setup locally from $sourceProfileId to $targetProfileId")
+                        return@withLock Result.success(Unit)
+                    }
                     require(sourceProfileId != targetProfileId)
                     require(profileManager.profiles.value.any { it.id == sourceProfileId })
                     require(profileManager.profiles.value.any { it.id == targetProfileId })
@@ -388,6 +463,9 @@ class ProfileSettingsSyncService @Inject constructor(
         profileId: Int,
         settingsJson: JsonObject? = null
     ) {
+        check(!deviceLocalProfilesEnabled) {
+            "Account-wide profile settings upload is forbidden in customer device-local mode"
+        }
         val resolvedSettingsJson = settingsJson ?: exportSettingsBlob(profileId)
         val params = buildJsonObject {
             put("p_profile_id", profileId)
@@ -401,6 +479,9 @@ class ProfileSettingsSyncService @Inject constructor(
     }
 
     private suspend fun pullProfileFromRemote(profileId: Int): JsonObject? {
+        check(!deviceLocalProfilesEnabled) {
+            "Account-wide profile settings download is forbidden in customer device-local mode"
+        }
         val params = buildJsonObject {
             put("p_profile_id", profileId)
             put("p_platform", SETTINGS_SYNC_PLATFORM)
@@ -414,16 +495,19 @@ class ProfileSettingsSyncService @Inject constructor(
     private suspend fun applySettingsBlob(
         profileId: Int,
         featuresJson: JsonObject,
-        signature: String
+        signature: String,
+        validateBeforeMutation: () -> Unit = {}
     ) {
         val isActiveProfile = profileManager.activeProfileId.value == profileId
-        importSettingsBlob(profileId, featuresJson)
+        importSettingsBlob(profileId, featuresJson, validateBeforeMutation)
+        validateBeforeMutation()
         if (isActiveProfile) {
             skipNextPushSignature = signature
         }
     }
 
     private suspend fun pullInheritedPluginSettings(profileId: Int): Boolean {
+        if (deviceLocalProfilesEnabled) return false
         val profile = profileManager.profiles.value.firstOrNull { it.id == profileId }
         if (profileId == 1 || profile?.usesPrimaryPlugins != true) return false
         val features = pullProfileFromRemote(1)?.get("features") as? JsonObject ?: return false
@@ -483,16 +567,23 @@ class ProfileSettingsSyncService @Inject constructor(
         }
     }
 
-    private suspend fun importSettingsBlob(profileId: Int, featuresJson: JsonObject) {
+    private suspend fun importSettingsBlob(
+        profileId: Int,
+        featuresJson: JsonObject,
+        validateBeforeMutation: () -> Unit = {}
+    ) {
         applyingRemoteBlob = true
         try {
             syncedFeatures.forEach { feature ->
+                validateBeforeMutation()
                 val featureJson = featuresJson[feature]?.jsonObject ?: return@forEach
                 if (feature == PluginDataStore.FEATURE) {
+                    validateBeforeMutation()
                     importPluginSettings(profileId, featureJson)
                     return@forEach
                 }
                 profileDataStoreFactory.get(profileId, feature).edit { mutablePrefs ->
+                    validateBeforeMutation()
                     val preservedEntries = captureLocalOnlyPreferenceEntries(feature, mutablePrefs)
                     val priorDiscoverLocation = if (feature == "layout_settings") {
                         mutablePrefs[stringPreferencesKey("discover_location")]
@@ -563,6 +654,11 @@ class ProfileSettingsSyncService @Inject constructor(
         scope.launch {
             profileManager.activeProfileId
                 .flatMapLatest { profileId ->
+                    // Local-only profiles must not observe or trigger account-wide
+                    // settings pushes. Customer mode disables cloud profile settings for every profile, including Main.
+                    if (!maySyncProfileSettings(profileId)) {
+                        return@flatMapLatest kotlinx.coroutines.flow.flowOf("device-local-profile")
+                    }
                     val featureFlows = syncedFeatures.map { feature ->
                         profileDataStoreFactory.get(profileId, feature).data
                             .map { prefs ->

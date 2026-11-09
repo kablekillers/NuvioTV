@@ -100,8 +100,12 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: android.content.Context): ImageLoader {
         val imageOkHttpClient by lazy {
             val imageDispatcher = okhttp3.Dispatcher().apply {
-                maxRequests = 32
-                maxRequestsPerHost = 16
+                // Limit simultaneous image fetches on low-memory streaming sticks.
+                // Avoid letting poster downloads monopolize networking and decoding.
+                val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                val lowRam = activityManager.isLowRamDevice
+                maxRequests = if (lowRam) 16 else 32
+                maxRequestsPerHost = if (lowRam) 8 else 16
             }
             OkHttpClient.Builder()
                 .dispatcher(imageDispatcher)

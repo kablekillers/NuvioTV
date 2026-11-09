@@ -1,5 +1,10 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.profile.AccountProfileMode
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import io.mockk.every
+import io.mockk.mockk
 import com.nuvio.tv.core.sync.library.LibrarySyncLocalStore
 import com.nuvio.tv.core.sync.library.LibrarySyncRemoteDataSource
 import com.nuvio.tv.domain.model.LibraryDeltaApplyResult
@@ -27,7 +32,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(12L, "upsert", libraryItem("delta"))
             )
         )
-        val service = LibrarySyncService(remote, local)
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.syncFromRemote(profileId = 3).getOrThrow()
 
@@ -55,7 +60,7 @@ class LibrarySyncServiceTest {
             LibrarySyncState(deltaInitialized = true)
         )
         val remote = FakeLibrarySyncRemote(events = events)
-        val service = LibrarySyncService(remote, local)
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.syncFromRemote(profileId = 5).getOrThrow()
 
@@ -85,7 +90,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(5L, "delete", localItem)
             )
         )
-        val service = LibrarySyncService(remote, local)
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.syncFromRemote(profileId = 1).getOrThrow()
 
@@ -108,7 +113,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local)
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.pushToRemote(profileId = 2)
 
@@ -130,7 +135,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote(deleteFailure = IllegalStateException("offline"))
-        val service = LibrarySyncService(remote, local)
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.pushToRemote(profileId = 1)
 
@@ -147,7 +152,7 @@ class LibrarySyncServiceTest {
             )
         )
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local)
+        val service = newService(remote, local, legacyModeProvider())
 
         val result = service.pushToRemote(profileId = 1)
 
@@ -155,6 +160,88 @@ class LibrarySyncServiceTest {
         assertEquals(setOf("one", "two"), remote.pushedItems.map { it.id }.toSet())
         assertTrue(local.state.pendingUpsertKeys.isEmpty())
     }
+
+    @Test
+    fun customerSecondaryLibraryMustNeverUpload() = runBlocking {
+        val pending = LibrarySyncReducer.upsertLocal(
+            state = LibrarySyncState(deltaInitialized = true),
+            item = libraryItem("private-favorite"),
+            nowEpochMs = 1L
+        )
+        val local = InMemoryLibrarySyncStore(pending)
+        val remote = FakeLibrarySyncRemote()
+        val service = newService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+
+        val result = service.pushToRemote(profileId = 2)
+
+        assertTrue(result.isSuccess)
+        assertTrue(remote.calls.isEmpty())
+        assertTrue(remote.pushedItems.isEmpty())
+        assertTrue(remote.deletedKeys.isEmpty())
+        assertEquals(pending, local.state)
+    }
+
+    @Test
+    fun customerSecondaryLibraryMustNeverDownload() = runBlocking {
+        val local = InMemoryLibrarySyncStore()
+        val remote = FakeLibrarySyncRemote(snapshot = listOf(libraryItem("remote")))
+        val service = newService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+
+        val result = service.syncFromRemote(profileId = 2)
+
+        assertTrue(result.isFailure)
+        assertTrue(remote.calls.isEmpty())
+        assertTrue(local.state.items.isEmpty())
+    }
+
+    @Test
+    fun customerMainLibraryIsAlsoPrivate() = runBlocking {
+        val local = InMemoryLibrarySyncStore()
+        val remote = FakeLibrarySyncRemote(snapshot = listOf(libraryItem("remote")))
+        val service = newService(remote, local, modeProvider(AccountProfileMode.CUSTOMER_DEVICE_LOCAL))
+
+        assertTrue(service.syncFromRemote(profileId = 1).isFailure)
+        assertTrue(remote.calls.isEmpty())
+    }
+
+    @Test
+    fun accountSwitchDuringSnapshotMustNotApplyRemoteLibrary() = runBlocking {
+        var accountId = "account-a"
+        val local = InMemoryLibrarySyncStore()
+        val remote = FakeLibrarySyncRemote(
+            snapshot = listOf(libraryItem("other-account-item")),
+            onSnapshot = { accountId = "account-b" }
+        )
+        val auth = mockk<AuthManager> {
+            every { verifiedProfileAccountId } answers { accountId }
+        }
+        val service = LibrarySyncService(remote, local, legacyModeProvider(), auth)
+
+        val result = service.syncFromRemote(profileId = 1)
+
+        assertTrue(result.isFailure)
+        assertTrue(local.state.items.isEmpty())
+        assertEquals(listOf("cursor:1", "snapshot:1"), remote.calls)
+    }
+
+    private fun newService(
+        remote: LibrarySyncRemoteDataSource,
+        local: LibrarySyncLocalStore,
+        modeProvider: AuthenticatedProfileModeProvider
+    ): LibrarySyncService {
+        val auth = mockk<AuthManager> {
+            every { verifiedProfileAccountId } returns "test-account"
+        }
+        return LibrarySyncService(remote, local, modeProvider, auth)
+    }
+
+    private fun legacyModeProvider(): AuthenticatedProfileModeProvider =
+        modeProvider(AccountProfileMode.LEGACY_CLOUD)
+
+    private fun modeProvider(mode: AccountProfileMode): AuthenticatedProfileModeProvider =
+        mockk<AuthenticatedProfileModeProvider>().also { provider ->
+            every { provider.currentMode() } returns mode
+        }
 
     private fun libraryItem(id: String): SavedLibraryItem {
         return SavedLibraryItem(
@@ -228,7 +315,8 @@ private class FakeLibrarySyncRemote(
     private val snapshot: List<SavedLibraryItem> = emptyList(),
     private val cursor: Long = 0L,
     private val events: List<LibraryDeltaEvent> = emptyList(),
-    private val deleteFailure: Exception? = null
+    private val deleteFailure: Exception? = null,
+    private val onSnapshot: () -> Unit = {}
 ) : LibrarySyncRemoteDataSource {
     val calls = mutableListOf<String>()
     val pushedItems = mutableListOf<SavedLibraryItem>()
@@ -239,6 +327,7 @@ private class FakeLibrarySyncRemote(
         pageSize: Int
     ): List<SavedLibraryItem> {
         calls += "snapshot:$profileId"
+        onSnapshot()
         return snapshot
     }
 

@@ -1,8 +1,12 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.remote.supabase.SupabaseCollectionBlob
 import io.github.jan.supabase.postgrest.Postgrest
@@ -26,16 +30,49 @@ private const val TAG = "CollectionSyncService"
 class CollectionSyncService @Inject constructor(
     private val postgrest: Postgrest,
     private val authManager: AuthManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val collectionsDataStore: CollectionsDataStore,
     private val profileManager: ProfileManager,
     private val syncClientIdentity: SyncClientIdentity
 ) {
+    // Keep disabled until device-local profile migration is fully wired.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
     var isSyncingFromRemote: Boolean = false
 
     private var pushJob: Job? = null
+
+    private fun captureSyncIdentity(profileId: Int):
+        Pair<com.nuvio.tv.core.profile.ProfileSyncIdentityFence, com.nuvio.tv.core.profile.ProfileSyncIdentityFence.Snapshot> {
+        val fence = com.nuvio.tv.core.profile.ProfileSyncIdentityFence(
+            { authManager.verifiedProfileAccountId },
+            { accountProfileModeProvider.currentMode() }
+        )
+        val identity = fence.capture()
+        check(profileManager.activeProfileId.value == profileId) {
+            "Collections sync profile changed before request"
+        }
+        return fence to identity
+    }
+
+    private fun requireSyncIdentity(
+        profileId: Int,
+        fence: com.nuvio.tv.core.profile.ProfileSyncIdentityFence,
+        identity: com.nuvio.tv.core.profile.ProfileSyncIdentityFence.Snapshot
+    ) {
+        fence.requireCurrent(identity)
+        check(profileManager.activeProfileId.value == profileId) {
+            "Collections sync discarded after active profile change"
+        }
+        check(ProfileSyncBoundary.maySyncPersonalViewingState(profileId,
+            AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode()))) {
+            "Collections sync no longer permitted for this profile"
+        }
+    }
 
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
         return try {
@@ -53,7 +90,12 @@ class CollectionSyncService @Inject constructor(
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val profileId = profileManager.activeProfileId.value
+            if (!ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)) {
+                return@withContext Result.success(Unit)
+            }
+            val (fence, identity) = captureSyncIdentity(profileId)
             val json = collectionsDataStore.exportCurrentProfileJson()
+            requireSyncIdentity(profileId, fence, identity)
 
             val collectionsJsonElement = if (json.isNullOrBlank()) {
                 JsonArray(emptyList())
@@ -67,9 +109,12 @@ class CollectionSyncService @Inject constructor(
                 putSyncOriginClientId(syncClientIdentity)
             }
 
+            requireSyncIdentity(profileId, fence, identity)
             withJwtRefreshRetry {
+                requireSyncIdentity(profileId, fence, identity)
                 postgrest.rpc("sync_push_collections", params)
             }
+            requireSyncIdentity(profileId, fence, identity)
 
             Log.d(TAG, "Pushed collections to remote for profile $profileId")
             Result.success(Unit)
@@ -86,14 +131,20 @@ class CollectionSyncService @Inject constructor(
     suspend fun pullFromRemote(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val profileId = profileManager.activeProfileId.value
+            if (!ProfileSyncBoundary.maySyncPersonalViewingState(profileId, deviceLocalProfilesEnabled)) {
+                return@withContext Result.success(false)
+            }
 
+            val (fence, identity) = captureSyncIdentity(profileId)
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
             }
 
             val response = withJwtRefreshRetry {
+                requireSyncIdentity(profileId, fence, identity)
                 postgrest.rpc("sync_pull_collections", params)
             }
+            requireSyncIdentity(profileId, fence, identity)
             val rows = response.decodeList<SupabaseCollectionBlob>()
             val blob = rows.firstOrNull()
             if (blob == null) {
@@ -102,7 +153,9 @@ class CollectionSyncService @Inject constructor(
             }
 
             val remoteJson = blob.collectionsJson.toString()
+            requireSyncIdentity(profileId, fence, identity)
             val remoteCollections = collectionsDataStore.importFromJson(remoteJson)
+            requireSyncIdentity(profileId, fence, identity)
 
             // Preserve local if remote is empty but local has data
             val localCollections = collectionsDataStore.getCurrentCollections()
@@ -118,9 +171,15 @@ class CollectionSyncService @Inject constructor(
                 return@withContext Result.success(false)
             }
 
+            requireSyncIdentity(profileId, fence, identity)
             isSyncingFromRemote = true
             try {
-                collectionsDataStore.setCollections(remoteCollections)
+                requireSyncIdentity(profileId, fence, identity)
+                collectionsDataStore.setCollections(
+                    remoteCollections,
+                    profileId = profileId,
+                    validateBeforeMutation = { requireSyncIdentity(profileId, fence, identity) }
+                )
             } finally {
                 isSyncingFromRemote = false
             }
@@ -139,9 +198,31 @@ class CollectionSyncService @Inject constructor(
     fun triggerPush() {
         if (isSyncingFromRemote) return
         if (!authManager.isAuthenticated) return
+        // Collection RPCs are legacy per-profile cloud writes, not the shared
+        // administrator configuration channel. Never queue them in customer-local mode.
+        val scheduledProfileId = profileManager.activeProfileId.value
+        val scheduledMode = accountProfileModeProvider.currentMode()
+        if (!ProfileSyncBoundary.maySyncPersonalViewingState(
+                scheduledProfileId,
+                AccountProfilePolicy.usesDeviceOnlySecondaries(scheduledMode)
+            )) {
+            pushJob?.cancel()
+            pushJob = null
+            return
+        }
+        val scheduledAccountId = authManager.verifiedProfileAccountId ?: return
         pushJob?.cancel()
         pushJob = scope.launch {
             delay(500)
+            if (profileManager.activeProfileId.value != scheduledProfileId ||
+                authManager.verifiedProfileAccountId != scheduledAccountId ||
+                accountProfileModeProvider.currentMode() != scheduledMode ||
+                !authManager.isAuthenticated ||
+                !ProfileSyncBoundary.maySyncPersonalViewingState(
+                    scheduledProfileId,
+                    AccountProfilePolicy.usesDeviceOnlySecondaries(scheduledMode)
+                )
+            ) return@launch
             pushToRemote()
         }
     }

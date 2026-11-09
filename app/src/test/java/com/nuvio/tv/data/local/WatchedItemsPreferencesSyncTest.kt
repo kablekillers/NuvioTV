@@ -19,6 +19,32 @@ import org.junit.Test
 
 class WatchedItemsPreferencesSyncTest {
     @Test
+    fun `stale account cannot advance watched items sync cursor`() = runTest {
+        val harness = harness()
+        harness.preferences.setDeltaState(15L, initialized = true, profileId = 1)
+        assertTrue(runCatching {
+            harness.preferences.setDeltaState(
+                99L,
+                initialized = true,
+                profileId = 1,
+                validateBeforeMutation = {
+                    error("Account changed while waiting for DataStore cursor edit")
+                }
+            )
+        }.isFailure)
+        assertEquals(15L, harness.preferences.getDeltaCursor(1))
+        assertTrue(harness.preferences.isDeltaInitialized(1))
+
+        harness.preferences.setDeltaState(
+            18L,
+            initialized = true,
+            profileId = 1,
+            validateBeforeMutation = {}
+        )
+        assertEquals(18L, harness.preferences.getDeltaCursor(1))
+    }
+
+    @Test
     fun `snapshot is authoritative for non-pending items`() = runTest {
         val harness = harness()
         val local = item("local", 100L)
@@ -103,6 +129,38 @@ class WatchedItemsPreferencesSyncTest {
         )
 
         assertTrue(harness.preferences.getAllItems(1).isEmpty())
+    }
+
+    @Test
+    fun `stale account delta edit is rejected before modifying watched items`() = runTest {
+        val harness = harness()
+        val original = item("original", 100L)
+        harness.preferences.markAsWatched(original, 1)
+        var account = "account-b"
+
+        assertTrue(runCatching {
+            harness.preferences.applyRemoteChanges(
+                upserts = listOf(item("untrusted", 200L)),
+                deletes = listOf(Triple("original", 1, 2)),
+                profileId = 1,
+                validateBeforeMutation = {
+                    check(account == "account-a") { "Account changed before DataStore edit" }
+                }
+            )
+        }.isFailure)
+        assertEquals(listOf(original), harness.preferences.getAllItems(1))
+
+        account = "account-a"
+        harness.preferences.applyRemoteChanges(
+            upserts = listOf(item("trusted", 300L)),
+            deletes = emptyList(),
+            profileId = 1,
+            validateBeforeMutation = {
+                check(account == "account-a") { "Account changed before DataStore edit" }
+            }
+        )
+        assertEquals(setOf(original, item("trusted", 300L)),
+            harness.preferences.getAllItems(1).toSet())
     }
 
     @Test

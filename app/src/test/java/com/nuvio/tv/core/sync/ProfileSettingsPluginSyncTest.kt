@@ -271,6 +271,7 @@ class ProfileSettingsPluginSyncTest {
         every { profileManager.activeProfile } answers { profiles.value.first { it.id == activeProfileId.value } }
         val authManager = mockk<AuthManager>(relaxed = true)
         every { authManager.isAuthenticated } returns authenticated
+        every { authManager.verifiedProfileAccountId } returns "plugin-sync-test-account"
         val identity = mockk<SyncClientIdentity>()
         every { identity.currentClientId() } returns "nuvio-tv-plugin-sync-test"
         val remote = mutableMapOf<Int, JsonObject>()
@@ -300,11 +301,11 @@ class ProfileSettingsPluginSyncTest {
             PostgrestResult(response, Headers.Empty, postgrest)
         }
         val service = ProfileSettingsSyncService(
-            authManager, postgrest, profileManager, factory, identity,
+            authManager, mockk(relaxed = true), postgrest, profileManager, factory, identity,
             mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true)
         )
         services += service
-        val plugins = PluginDataStore(mockk(relaxed = true), Moshi.Builder().build(), factory, profileManager)
+        val plugins = PluginDataStore(mockk(relaxed = true), Moshi.Builder().build(), factory, profileManager, mockk(relaxed = true))
         return Harness(service, plugins, factory, remote, pulls, pushes)
     }
 

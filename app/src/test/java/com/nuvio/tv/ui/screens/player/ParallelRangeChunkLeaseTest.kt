@@ -71,6 +71,12 @@ class ParallelRangeChunkLeaseTest {
         every { Uri.parse(any()) } answers { uriOf(firstArg()) }
         every { SystemClock.elapsedRealtime() } answers { System.nanoTime() / 1_000_000L }
         every { SystemClock.uptimeMillis() } answers { System.nanoTime() / 1_000_000L + clockOffsetMs.get() }
+        // The player buffer pool and sessions are process-global. Drain any
+        // leftovers using the previous allocator/free callbacks BEFORE installing
+        // this test's allocation tracker; otherwise another test's buffers may
+        // appear in this test's pool or be freed by the wrong tracker.
+        ParallelRangeDataSource.releaseRetainedSession()
+        ParallelRangeDataSource.drainIdleBuffers(CHUNK)
         allocateBefore = ParallelRangeDataSource.allocateChunk
         freeBefore = ParallelRangeDataSource.freeChunk
         ParallelRangeDataSource.allocateChunk = memory::allocate
@@ -220,10 +226,19 @@ class ParallelRangeChunkLeaseTest {
         val end = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (System.nanoTime() < end) {
             teardownSessions()
+            // A cancelled future completes immediately, but the executor
+            // can still be reading or releasing its buffer. Wait for worker
+            // cleanup, not just future cancellation, before evaluating leaks.
+            val workers = ParallelRangeDataSource.outstandingChunkWorkerCount()
             drainPool()
-            if (memory.freed.get() == memory.allocated.get()) break
+            if (workers == 0 && memory.freed.get() == memory.allocated.get()) break
             Thread.sleep(10)
         }
+        assertEquals(
+            "chunk workers still active after session teardown",
+            0, ParallelRangeDataSource.outstandingChunkWorkerCount()
+        )
+        drainPool()
         assertEquals("chunk memory freed twice or never allocated here", 0, memory.badFrees.get())
         assertEquals("every chunk freed exactly once", memory.allocated.get(), memory.freed.get())
     }
@@ -342,6 +357,24 @@ class ParallelRangeChunkLeaseTest {
         reader.close()
         assertEquals("first reader got bytes of another chunk, ${reader.stats()}", 0, reader.mismatches)
         assertEquals("second reader, ${cursor.stats()}", 0, cursor.mismatches)
+        assertAllMemoryReturned()
+    }
+
+    @Test
+    fun `abandoned session cannot register a chunk after teardown`() {
+        serve()
+        val reader = Reader(source())
+        holdChunkOne(reader)
+        val abandoned = field(reader.source, "session")!!
+        teardownSessions()
+        val futures = field(abandoned, "futures") as Map<*, *>
+        assertTrue("teardown must evict all pending chunk futures", futures.isEmpty())
+
+        // A player reader can still retain its old session reference during
+        // a concurrent teardown. It must not recreate an orphaned future.
+        call(reader.source, "ensureChunkScheduled", 19L)
+        assertTrue("abandoned session scheduled new chunk work", futures.isEmpty())
+        reader.close()
         assertAllMemoryReturned()
     }
 

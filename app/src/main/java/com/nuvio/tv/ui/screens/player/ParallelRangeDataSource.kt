@@ -94,6 +94,11 @@ internal class ParallelRangeDataSource(
 
         private val activeInstances = java.util.concurrent.atomic.AtomicInteger(0)
         private val globalBufferPool = ConcurrentHashMap<Long, ConcurrentLinkedDeque<PooledBuffer>>()
+        // Tracks queued and running chunk downloads, including workers still
+        // unwinding after their CompletableFuture has been cancelled.
+        private val outstandingChunkWorkers = java.util.concurrent.atomic.AtomicInteger(0)
+
+        internal fun outstandingChunkWorkerCount(): Int = outstandingChunkWorkers.get()
 
         private fun freeDirectBuffer(buffer: ByteBuffer) {
             if (!buffer.isDirect) return
@@ -309,13 +314,18 @@ internal class ParallelRangeDataSource(
                 try { ds.close() } catch (_: Exception) {}
             }
             session.activeSources.clear()
-            val indices = session.futures.keys.toList()
-            for (index in indices) {
-                evictFuture(session, index, poolCap)
+            // Scheduling and eviction must share a session monitor. Otherwise
+            // computeIfAbsent may start a worker while its new future is still
+            // invisible to this snapshot, orphaning a completed chunk buffer.
+            synchronized(session) {
+                val indices = session.futures.keys.toList()
+                for (index in indices) {
+                    evictFuture(session, index, poolCap)
+                }
+                session.futures.clear()
+                session.lastTouch.clear()
+                session.inFlight.clear()
             }
-            session.futures.clear()
-            session.lastTouch.clear()
-            session.inFlight.clear()
         }
 
         private fun obtainSession(
@@ -1015,23 +1025,34 @@ internal class ParallelRangeDataSource(
         }
         Log.w(TAG, "RS_ESCALATE fired chunk=$chunkIndex waitMs=$waitedMs watermark=$watermark")
         val t0 = SystemClock.elapsedRealtime()
-        sharedExecutor.execute {
-            try {
-                if (typed.isDone || typed.isCancelled || activeSession.abandoned.get()) return@execute
-                val result = downloadChunkOnce(activeSession, chunkIndex, typed, allowStallRestart = false)
-                if (typed.complete(result)) {
-                    Log.w(TAG, "RS_ESCALATE won chunk=$chunkIndex ms=${SystemClock.elapsedRealtime() - t0}")
-                } else {
-                    releaseBuffer(result.buffer)
-                    Log.i(TAG, "RS_ESCALATE lost chunk=$chunkIndex")
+        // Escalation downloads can outlive a cancelled chunk future just
+        // like normal prefetch workers. Count them until their buffers have
+        // been returned, including losing hedges and interrupted reads.
+        outstandingChunkWorkers.incrementAndGet()
+        try {
+            sharedExecutor.execute {
+                try {
+                    if (typed.isDone || typed.isCancelled || activeSession.abandoned.get()) return@execute
+                    val result = downloadChunkOnce(activeSession, chunkIndex, typed, allowStallRestart = false)
+                    if (typed.complete(result)) {
+                        Log.w(TAG, "RS_ESCALATE won chunk=$chunkIndex ms=${SystemClock.elapsedRealtime() - t0}")
+                    } else {
+                        releaseBuffer(result.buffer)
+                        Log.i(TAG, "RS_ESCALATE lost chunk=$chunkIndex")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "RS_ESCALATE failed chunk=$chunkIndex: ${e.message}")
+                } catch (e: OutOfMemoryError) {
+                    drainIdleBuffers(activeSession.chunkSize)
+                    Log.w(TAG, "RS_ESCALATE failed chunk=$chunkIndex: chunk buffer OOM (contained)")
+                } finally {
+                    outstandingChunkWorkers.decrementAndGet()
                 }
-            } catch (e: Exception) {
-
-                Log.w(TAG, "RS_ESCALATE failed chunk=$chunkIndex: ${e.message}")
-            } catch (e: OutOfMemoryError) {
-                drainIdleBuffers(activeSession.chunkSize)
-                Log.w(TAG, "RS_ESCALATE failed chunk=$chunkIndex: chunk buffer OOM (contained)")
             }
+        } catch (e: RuntimeException) {
+            outstandingChunkWorkers.decrementAndGet()
+            activeSession.escalatedChunks.remove(chunkIndex)
+            throw e
         }
     }
 
@@ -1138,34 +1159,46 @@ internal class ParallelRangeDataSource(
     private fun ensureChunkScheduled(chunkIndex: Long) {
         val activeSession = session ?: return
 
-        enforceSessionCap(activeSession, protectIndex = chunkIndex, poolCap = maxPoolSize)
-        activeSession.futures.computeIfAbsent(chunkIndex) {
-            val future = CompletableFuture<DownloadedChunk>()
-            activeSession.touch(chunkIndex)
-            Log.d(TAG, "Scheduling chunk $chunkIndex")
-            sharedExecutor.execute {
+        // A future must be visible in the map before teardown can snapshot
+        // and clear it. A session that is already abandoned must never admit
+        // new download work.
+        synchronized(activeSession) {
+            if (activeSession.abandoned.get()) return
+            enforceSessionCap(activeSession, protectIndex = chunkIndex, poolCap = maxPoolSize)
+            activeSession.futures.computeIfAbsent(chunkIndex) {
+                val future = CompletableFuture<DownloadedChunk>()
+                activeSession.touch(chunkIndex)
+                Log.d(TAG, "Scheduling chunk $chunkIndex")
+                outstandingChunkWorkers.incrementAndGet()
                 try {
-                    if (!future.isCancelled && !activeSession.abandoned.get()) {
-                        val result = downloadChunk(activeSession, chunkIndex, future)
-                        if (!future.complete(result)) {
-                            releaseBuffer(result.buffer)
+                    sharedExecutor.execute {
+                        try {
+                            if (!future.isCancelled && !activeSession.abandoned.get()) {
+                                val result = downloadChunk(activeSession, chunkIndex, future)
+                                if (!future.complete(result)) {
+                                    releaseBuffer(result.buffer)
+                                }
+                            } else if (!future.isCancelled) {
+                                future.completeExceptionally(IOException("Session abandoned"))
+                            }
+                        } catch (e: Exception) {
+                            future.completeExceptionally(e)
+                        } catch (e: OutOfMemoryError) {
+                            drainIdleBuffers(activeSession.chunkSize)
+                            future.completeExceptionally(
+                                IOException("Native chunk buffer allocation failed (out of memory)", e)
+                            )
+                        } finally {
+                            outstandingChunkWorkers.decrementAndGet()
                         }
-                    } else if (future.isCancelled) {
-
-                    } else {
-                        future.completeExceptionally(IOException("Session abandoned"))
                     }
-                } catch (e: Exception) {
+                } catch (e: RuntimeException) {
+                    outstandingChunkWorkers.decrementAndGet()
                     future.completeExceptionally(e)
-                } catch (e: OutOfMemoryError) {
-
-                    drainIdleBuffers(activeSession.chunkSize)
-                    future.completeExceptionally(
-                        IOException("Native chunk buffer allocation failed (out of memory)", e)
-                    )
+                    throw e
                 }
+                future
             }
-            future
         }
     }
 

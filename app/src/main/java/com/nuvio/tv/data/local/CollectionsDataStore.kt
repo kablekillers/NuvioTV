@@ -7,6 +7,9 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.R
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+import com.nuvio.tv.core.profile.SharedLayoutScope
 import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionCatalogSource
@@ -42,14 +45,32 @@ data class ValidationResult(
 class CollectionsDataStore @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val factory: ProfileDataStoreFactory,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider
 ) {
     companion object {
         private const val FEATURE = "collections"
     }
 
+    private fun configurationProfileId(profileId: Int): Int =
+        SharedLayoutScope.configurationProfileId(
+            profileId,
+            AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+        )
+
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
-        factory.get(profileId, FEATURE)
+        factory.get(configurationProfileId(profileId), FEATURE)
+
+    // A customer secondary may read Main's shared collections, but must not
+    // silently edit the configuration used by every other local profile.
+    private fun requireConfigurationEditor(profileId: Int) {
+        val isCustomerLocal = AccountProfilePolicy.usesDeviceOnlySecondaries(
+            accountProfileModeProvider.currentMode()
+        )
+        check(!isCustomerLocal || profileId == SharedLayoutScope.MAIN_PROFILE_ID) {
+            "Only Main may edit shared collections in customer-local mode"
+        }
+    }
 
     private val gson = Gson()
     private val collectionsKey = stringPreferencesKey("collections_json")
@@ -57,13 +78,26 @@ class CollectionsDataStore @Inject constructor(
 
     val collections: Flow<List<Collection>> =
         profileManager.activeProfileId.flatMapLatest { pid ->
-            factory.get(pid, FEATURE).data.map { prefs ->
+            factory.get(configurationProfileId(pid), FEATURE).data.map { prefs ->
                 parseCollections(prefs[collectionsKey])
             }
         }
 
-    suspend fun setCollections(collections: List<Collection>) {
-        store().edit { prefs ->
+    suspend fun setCollections(
+        collections: List<Collection>,
+        profileId: Int = profileManager.activeProfileId.value,
+        validateBeforeMutation: () -> Unit = {}
+    ) {
+        val editingMode = accountProfileModeProvider.currentMode()
+        requireConfigurationEditor(profileId)
+        store(profileId).edit { prefs ->
+            // A pending write must not cross a legacy/customer mode transition.
+            check(accountProfileModeProvider.currentMode() == editingMode) {
+                "Collection edit discarded after account mode changed"
+            }
+            requireConfigurationEditor(profileId)
+            // Sync callers also verify account and active profile before mutation.
+            validateBeforeMutation()
             if (collections.isEmpty()) {
                 prefs.remove(collectionsKey)
             } else {
@@ -73,7 +107,15 @@ class CollectionsDataStore @Inject constructor(
     }
 
     suspend fun addCollection(collection: Collection) {
-        store().edit { prefs ->
+        val editingProfileId = profileManager.activeProfileId.value
+        val editingMode = accountProfileModeProvider.currentMode()
+        requireConfigurationEditor(editingProfileId)
+        store(editingProfileId).edit { prefs ->
+            check(profileManager.activeProfileId.value == editingProfileId &&
+                accountProfileModeProvider.currentMode() == editingMode) {
+                "Collection edit discarded after profile or account mode changed"
+            }
+            requireConfigurationEditor(editingProfileId)
             val current = parseCollections(prefs[collectionsKey]).toMutableList()
             current.add(collection)
             prefs[collectionsKey] = gson.toJson(current.map { it.toSerializable() })
@@ -81,7 +123,15 @@ class CollectionsDataStore @Inject constructor(
     }
 
     suspend fun updateCollection(collection: Collection) {
-        store().edit { prefs ->
+        val editingProfileId = profileManager.activeProfileId.value
+        val editingMode = accountProfileModeProvider.currentMode()
+        requireConfigurationEditor(editingProfileId)
+        store(editingProfileId).edit { prefs ->
+            check(profileManager.activeProfileId.value == editingProfileId &&
+                accountProfileModeProvider.currentMode() == editingMode) {
+                "Collection edit discarded after profile or account mode changed"
+            }
+            requireConfigurationEditor(editingProfileId)
             val current = parseCollections(prefs[collectionsKey]).toMutableList()
             val index = current.indexOfFirst { it.id == collection.id }
             if (index >= 0) {
@@ -92,7 +142,15 @@ class CollectionsDataStore @Inject constructor(
     }
 
     suspend fun removeCollection(collectionId: String) {
-        store().edit { prefs ->
+        val editingProfileId = profileManager.activeProfileId.value
+        val editingMode = accountProfileModeProvider.currentMode()
+        requireConfigurationEditor(editingProfileId)
+        store(editingProfileId).edit { prefs ->
+            check(profileManager.activeProfileId.value == editingProfileId &&
+                accountProfileModeProvider.currentMode() == editingMode) {
+                "Collection edit discarded after profile or account mode changed"
+            }
+            requireConfigurationEditor(editingProfileId)
             val current = parseCollections(prefs[collectionsKey]).toMutableList()
             current.removeAll { it.id == collectionId }
             if (current.isEmpty()) {

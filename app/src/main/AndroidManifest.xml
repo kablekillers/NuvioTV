@@ -83,6 +83,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:screenOrientation="sensorLandscape"
             android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
             android:theme="@style/Theme.MyApplication.Launcher">
@@ -106,6 +107,7 @@
 
         <activity
             android:name=".launcher.AppIconDefault"
+            android:screenOrientation="sensorLandscape"
             android:banner="@mipmap/banner"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
             android:enabled="true"
@@ -123,6 +125,7 @@
 
         <activity
             android:name=".launcher.AppIconArcticBlue"
+            android:screenOrientation="sensorLandscape"
             android:banner="@mipmap/banner_arctic_blue"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
             android:enabled="false"
@@ -140,6 +143,7 @@
 
         <activity
             android:name=".launcher.AppIconEmerald"
+            android:screenOrientation="sensorLandscape"
             android:banner="@mipmap/banner_emerald"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
             android:enabled="false"
@@ -157,6 +161,7 @@
 
         <activity
             android:name=".launcher.AppIconRoseGold"
+            android:screenOrientation="sensorLandscape"
             android:banner="@mipmap/banner_rose_gold"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
             android:enabled="false"
@@ -174,6 +179,7 @@
 
         <activity
             android:name=".launcher.AppIconCopper"
+            android:screenOrientation="sensorLandscape"
             android:banner="@mipmap/banner_copper"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
             android:enabled="false"
@@ -191,6 +197,7 @@
 
         <activity
             android:name=".launcher.AppIconGraphite"
+            android:screenOrientation="sensorLandscape"
             android:banner="@mipmap/banner_graphite"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
             android:enabled="false"

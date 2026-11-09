@@ -23,6 +23,7 @@ import javax.inject.Singleton
 class ProfileManager @Inject constructor(
     private val profileDataStore: ProfileDataStore,
     private val factory: ProfileDataStoreFactory,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val credentialStores: Set<@JvmSuppressWildcards ProfileScopedCredentialStore>,
     @ApplicationContext private val context: Context
 ) {
@@ -97,12 +98,13 @@ class ProfileManager @Inject constructor(
         val usedIds = current.map { it.id }.toSet()
         val nextId = (2..MAX_PROFILES).firstOrNull { it !in usedIds } ?: return null
 
+        val mustInheritMain = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
         val profile = UserProfile(
             id = nextId,
             name = name.trim().ifEmpty { context.getString(R.string.profile_default_name, nextId) },
             avatarColorHex = avatarColorHex,
-            usesPrimaryAddons = usesPrimaryAddons,
-            usesPrimaryPlugins = usesPrimaryPlugins,
+            usesPrimaryAddons = mustInheritMain || usesPrimaryAddons,
+            usesPrimaryPlugins = mustInheritMain || usesPrimaryPlugins,
             avatarId = avatarId
         )
         factory.markProfileCreated(nextId)
@@ -122,7 +124,10 @@ class ProfileManager @Inject constructor(
 
     suspend fun updateProfile(profile: UserProfile): Boolean {
         if (profiles.value.none { it.id == profile.id }) return false
-        profileDataStore.upsertProfile(profile)
+        val enforced = if (profile.id != 1 && AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())) {
+            profile.copy(usesPrimaryAddons = true, usesPrimaryPlugins = true)
+        } else profile
+        profileDataStore.upsertProfile(enforced)
         return true
     }
 

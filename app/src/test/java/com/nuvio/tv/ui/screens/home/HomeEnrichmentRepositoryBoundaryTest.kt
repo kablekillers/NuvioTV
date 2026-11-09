@@ -84,11 +84,15 @@ class HomeEnrichmentRepositoryBoundaryTest {
         // The failed lookup came back as a codeless Error, so the item was never marked prefetched
         // and the focus gate let it through again.
         awaitAtLeast(metaCalls, 2)
-        assertEquals(
-            "the resolved item should now be cached",
-            true,
-            itemId in viewModel.prefetchedExternalMetaIds
-        )
+        // The API mock increments the counter before the repository response has been
+        // processed by the ViewModel. Wait for the observable cache state rather than
+        // racing the asynchronous completion of the successful retry.
+        val cached = runCatching {
+            withTimeout(5_000) {
+                while (itemId !in viewModel.prefetchedExternalMetaIds) delay(25)
+            }
+        }.isSuccess
+        assertEquals("the resolved item should now be cached", true, cached)
     }
 
     private suspend fun focusAndSettle(viewModel: HomeViewModel, item: MetaPreview) {

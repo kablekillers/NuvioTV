@@ -1,9 +1,13 @@
 package com.nuvio.tv.ui.screens.profile
 
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.ProfileSyncBoundary
 import com.nuvio.tv.core.sync.ProfileSettingsSyncService
 import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.core.sync.SetProfilePinResult
@@ -45,6 +49,7 @@ sealed interface CreateProfileResult {
 @HiltViewModel
 class ProfileSelectionViewModel @Inject constructor(
     private val profileManager: ProfileManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider,
     private val profileSyncService: ProfileSyncService,
     private val profileSettingsSyncService: ProfileSettingsSyncService,
     private val avatarRepository: AvatarRepository,
@@ -53,6 +58,10 @@ class ProfileSelectionViewModel @Inject constructor(
     private val profileLockStateDataStore: ProfileLockStateDataStore,
     private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore
 ) : ViewModel() {
+    // Migration gate: retain existing behavior until private profiles are fully isolated.
+    private val deviceLocalProfilesEnabled: Boolean
+        get() = AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+
     val activeProfileId: StateFlow<Int> = profileManager.activeProfileId
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
 
@@ -198,8 +207,12 @@ class ProfileSelectionViewModel @Inject constructor(
                     avatarId = avatarId
                 )
                 if (profile != null) {
-                    profileSyncService.pushToRemote()
-                    val copyResult = copyFromProfileId?.let { sourceProfileId ->
+                    if (ProfileSyncBoundary.maySyncProfileMetadata(profile.id, deviceLocalProfilesEnabled)) {
+                        profileSyncService.pushToRemote()
+                    }
+                    val copyResult = copyFromProfileId?.takeUnless {
+                        deviceLocalProfilesEnabled && profile.id != 1
+                    }?.let { sourceProfileId ->
                         profileSettingsSyncService.copyProfileSetup(
                             sourceProfileId = sourceProfileId,
                             targetProfileId = profile.id,
@@ -230,6 +243,15 @@ class ProfileSelectionViewModel @Inject constructor(
         onComplete: (Result<Unit>) -> Unit
     ) {
         if (_isCopyingSettings.value) return
+        // Secondary profiles inherit shared configuration from Main. Copying
+        // another profile's settings could import private credentials or
+        // overwrite the shared layout while migration mode is enabled.
+        if (deviceLocalProfilesEnabled && (sourceProfileId != 1 || targetProfileId != 1)) {
+            onComplete(Result.failure(IllegalStateException(
+                "Device-only profiles inherit Main settings; profile settings copy is unavailable"
+            )))
+            return
+        }
         viewModelScope.launch {
             _isCopyingSettings.value = true
             val result = try {
@@ -250,7 +272,9 @@ class ProfileSelectionViewModel @Inject constructor(
         viewModelScope.launch {
             _isSaving.value = true
             profileManager.updateProfile(profile)
-            profileSyncService.pushToRemote()
+            if (ProfileSyncBoundary.maySyncProfileMetadata(profile.id, deviceLocalProfilesEnabled)) {
+                profileSyncService.pushToRemote()
+            }
             refreshProfilePinStates()
             _isSaving.value = false
         }
@@ -259,8 +283,10 @@ class ProfileSelectionViewModel @Inject constructor(
     fun deleteProfile(id: Int) {
         viewModelScope.launch {
             profileManager.deleteProfile(id)
-            profileSyncService.deleteProfileData(id)
-            profileSyncService.pushToRemote()
+            if (ProfileSyncBoundary.maySyncProfileMetadata(id, deviceLocalProfilesEnabled)) {
+                profileSyncService.deleteProfileData(id)
+                profileSyncService.pushToRemote()
+            }
             refreshProfilePinStates()
         }
     }
