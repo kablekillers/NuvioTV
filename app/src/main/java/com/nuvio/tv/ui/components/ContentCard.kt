@@ -1,6 +1,9 @@
 package com.nuvio.tv.ui.components
 
+import android.content.res.Configuration
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -112,6 +115,10 @@ fun ContentCard(
     onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit = {}
 ) {
+    val supportsTouch = LocalContext.current.resources.configuration.touchscreen == Configuration.TOUCHSCREEN_FINGER
+    val touchModifier = if (supportsTouch) Modifier.pointerInput(onClick, onLongPress) {
+        detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress?.invoke() })
+    } else Modifier
     val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
     val cardDepthStyle = LocalCardDepthStyle.current
     val globalLandscape = LocalLandscapePosterMode.current
@@ -311,6 +318,7 @@ fun ContentCard(
             },
             modifier = Modifier
                 .fillMaxWidth()
+                .then(touchModifier)
                 .onFocusChanged { state ->
                     val focusedNow = state.isFocused
                     if (needsFocusState) {
