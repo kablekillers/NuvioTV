@@ -2,7 +2,10 @@ package com.nuvio.tv.ui.components
 
 import com.nuvio.tv.ui.theme.NuvioTheme
 
+import android.content.res.Configuration
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -80,6 +83,10 @@ fun GridContentCard(
     onLongPress: (() -> Unit)? = null,
     onFocused: () -> Unit = {}
 ) {
+    val supportsTouch = LocalContext.current.resources.configuration.touchscreen == Configuration.TOUCHSCREEN_FINGER
+    val touchModifier = if (supportsTouch) Modifier.pointerInput(onClick, onLongPress) {
+        detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress?.invoke() })
+    } else Modifier
     val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
     val cardDepthStyle = LocalCardDepthStyle.current
     val density = LocalDensity.current
