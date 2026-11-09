@@ -198,18 +198,30 @@ class CollectionSyncService @Inject constructor(
     fun triggerPush() {
         if (isSyncingFromRemote) return
         if (!authManager.isAuthenticated) return
-        // A debounced write belongs to the profile/account that scheduled it.
-        // Never let a delayed push silently switch to a newly active profile.
+        // Collection RPCs are legacy per-profile cloud writes, not the shared
+        // administrator configuration channel. Never queue them in customer-local mode.
         val scheduledProfileId = profileManager.activeProfileId.value
-        val scheduledAccountId = authManager.verifiedProfileAccountId ?: return
         val scheduledMode = accountProfileModeProvider.currentMode()
+        if (!ProfileSyncBoundary.maySyncPersonalViewingState(
+                scheduledProfileId,
+                AccountProfilePolicy.usesDeviceOnlySecondaries(scheduledMode)
+            )) {
+            pushJob?.cancel()
+            pushJob = null
+            return
+        }
+        val scheduledAccountId = authManager.verifiedProfileAccountId ?: return
         pushJob?.cancel()
         pushJob = scope.launch {
             delay(500)
             if (profileManager.activeProfileId.value != scheduledProfileId ||
                 authManager.verifiedProfileAccountId != scheduledAccountId ||
                 accountProfileModeProvider.currentMode() != scheduledMode ||
-                !authManager.isAuthenticated
+                !authManager.isAuthenticated ||
+                !ProfileSyncBoundary.maySyncPersonalViewingState(
+                    scheduledProfileId,
+                    AccountProfilePolicy.usesDeviceOnlySecondaries(scheduledMode)
+                )
             ) return@launch
             pushToRemote()
         }
