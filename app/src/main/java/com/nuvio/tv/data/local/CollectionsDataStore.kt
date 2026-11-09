@@ -102,9 +102,15 @@ class CollectionsDataStore @Inject constructor(
     }
 
     suspend fun addCollection(collection: Collection) {
-        requireConfigurationEditor(profileManager.activeProfileId.value)
-        store().edit { prefs ->
-            requireConfigurationEditor(profileManager.activeProfileId.value)
+        val editingProfileId = profileManager.activeProfileId.value
+        val editingMode = accountProfileModeProvider.currentMode()
+        requireConfigurationEditor(editingProfileId)
+        store(editingProfileId).edit { prefs ->
+            check(profileManager.activeProfileId.value == editingProfileId &&
+                accountProfileModeProvider.currentMode() == editingMode) {
+                "Collection edit discarded after profile or account mode changed"
+            }
+            requireConfigurationEditor(editingProfileId)
             val current = parseCollections(prefs[collectionsKey]).toMutableList()
             current.add(collection)
             prefs[collectionsKey] = gson.toJson(current.map { it.toSerializable() })
@@ -112,9 +118,15 @@ class CollectionsDataStore @Inject constructor(
     }
 
     suspend fun updateCollection(collection: Collection) {
-        requireConfigurationEditor(profileManager.activeProfileId.value)
-        store().edit { prefs ->
-            requireConfigurationEditor(profileManager.activeProfileId.value)
+        val editingProfileId = profileManager.activeProfileId.value
+        val editingMode = accountProfileModeProvider.currentMode()
+        requireConfigurationEditor(editingProfileId)
+        store(editingProfileId).edit { prefs ->
+            check(profileManager.activeProfileId.value == editingProfileId &&
+                accountProfileModeProvider.currentMode() == editingMode) {
+                "Collection edit discarded after profile or account mode changed"
+            }
+            requireConfigurationEditor(editingProfileId)
             val current = parseCollections(prefs[collectionsKey]).toMutableList()
             val index = current.indexOfFirst { it.id == collection.id }
             if (index >= 0) {
@@ -125,9 +137,15 @@ class CollectionsDataStore @Inject constructor(
     }
 
     suspend fun removeCollection(collectionId: String) {
-        requireConfigurationEditor(profileManager.activeProfileId.value)
-        store().edit { prefs ->
-            requireConfigurationEditor(profileManager.activeProfileId.value)
+        val editingProfileId = profileManager.activeProfileId.value
+        val editingMode = accountProfileModeProvider.currentMode()
+        requireConfigurationEditor(editingProfileId)
+        store(editingProfileId).edit { prefs ->
+            check(profileManager.activeProfileId.value == editingProfileId &&
+                accountProfileModeProvider.currentMode() == editingMode) {
+                "Collection edit discarded after profile or account mode changed"
+            }
+            requireConfigurationEditor(editingProfileId)
             val current = parseCollections(prefs[collectionsKey]).toMutableList()
             current.removeAll { it.id == collectionId }
             if (current.isEmpty()) {
