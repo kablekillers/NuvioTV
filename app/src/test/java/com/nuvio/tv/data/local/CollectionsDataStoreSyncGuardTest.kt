@@ -67,6 +67,26 @@ class CollectionsDataStoreSyncGuardTest {
         assertEquals("main", dataStore.getCurrentCollections().single().id)
     }
 
+
+    @Test fun changesToMainAppearForExistingSecondaryWithoutCopy() = runTest {
+        val main = TestPreferencesStore()
+        val secondary = TestPreferencesStore()
+        val (dataStore, selected) = fixture(main, secondary, AccountProfileMode.CUSTOMER_DEVICE_LOCAL)
+        selected.value = 1
+        dataStore.setCollections(
+            listOf(com.nuvio.tv.domain.model.Collection(id = "first", title = "First"))
+        )
+        selected.value = 3
+        assertEquals("first", dataStore.getCurrentCollections().single().id)
+        selected.value = 1
+        dataStore.setCollections(
+            listOf(com.nuvio.tv.domain.model.Collection(id = "updated", title = "Updated"))
+        )
+        selected.value = 3
+        assertEquals("updated", dataStore.getCurrentCollections().single().id)
+        assertEquals(null, secondary.value[key])
+    }
+
     private fun fixture(
         first: TestPreferencesStore,
         second: TestPreferencesStore,
