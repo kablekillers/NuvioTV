@@ -61,6 +61,17 @@ class CollectionsDataStore @Inject constructor(
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
         factory.get(configurationProfileId(profileId), FEATURE)
 
+    // A customer secondary may read Main's shared collections, but must not
+    // silently edit the configuration used by every other local profile.
+    private fun requireConfigurationEditor(profileId: Int) {
+        val isCustomerLocal = AccountProfilePolicy.usesDeviceOnlySecondaries(
+            accountProfileModeProvider.currentMode()
+        )
+        check(!isCustomerLocal || profileId == SharedLayoutScope.MAIN_PROFILE_ID) {
+            "Only Main may edit shared collections in customer-local mode"
+        }
+    }
+
     private val gson = Gson()
     private val collectionsKey = stringPreferencesKey("collections_json")
     private fun string(resId: Int, vararg args: Any): String = appContext.getString(resId, *args)
@@ -77,7 +88,9 @@ class CollectionsDataStore @Inject constructor(
         profileId: Int = profileManager.activeProfileId.value,
         validateBeforeMutation: () -> Unit = {}
     ) {
+        requireConfigurationEditor(profileId)
         store(profileId).edit { prefs ->
+            requireConfigurationEditor(profileId)
             // DataStore may delay an edit until after a logout or profile switch.
             validateBeforeMutation()
             if (collections.isEmpty()) {
@@ -89,7 +102,9 @@ class CollectionsDataStore @Inject constructor(
     }
 
     suspend fun addCollection(collection: Collection) {
+        requireConfigurationEditor(profileManager.activeProfileId.value)
         store().edit { prefs ->
+            requireConfigurationEditor(profileManager.activeProfileId.value)
             val current = parseCollections(prefs[collectionsKey]).toMutableList()
             current.add(collection)
             prefs[collectionsKey] = gson.toJson(current.map { it.toSerializable() })
@@ -97,7 +112,9 @@ class CollectionsDataStore @Inject constructor(
     }
 
     suspend fun updateCollection(collection: Collection) {
+        requireConfigurationEditor(profileManager.activeProfileId.value)
         store().edit { prefs ->
+            requireConfigurationEditor(profileManager.activeProfileId.value)
             val current = parseCollections(prefs[collectionsKey]).toMutableList()
             val index = current.indexOfFirst { it.id == collection.id }
             if (index >= 0) {
@@ -108,7 +125,9 @@ class CollectionsDataStore @Inject constructor(
     }
 
     suspend fun removeCollection(collectionId: String) {
+        requireConfigurationEditor(profileManager.activeProfileId.value)
         store().edit { prefs ->
+            requireConfigurationEditor(profileManager.activeProfileId.value)
             val current = parseCollections(prefs[collectionsKey]).toMutableList()
             current.removeAll { it.id == collectionId }
             if (current.isEmpty()) {
