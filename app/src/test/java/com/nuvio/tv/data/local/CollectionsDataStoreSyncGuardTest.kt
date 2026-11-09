@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.nuvio.tv.TestPreferencesStore
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,6 +57,9 @@ class CollectionsDataStoreSyncGuardTest {
         every { factory.get(any(), any()) } answers {
             if (firstArg<Int>() == 1) first else second
         }
-        return CollectionsDataStore(mockk<Context>(relaxed = true), factory, profileManager) to selected
+        return CollectionsDataStore(
+            mockk<Context>(relaxed = true), factory, profileManager,
+            mockk<AuthenticatedProfileModeProvider>(relaxed = true)
+        ) to selected
     }
 }
