@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.nuvio.tv.TestPreferencesStore
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfileMode
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,9 +47,30 @@ class CollectionsDataStoreSyncGuardTest {
         assertEquals(null, first.value[key])
     }
 
+
+    @Test fun customerSecondaryReadsMainCollections() = runTest {
+        val main = TestPreferencesStore()
+        val secondary = TestPreferencesStore()
+        main.edit { it[key] = """[{"id":"main","title":"Shared","folders":[]}]""" }
+        val (dataStore, selected) = fixture(main, secondary, AccountProfileMode.CUSTOMER_DEVICE_LOCAL)
+        selected.value = 2
+        assertEquals("main", dataStore.getCurrentCollections().single().id)
+        assertEquals(null, secondary.value[key])
+    }
+
+    @Test fun customerSecondaryCannotOverwriteMainCollections() = runTest {
+        val main = TestPreferencesStore()
+        main.edit { it[key] = """[{"id":"main","title":"Shared","folders":[]}]""" }
+        val (dataStore, selected) = fixture(main, TestPreferencesStore(), AccountProfileMode.CUSTOMER_DEVICE_LOCAL)
+        selected.value = 2
+        assertTrue(runCatching { dataStore.setCollections(emptyList()) }.isFailure)
+        assertEquals("main", dataStore.getCurrentCollections().single().id)
+    }
+
     private fun fixture(
         first: TestPreferencesStore,
-        second: TestPreferencesStore
+        second: TestPreferencesStore,
+        mode: AccountProfileMode = AccountProfileMode.LEGACY_CLOUD
     ): Pair<CollectionsDataStore, MutableStateFlow<Int>> {
         val selected = MutableStateFlow(1)
         val profileManager = mockk<ProfileManager>()
@@ -57,9 +79,10 @@ class CollectionsDataStoreSyncGuardTest {
         every { factory.get(any(), any()) } answers {
             if (firstArg<Int>() == 1) first else second
         }
+        val modeProvider = mockk<AuthenticatedProfileModeProvider>()
+        every { modeProvider.currentMode() } returns mode
         return CollectionsDataStore(
-            mockk<Context>(relaxed = true), factory, profileManager,
-            mockk<AuthenticatedProfileModeProvider>(relaxed = true)
+            mockk<Context>(relaxed = true), factory, profileManager, modeProvider
         ) to selected
     }
 }
