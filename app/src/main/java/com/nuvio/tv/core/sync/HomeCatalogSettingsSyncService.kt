@@ -213,9 +213,25 @@ class HomeCatalogSettingsSyncService @Inject constructor(
     fun triggerPush() {
         if (isSyncingFromRemote) return
         if (!authManager.isAuthenticated) return
+        // A delayed push must never follow a profile switch or sign-in change.
+        // Otherwise a pending edit can be uploaded under a different identity.
+        val scheduledProfileId = profileManager.activeProfileId.value
+        val scheduledAccountId = authManager.verifiedProfileAccountId ?: return
+        val scheduledMode = accountProfileModeProvider.currentMode()
+        if (!SharedLayoutScope.canEditConfiguration(
+                scheduledProfileId, deviceLocalProfilesEnabled
+            )) return
         pushJob?.cancel()
         pushJob = scope.launch {
             delay(500)
+            if (!authManager.isAuthenticated ||
+                profileManager.activeProfileId.value != scheduledProfileId ||
+                authManager.verifiedProfileAccountId != scheduledAccountId ||
+                accountProfileModeProvider.currentMode() != scheduledMode ||
+                !SharedLayoutScope.canEditConfiguration(
+                    scheduledProfileId, deviceLocalProfilesEnabled
+                )
+            ) return@launch
             pushToRemote(reason = "triggerPush")
         }
     }
