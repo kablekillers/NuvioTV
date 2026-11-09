@@ -4,6 +4,8 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.layout.Box
@@ -311,6 +313,14 @@ fun ContentCard(
             },
             modifier = Modifier
                 .fillMaxWidth()
+                // Compose TV cards are D-pad-first. Handle direct taps on phone test devices.
+                // detectTapGestures cancels on drag, preserving horizontal catalog scrolling.
+                .pointerInput(onClick, onLongPress) {
+                    detectTapGestures(
+                        onTap = { onClick() },
+                        onLongPress = if (onLongPress != null) ({ onLongPress() }) else null
+                    )
+                }
                 .onFocusChanged { state ->
                     val focusedNow = state.isFocused
                     if (needsFocusState) {
