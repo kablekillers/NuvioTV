@@ -7,6 +7,9 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.R
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.profile.AuthenticatedProfileModeProvider
+import com.nuvio.tv.core.profile.AccountProfilePolicy
+import com.nuvio.tv.core.profile.SharedLayoutScope
 import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionCatalogSource
@@ -42,14 +45,21 @@ data class ValidationResult(
 class CollectionsDataStore @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val factory: ProfileDataStoreFactory,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val accountProfileModeProvider: AuthenticatedProfileModeProvider
 ) {
     companion object {
         private const val FEATURE = "collections"
     }
 
+    private fun configurationProfileId(profileId: Int): Int =
+        SharedLayoutScope.configurationProfileId(
+            profileId,
+            AccountProfilePolicy.usesDeviceOnlySecondaries(accountProfileModeProvider.currentMode())
+        )
+
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
-        factory.get(profileId, FEATURE)
+        factory.get(configurationProfileId(profileId), FEATURE)
 
     private val gson = Gson()
     private val collectionsKey = stringPreferencesKey("collections_json")
@@ -57,7 +67,7 @@ class CollectionsDataStore @Inject constructor(
 
     val collections: Flow<List<Collection>> =
         profileManager.activeProfileId.flatMapLatest { pid ->
-            factory.get(pid, FEATURE).data.map { prefs ->
+            factory.get(configurationProfileId(pid), FEATURE).data.map { prefs ->
                 parseCollections(prefs[collectionsKey])
             }
         }
