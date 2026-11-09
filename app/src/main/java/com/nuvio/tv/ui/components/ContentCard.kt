@@ -4,8 +4,6 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.layout.Box
@@ -395,14 +393,6 @@ fun ContentCard(
                     .fillMaxWidth()
                     .height(baseCardHeight)
                     .clip(cardShape)
-                    // The TV Card's own pointer handling can consume phone taps before
-                    // an outer modifier sees them. Attach touch handling to its content.
-                    .pointerInput(onClick, onLongPress) {
-                        detectTapGestures(
-                            onTap = { onClick() },
-                            onLongPress = if (onLongPress != null) ({ onLongPress() }) else null
-                        )
-                    }
                     .nuvioCardDepth(
                         shape = cardShape,
                         surface = CardDepthSurface.POSTERS,
