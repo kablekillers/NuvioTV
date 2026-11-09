@@ -199,27 +199,27 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val homeCatalogOrderKeys: Flow<List<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        val profile = profileManager.profiles.value.find { it.id == pid }
-        val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
-        val effectivePid = if (usePrimary) 1 else pid
+        // Home catalog presentation is household-shared. Personal watch data remains
+        // scoped to the selected profile in its separate stores.
+        val effectivePid = if (pid == 1) pid else 1
         factory.get(effectivePid, FEATURE).data.map { prefs ->
             parseCatalogKeys(prefs.getStringOrMigrateSet(homeCatalogOrderKeysKey))
         }
     }
 
     val disabledHomeCatalogKeys: Flow<List<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        val profile = profileManager.profiles.value.find { it.id == pid }
-        val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
-        val effectivePid = if (usePrimary) 1 else pid
+        // Home catalog presentation is household-shared. Personal watch data remains
+        // scoped to the selected profile in its separate stores.
+        val effectivePid = if (pid == 1) pid else 1
         factory.get(effectivePid, FEATURE).data.map { prefs ->
             parseCatalogKeys(prefs.getStringOrMigrateSet(disabledHomeCatalogKeysKey))
         }
     }
 
     val customCatalogTitles: Flow<Map<String, String>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        val profile = profileManager.profiles.value.find { it.id == pid }
-        val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
-        val effectivePid = if (usePrimary) 1 else pid
+        // Home catalog presentation is household-shared. Personal watch data remains
+        // scoped to the selected profile in its separate stores.
+        val effectivePid = if (pid == 1) pid else 1
         factory.get(effectivePid, FEATURE).data.map { prefs ->
             parseCustomTitles(prefs.getStringOrMigrateSet(customCatalogTitlesKey))
         }
