@@ -53,20 +53,28 @@ jobs:
             printf '\nNUVIO_SUPABASE_URL=https://api.nuvio.tv\nNUVIO_SUPABASE_ANON_KEY=sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN\n' >> "$file"
           done
 
-      - name: Prepare test signing
+      - name: Configure persistent test signing
+        env:
+          TEST_KEYSTORE_BASE64: ${{ secrets.KABLE_KILLERS_TEST_KEYSTORE_BASE64 }}
+          TEST_KEY_ALIAS: ${{ secrets.KABLE_KILLERS_TEST_KEY_ALIAS }}
+          TEST_KEY_PASSWORD: ${{ secrets.KABLE_KILLERS_TEST_KEY_PASSWORD }}
+          TEST_STORE_PASSWORD: ${{ secrets.KABLE_KILLERS_TEST_STORE_PASSWORD }}
         run: |
-          keytool -genkeypair -v \
-            -keystore "$RUNNER_TEMP/ci-debug.jks" \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -dname "CN=Kable Killers Test,O=Android,C=US" \
-            -keyalg RSA -keysize 2048 -validity 10000
+          set -euo pipefail
+          for name in TEST_KEYSTORE_BASE64 TEST_KEY_ALIAS TEST_KEY_PASSWORD TEST_STORE_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing persistent test-signing secret: $name. Refusing to generate a temporary key."
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$TEST_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kable-killers-test.jks"
+          keytool -list -keystore "$RUNNER_TEMP/kable-killers-test.jks" -storepass "$TEST_STORE_PASSWORD" -alias "$TEST_KEY_ALIAS" > /dev/null
           {
-            echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/ci-debug.jks"
-            echo "NUVIO_RELEASE_KEY_ALIAS=androiddebugkey"
-            echo "NUVIO_RELEASE_KEY_PASSWORD=android"
-            echo "NUVIO_RELEASE_STORE_PASSWORD=android"
+            echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/kable-killers-test.jks"
+            echo "NUVIO_RELEASE_KEY_ALIAS=$TEST_KEY_ALIAS"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=$TEST_KEY_PASSWORD"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=$TEST_STORE_PASSWORD"
           } >> "$GITHUB_ENV"
 
       - name: Verify cache and image refresh safety
