@@ -911,10 +911,15 @@ private fun ProfileSelectionMainContent(
             ),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        MemberBrandWordmark(
-            height = ProfileSelectionSpacing.LogoHeight,
-            contentDescription = stringResource(R.string.cd_nuvio_logo),
-            drawableOverride = brandWordmarkRes
+        // The legacy theme wordmark drawables still contain the Nuvio name.
+        // Use a brand-safe heading on profile selection and management screens
+        // until all theme-specific artwork has been replaced.
+        Text(
+            text = "KABLE KILLERS",
+            color = NuvioTheme.colors.TextPrimary,
+            fontSize = 30.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 1.5.sp
         )
 
         Spacer(modifier = Modifier.height(ProfileSelectionSpacing.LogoToHeading))
