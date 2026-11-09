@@ -34,21 +34,12 @@ class PluginDataStore @Inject constructor(
         internal const val GROUP_STREAMS_BY_REPOSITORY = "group_streams_by_repository"
     }
 
-    private fun effectiveProfileId(): Int {
-        val active = profileManager.activeProfile
-        return if (active != null && active.usesPrimaryPlugins) 1 else profileManager.activeProfileId.value
-    }
+    private fun effectiveProfileId(): Int = 1
 
     private fun store(profileId: Int = effectiveProfileId()) =
         factory.get(profileId, FEATURE)
 
-    private val effectiveProfileIdFlow: Flow<Int> = combine(
-        profileManager.activeProfileId,
-        profileManager.profiles
-    ) { activeProfileId, profiles ->
-        val activeProfile = profiles.firstOrNull { it.id == activeProfileId }
-        if (activeProfile?.usesPrimaryPlugins == true) 1 else activeProfileId
-    }.distinctUntilChanged()
+    private val effectiveProfileIdFlow: Flow<Int> = kotlinx.coroutines.flow.flowOf(1)
 
     private val repositoriesKey = stringPreferencesKey("repositories")
     private val scrapersKey = stringPreferencesKey("scrapers")
@@ -91,7 +82,7 @@ class PluginDataStore @Inject constructor(
 
     suspend fun saveRepositories(repos: List<PluginRepository>) {
             val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+            if (active != null && !active.isPrimary) return
         val json = moshi.adapter<List<PluginRepository>>(repoListType).toJson(repos)
         store().edit { prefs ->
             prefs[repositoriesKey] = json
@@ -100,7 +91,7 @@ class PluginDataStore @Inject constructor(
 
     suspend fun addRepository(repo: PluginRepository) {
             val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+            if (active != null && !active.isPrimary) return
         val current = repositories.first().toMutableList()
         current.removeAll { it.id == repo.id }
         current.add(repo)
@@ -109,7 +100,7 @@ class PluginDataStore @Inject constructor(
 
     suspend fun removeRepository(repoId: String) {
             val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+            if (active != null && !active.isPrimary) return
         val current = repositories.first().toMutableList()
         current.removeAll { it.id == repoId }
         saveRepositories(current)
@@ -142,7 +133,7 @@ class PluginDataStore @Inject constructor(
 
     suspend fun saveScrapers(scrapers: List<ScraperInfo>) {
             val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+            if (active != null && !active.isPrimary) return
         val json = moshi.adapter<List<ScraperInfo>>(scraperListType).toJson(scrapers)
         store().edit { prefs ->
             prefs[scrapersKey] = json
@@ -170,7 +161,7 @@ class PluginDataStore @Inject constructor(
 
     suspend fun setPluginsEnabled(enabled: Boolean) {
             val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+            if (active != null && !active.isPrimary) return
         store().edit { prefs ->
             prefs[pluginsEnabledKey] = enabled
         }
@@ -184,7 +175,7 @@ class PluginDataStore @Inject constructor(
 
     suspend fun setGroupStreamsByRepository(enabled: Boolean) {
             val active = profileManager.activeProfile
-            if (active != null && !active.isPrimary && active.usesPrimaryPlugins) return
+            if (active != null && !active.isPrimary) return
         store().edit { prefs ->
             prefs[groupStreamsByRepositoryKey] = enabled
         }
