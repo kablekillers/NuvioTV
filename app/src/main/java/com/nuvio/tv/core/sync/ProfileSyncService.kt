@@ -323,6 +323,8 @@ class ProfileSyncService @Inject constructor(
             return@withContext Result.failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
         }
         try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
                 if (!currentPin.isNullOrBlank()) {
@@ -330,8 +332,13 @@ class ProfileSyncService @Inject constructor(
                 }
             }
             withJwtRefreshRetry {
+                fence.requireCurrent(identity)
+                check(AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) {
+                    "Account-wide PIN sync is disabled"
+                }
                 postgrest.rpc("clear_profile_pin", params)
             }
+            fence.requireCurrent(identity)
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear profile PIN", e)
@@ -344,13 +351,20 @@ class ProfileSyncService @Inject constructor(
             return@withContext Result.failure(IllegalStateException("Account-wide PIN sync is disabled for device-local customer profiles"))
         }
         try {
+            val fence = identityFence()
+            val identity = fence.capture()
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
                 put("p_pin", pin)
             }
             val response = withJwtRefreshRetry {
+                fence.requireCurrent(identity)
+                check(AccountProfilePolicy.maySyncRemoteProfilePins(accountProfileModeProvider.currentMode())) {
+                    "Account-wide PIN sync is disabled"
+                }
                 postgrest.rpc("verify_profile_pin", params)
             }
+            fence.requireCurrent(identity)
             val decoded = response.decodeList<SupabaseProfilePinVerifyResult>().firstOrNull()
                 ?: SupabaseProfilePinVerifyResult(unlocked = false, retryAfterSeconds = 0)
             Result.success(decoded)
