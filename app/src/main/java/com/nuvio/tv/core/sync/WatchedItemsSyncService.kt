@@ -62,6 +62,12 @@ class WatchedItemsSyncService @Inject constructor(
         watchedItemsPreferences.advanceLastSuccessfulPushMs(now, profileId)
     }
 
+    // Customer-created profiles must not share account-scoped watch activity.
+    private fun isDeviceLocalCustomerProfile(profileId: Int): Boolean =
+        profileId != 1 &&
+            (authManager.authState.value as? com.nuvio.tv.domain.model.AuthState.FullAccount)
+                ?.email?.equals("kablekillers6@gmail.com", ignoreCase = true) == true
+
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
         return try {
             block()
@@ -72,6 +78,7 @@ class WatchedItemsSyncService @Inject constructor(
     }
 
     private suspend fun shouldUseSupabaseWatchProgressSync(profileId: Int): Boolean {
+        if (isDeviceLocalCustomerProfile(profileId)) return false
         val source = traktSettingsDataStore.getWatchProgressSource(profileId)
         val providerId = source.providerId ?: return true
         return trackingProviderRegistry.provider(providerId)?.isAuthenticated?.first() != true
