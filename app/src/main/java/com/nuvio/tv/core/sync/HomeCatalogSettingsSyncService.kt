@@ -79,6 +79,11 @@ class HomeCatalogSettingsSyncService @Inject constructor(
     private val collectionsDataStore: CollectionsDataStore,
     private val syncClientIdentity: SyncClientIdentity
 ) {
+    private fun isSharedCustomerSecondaryProfile(profileId: Int): Boolean =
+        profileId != 1 &&
+            (authManager.authState.value as? com.nuvio.tv.domain.model.AuthState.FullAccount)
+                ?.email?.equals("kablekillers6@gmail.com", ignoreCase = true) == true
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json {
         ignoreUnknownKeys = true
@@ -104,6 +109,9 @@ class HomeCatalogSettingsSyncService @Inject constructor(
     suspend fun pushToRemote(reason: String = "unspecified"): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val profileId = profileManager.activeProfileId.value
+            // Secondary customer profiles consume primary presentation locally.
+            // They must never publish their own catalog settings to the shared account.
+            if (isSharedCustomerSecondaryProfile(profileId)) return@withContext Result.success(Unit)
             val syncScope = currentScope(profileId)
                 ?: return@withContext Result.success(Unit)
             val payload = loadLocalPayload()
