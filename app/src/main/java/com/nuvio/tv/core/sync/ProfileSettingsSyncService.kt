@@ -285,6 +285,13 @@ class ProfileSettingsSyncService @Inject constructor(
                     require(profileManager.profiles.value.any { it.id == sourceProfileId })
                     require(profileManager.profiles.value.any { it.id == targetProfileId })
 
+                    // Customer secondary profiles inherit the primary configuration
+                    // continuously. Never create or overwrite a shared cloud blob
+                    // under a device-local customer profile ID.
+                    if (isSharedCustomerSecondaryProfile(targetProfileId)) {
+                        return@withLock Result.success(Unit)
+                    }
+
                     val targetFeatures = if (authManager.isAuthenticated) {
                         if (
                             copyProviderCredentials &&
