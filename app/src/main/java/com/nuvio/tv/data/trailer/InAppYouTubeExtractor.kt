@@ -341,14 +341,14 @@ class InAppYouTubeExtractor @Inject constructor() {
                 val status = playabilityStatus?.stringValue("status")
                 if (status == "LOGIN_REQUIRED") {
                     loginRequiredCount++
-                    Log.w(TAG, "Client ${client.key}: LOGIN_REQUIRED (visitor may be stale)")
-                    continue
-                }
-                if (status != null && status != "OK") {
+                    Log.w(TAG, "Client ${client.key}: LOGIN_REQUIRED; checking for usable streamingData")
+                } else if (status != null && status != "OK") {
                     Log.w(TAG, "Client ${client.key} returned playability status: $status")
-                    continue
                 }
 
+                // Match the mobile extractor: do not discard a response solely
+                // because of playabilityStatus. Some responses still include
+                // directly usable streamingData.
                 val streamingData = playerResponse.mapValue("streamingData")
                 if (streamingData == null) {
                     Log.w(TAG, "Client ${client.key} returned no streamingData (status=${status ?: "missing"})")
