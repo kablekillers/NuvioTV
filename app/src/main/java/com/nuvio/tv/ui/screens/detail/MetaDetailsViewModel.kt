@@ -3033,21 +3033,6 @@ class MetaDetailsViewModel @Inject constructor(
             // in-app resolver cannot supply a playable media URL, fall back
             // to an installed YouTube/browser handler instead of trapping
             // the user on an unrecoverable trailer error screen.
-            if (source == null && _uiState.value.selectedSharedTrailer?.ytId == trailer.ytId) {
-                val externalIntent = Intent(
-                    Intent.ACTION_VIEW,
-                    Uri.parse("https://www.youtube.com/watch?v=$ytId")
-                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                val openedExternally = runCatching {
-                    context.startActivity(externalIntent)
-                    true
-                }.getOrDefault(false)
-                if (openedExternally) {
-                    dismissSharedTrailerOverlay()
-                    return@launch
-                }
-            }
-
             _uiState.update { state ->
                 if (state.selectedSharedTrailer?.ytId != trailer.ytId) {
                     state
