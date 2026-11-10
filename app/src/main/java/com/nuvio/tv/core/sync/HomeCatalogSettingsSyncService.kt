@@ -128,7 +128,9 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
     suspend fun pullFromRemote(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val profileId = profileManager.activeProfileId.value
+            val selectedProfileId = profileManager.activeProfileId.value
+            // Every customer profile reads the same centrally managed catalog.
+            val profileId = if (isSharedCustomerSecondaryProfile(selectedProfileId)) 1 else selectedProfileId
             val syncScope = currentScope(profileId)
                 ?: return@withContext Result.success(false)
             val localState = layoutPreferenceDataStore.getHomeCatalogSettingsState()
@@ -259,7 +261,9 @@ class HomeCatalogSettingsSyncService @Inject constructor(
 
     private fun currentScope(profileId: Int): HomeCatalogSyncScope? {
         val state = authManager.authState.value as? AuthState.FullAccount ?: return null
-        if (profileManager.activeProfileId.value != profileId) return null
+        if (profileManager.activeProfileId.value != profileId &&
+            !(profileId == 1 && isSharedCustomerSecondaryProfile(profileManager.activeProfileId.value))
+        ) return null
         return HomeCatalogSyncScope(userId = state.userId, profileId = profileId)
     }
 
