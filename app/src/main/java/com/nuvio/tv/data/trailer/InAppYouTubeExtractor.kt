@@ -493,17 +493,32 @@ class InAppYouTubeExtractor @Inject constructor() {
             val source = when (kind) {
                 // Adaptive video + audio (best quality, separate streams)
                 PlaybackSourceKind.ADAPTIVE -> {
-                    val resolvedVideo = bestVideo?.url?.let { resolveReachableUrl(it) }
-                    val resolvedAudio = if (resolvedVideo != null) bestAudio?.url?.let { resolveReachableUrl(it) } else null
-                    // Adaptive formats are video-only. Never return a silent
-                    // video stream as a successful trailer when the matching
-                    // audio stream is blocked or unavailable.
-                    if (resolvedVideo != null && resolvedAudio != null) {
-                        TrailerPlaybackSource(videoUrl = resolvedVideo, audioUrl = resolvedAudio)
-                    } else {
-                        Log.w(TAG, "Adaptive trailer source incomplete: video=${resolvedVideo != null}, audio=${resolvedAudio != null}")
-                        null
+                    // Prefer matching video/audio from the same YouTube client.
+                    // The highest-scoring stream may be inaccessible even when
+                    // another candidate from that client is playable.
+                    var playable: TrailerPlaybackSource? = null
+                    val clients = listOf(PREFERRED_SEPARATE_CLIENT) +
+                        adaptiveVideo.map { it.client }.distinct().filter { it != PREFERRED_SEPARATE_CLIENT }
+                    for (clientKey in clients) {
+                        val videos = sortCandidates(adaptiveVideo.filter { it.client == clientKey })
+                        val audios = sortCandidates(adaptiveAudio.filter { it.client == clientKey })
+                        if (videos.isEmpty() || audios.isEmpty()) continue
+                        for (video in videos.take(3)) {
+                            val videoUrl = resolveReachableUrl(video.url) ?: continue
+                            for (audio in audios.take(3)) {
+                                val audioUrl = resolveReachableUrl(audio.url) ?: continue
+                                playable = TrailerPlaybackSource(videoUrl = videoUrl, audioUrl = audioUrl)
+                                break
+                            }
+                            if (playable != null) break
+                        }
+                        if (playable != null) {
+                            Log.d(TAG, "Resolved adaptive trailer with client=$clientKey")
+                            break
+                        }
+                        Log.w(TAG, "No reachable adaptive video/audio pair for client=$clientKey")
                     }
+                    playable
                 }
                 // HLS manifest (1080p, always works for COPPA/kids content)
                 PlaybackSourceKind.HLS_MANIFEST ->
