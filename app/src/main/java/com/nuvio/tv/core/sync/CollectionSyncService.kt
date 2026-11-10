@@ -30,6 +30,11 @@ class CollectionSyncService @Inject constructor(
     private val profileManager: ProfileManager,
     private val syncClientIdentity: SyncClientIdentity
 ) {
+    private fun isSharedCustomerSecondaryProfile(profileId: Int): Boolean =
+        profileId != 1 &&
+            (authManager.authState.value as? com.nuvio.tv.domain.model.AuthState.FullAccount)
+                ?.email?.equals("kablekillers6@gmail.com", ignoreCase = true) == true
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
@@ -53,6 +58,7 @@ class CollectionSyncService @Inject constructor(
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val profileId = profileManager.activeProfileId.value
+            if (isSharedCustomerSecondaryProfile(profileId)) return@withContext Result.success(Unit)
             val json = collectionsDataStore.exportCurrentProfileJson()
 
             val collectionsJsonElement = if (json.isNullOrBlank()) {
@@ -85,7 +91,8 @@ class CollectionSyncService @Inject constructor(
      */
     suspend fun pullFromRemote(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val profileId = profileManager.activeProfileId.value
+            val selectedProfileId = profileManager.activeProfileId.value
+            val profileId = if (isSharedCustomerSecondaryProfile(selectedProfileId)) 1 else selectedProfileId
 
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
