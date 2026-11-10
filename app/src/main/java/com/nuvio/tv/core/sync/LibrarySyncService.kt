@@ -29,11 +29,18 @@ data class LibraryRemoteSyncResult(
 @Singleton
 class LibrarySyncService @Inject constructor(
     private val remoteDataSource: LibrarySyncRemoteDataSource,
-    private val localStore: LibrarySyncLocalStore
+    private val localStore: LibrarySyncLocalStore,
+    private val authManager: com.nuvio.tv.core.auth.AuthManager
 ) {
+    private fun isDeviceLocalCustomerProfile(profileId: Int): Boolean =
+        profileId != 1 &&
+            (authManager.authState.value as? com.nuvio.tv.domain.model.AuthState.FullAccount)
+                ?.email?.equals("kablekillers6@gmail.com", ignoreCase = true) == true
+
     private val syncMutex = Mutex()
 
     suspend fun pushToRemote(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        if (isDeviceLocalCustomerProfile(profileId)) return@withContext Result.success(Unit)
         syncMutex.withLock {
             try {
                 var state = localStore.getSyncState(profileId)
@@ -54,6 +61,12 @@ class LibrarySyncService @Inject constructor(
     suspend fun syncFromRemote(
         profileId: Int
     ): Result<LibraryRemoteSyncResult> = withContext(Dispatchers.IO) {
+        if (isDeviceLocalCustomerProfile(profileId)) {
+            return@withContext Result.success(LibraryRemoteSyncResult(
+                appliedUpserts = 0, appliedDeletes = 0, pushedUpserts = 0,
+                pushedDeletes = 0, usedSnapshot = false, preservedLocalItems = true
+            ))
+        }
         syncMutex.withLock {
             try {
                 var state = localStore.getSyncState(profileId)
