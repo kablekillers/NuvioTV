@@ -52,6 +52,12 @@ class ProfileSyncService @Inject constructor(
     private val syncClientIdentity: SyncClientIdentity
 ) {
     private val pullMutex = Mutex()
+
+    // Customer profiles belong to the device, never to the shared account.
+    private fun isSharedCustomerAccount(): Boolean =
+        (authManager.authState.value as? AuthState.FullAccount)
+            ?.email?.equals("kablekillers6@gmail.com", ignoreCase = true) == true
+
     private var pullFreshness = ProfilePullFreshness()
     private var lastPulledProfiles = emptyList<UserProfile>()
 
@@ -65,6 +71,7 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
+        if (isSharedCustomerAccount()) return@withContext Result.success(Unit)
         try {
             val profiles = profileManager.profiles.value
 
@@ -100,6 +107,7 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun pullFromRemote(force: Boolean = false): Result<List<UserProfile>> = withContext(Dispatchers.IO) {
+        if (isSharedCustomerAccount()) return@withContext Result.success(profileManager.profiles.value)
         pullMutex.withLock {
             val userId = (authManager.authState.value as? AuthState.FullAccount)?.userId
             val now = SystemClock.elapsedRealtime()
@@ -150,6 +158,7 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun deleteProfileData(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        if (isSharedCustomerAccount()) return@withContext Result.success(Unit)
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
