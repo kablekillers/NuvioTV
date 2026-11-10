@@ -87,8 +87,8 @@ class ProfileManager @Inject constructor(
     suspend fun createProfile(
         name: String,
         avatarColorHex: String,
-        usesPrimaryAddons: Boolean = false,
-        usesPrimaryPlugins: Boolean = false,
+        usesPrimaryAddons: Boolean = true,
+        usesPrimaryPlugins: Boolean = true,
         avatarId: String? = null
     ): UserProfile? {
         val current = profiles.value
