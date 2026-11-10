@@ -131,10 +131,10 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val customPosterUrlPatternKey = stringPreferencesKey("custom_poster_url_pattern")
     private val customPosterEnabledScreensKey = stringPreferencesKey("custom_poster_enabled_screens")
 
+    // Presentation settings are controlled by the primary profile for the whole device.
+    // Personal viewing data is stored separately and must remain profile-scoped.
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
-        profileManager.activeProfileId.flatMapLatest { pid ->
-            factory.get(pid, FEATURE).data.map { prefs -> extract(prefs) }
-        }
+        factory.get(1, FEATURE).data.map { prefs -> extract(prefs) }
 
     private fun Preferences.getStringOrMigrateSet(key: Preferences.Key<String>): String? {
         return try {
