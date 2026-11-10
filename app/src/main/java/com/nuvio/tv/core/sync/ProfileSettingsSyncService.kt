@@ -242,7 +242,10 @@ class ProfileSettingsSyncService @Inject constructor(
     suspend fun pullCurrentProfileFromRemote(): Result<Boolean> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
             try {
-                val profileId = profileManager.activeProfileId.value
+                val selectedProfileId = profileManager.activeProfileId.value
+                // Secondary profiles on the shared customer account consume the
+                // primary's presentation settings, never another customer's blob.
+                val profileId = if (isSharedCustomerSecondaryProfile(selectedProfileId)) 1 else selectedProfileId
                 val inheritedPluginSettingsApplied = pullInheritedPluginSettings(profileId)
                 val blob = pullProfileFromRemote(profileId)
                 lastForegroundPullAtMs = SystemClock.elapsedRealtime()
