@@ -168,6 +168,7 @@ class InAppYouTubeExtractor @Inject constructor() {
     private data class CachedConfig(
         val apiKey: String,
         val visitorData: String?,
+        val videoId: String,
         val fetchedAt: Long = System.currentTimeMillis()
     )
 
@@ -185,11 +186,11 @@ class InAppYouTubeExtractor @Inject constructor() {
      *  - Cache is older than CONFIG_TTL_MS
      *  - [forceRefresh] is true (e.g. after LOGIN_REQUIRED)
      */
-    private suspend fun ensureWatchConfig(forceRefresh: Boolean = false): CachedConfig {
+    private suspend fun ensureWatchConfig(videoId: String, forceRefresh: Boolean = false): CachedConfig {
         // Fast path: return valid cache without locking
         if (!forceRefresh) {
             val current = cachedConfig.get()
-            if (current != null && !isConfigStale(current)) {
+            if (current != null && current.videoId == videoId && !isConfigStale(current)) {
                 return current
             }
         }
@@ -199,13 +200,13 @@ class InAppYouTubeExtractor @Inject constructor() {
             // Double-check after acquiring lock
             if (!forceRefresh) {
                 val current = cachedConfig.get()
-                if (current != null && !isConfigStale(current)) {
+                if (current != null && current.videoId == videoId && !isConfigStale(current)) {
                     return@withLock current
                 }
             }
 
             Log.d(TAG, "Fetching watch page for visitor_data (forceRefresh=$forceRefresh)")
-            val watchUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=en"
+            val watchUrl = "https://www.youtube.com/watch?v=$videoId&hl=en"
             val watchResponse = performRequest(
                 url = watchUrl,
                 method = "GET",
@@ -214,7 +215,7 @@ class InAppYouTubeExtractor @Inject constructor() {
             if (!watchResponse.ok) {
                 // If we have a stale config, prefer it over failing
                 val stale = cachedConfig.get()
-                if (stale != null) {
+                if (stale != null && stale.videoId == videoId) {
                     Log.w(TAG, "Watch page failed (${watchResponse.status}), using stale config")
                     return@withLock stale
                 }
@@ -222,14 +223,15 @@ class InAppYouTubeExtractor @Inject constructor() {
                 // API still answers, so continue with the fallback key. It isn't cached, so the
                 // next extraction tries the watch page again.
                 Log.w(TAG, "Watch page failed (${watchResponse.status}), using the fallback key")
-                return@withLock CachedConfig(apiKey = FALLBACK_API_KEY, visitorData = null)
+                return@withLock CachedConfig(apiKey = FALLBACK_API_KEY, visitorData = null, videoId = videoId)
             }
 
             val parsed = getWatchConfig(watchResponse.body)
             val apiKey = parsed.apiKey ?: FALLBACK_API_KEY
             val newConfig = CachedConfig(
                 apiKey = apiKey,
-                visitorData = parsed.visitorData
+                visitorData = parsed.visitorData,
+                videoId = videoId
             )
             cachedConfig.set(newConfig)
             Log.d(TAG, "Watch config cached (visitor=${!parsed.visitorData.isNullOrBlank()})")
@@ -316,7 +318,7 @@ class InAppYouTubeExtractor @Inject constructor() {
         val videoId = extractVideoId(youtubeUrl) ?: return null
 
         // Use cached config instead of fetching watch page every time
-        val config = ensureWatchConfig(forceRefresh = forceRefreshConfig)
+        val config = ensureWatchConfig(videoId = videoId, forceRefresh = forceRefreshConfig)
         Log.d(TAG, "Using config: apiKey=${config.apiKey.take(10)}... visitor=${!config.visitorData.isNullOrBlank()}")
 
         val progressive = mutableListOf<StreamCandidate>()
