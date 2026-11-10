@@ -543,6 +543,7 @@ fun ProfileSelectionScreen(
         ) {
             CreateProfileOverlay(
                 profiles = profiles,
+                isSharedCustomerAccount = viewModel.isSharedCustomerAccount,
                 avatarCatalog = avatarCatalog,
                 isCreating = isCreating,
                 onDismiss = { if (!isCreating) showCreateProfile = false },
@@ -1401,6 +1402,7 @@ private fun AddProfileCard(
 @Composable
 private fun CreateProfileOverlay(
     profiles: List<UserProfile>,
+    isSharedCustomerAccount: Boolean,
     avatarCatalog: List<AvatarCatalogItem>,
     isCreating: Boolean,
     onDismiss: () -> Unit,
@@ -1499,8 +1501,8 @@ private fun CreateProfileOverlay(
                                 profileName,
                                 selectedColorHex,
                                 selectedAvatarId,
-                                selectedCopySourceId,
-                                copyProviderCredentials
+                                if (isSharedCustomerAccount) null else selectedCopySourceId,
+                                if (isSharedCustomerAccount) false else copyProviderCredentials
                             )
                         }
                     )
@@ -1554,7 +1556,7 @@ private fun CreateProfileOverlay(
                     )
 
                     val selectedCopySource = profiles.firstOrNull { it.id == selectedCopySourceId }
-                    OverlayButton(
+                    if (!isSharedCustomerAccount) OverlayButton(
                         text = if (selectedCopySource == null) {
                             stringResource(R.string.profile_copy_settings_create_fresh)
                         } else {
@@ -1648,7 +1650,7 @@ private fun CreateProfileOverlay(
         }
     }
 
-    if (showSettingsSourceDialog) {
+    if (showSettingsSourceDialog && !isSharedCustomerAccount) {
         ProfileSettingsSourceDialog(
             profiles = profiles,
             selectedSourceProfileId = selectedCopySourceId,
