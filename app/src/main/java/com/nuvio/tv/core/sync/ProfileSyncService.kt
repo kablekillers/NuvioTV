@@ -71,9 +71,8 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
-        if (isSharedCustomerAccount()) return@withContext Result.success(Unit)
         try {
-            val profiles = profileManager.profiles.value
+            val profiles = if (isSharedCustomerAccount()) profileManager.profiles.value.filter { it.id == 1 } else profileManager.profiles.value
 
             val params = buildJsonObject {
                 put("p_client_max_profiles", ProfileManager.MAX_PROFILES)
@@ -107,7 +106,6 @@ class ProfileSyncService @Inject constructor(
     }
 
     suspend fun pullFromRemote(force: Boolean = false): Result<List<UserProfile>> = withContext(Dispatchers.IO) {
-        if (isSharedCustomerAccount()) return@withContext Result.success(profileManager.profiles.value)
         pullMutex.withLock {
             val userId = (authManager.authState.value as? AuthState.FullAccount)?.userId
             val now = SystemClock.elapsedRealtime()
@@ -137,7 +135,12 @@ class ProfileSyncService @Inject constructor(
                 }
 
                 if (profiles.isNotEmpty()) {
-                    profileDataStore.replaceAllProfiles(profiles)
+                    val resolvedProfiles = if (isSharedCustomerAccount()) {
+                        val cloudPrimary = profiles.firstOrNull { it.id == 1 }
+                        if (cloudPrimary != null) listOf(cloudPrimary) + profileManager.profiles.value.filter { it.id != 1 }
+                        else profileManager.profiles.value
+                    } else profiles
+                    profileDataStore.replaceAllProfiles(resolvedProfiles)
                     Log.d(TAG, "Merged ${profiles.size} remote profiles into local store")
                 }
 
@@ -149,7 +152,7 @@ class ProfileSyncService @Inject constructor(
                         pulledAtMs = SystemClock.elapsedRealtime()
                     )
                 }
-                Result.success(profiles)
+                Result.success(if (isSharedCustomerAccount()) profileManager.profiles.value else profiles)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to pull profiles from remote", e)
                 Result.failure(e)
