@@ -1,5 +1,7 @@
 package com.nuvio.tv.core.sync
 
+import com.nuvio.tv.core.auth.AuthManager
+import org.mockito.Mockito.mock
 import com.nuvio.tv.core.sync.library.LibrarySyncLocalStore
 import com.nuvio.tv.core.sync.library.LibrarySyncRemoteDataSource
 import com.nuvio.tv.domain.model.LibraryDeltaApplyResult
@@ -27,7 +29,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(12L, "upsert", libraryItem("delta"))
             )
         )
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, mock(AuthManager::class.java))
 
         val result = service.syncFromRemote(profileId = 3).getOrThrow()
 
@@ -55,7 +57,7 @@ class LibrarySyncServiceTest {
             LibrarySyncState(deltaInitialized = true)
         )
         val remote = FakeLibrarySyncRemote(events = events)
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, mock(AuthManager::class.java))
 
         val result = service.syncFromRemote(profileId = 5).getOrThrow()
 
@@ -85,7 +87,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(5L, "delete", localItem)
             )
         )
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, mock(AuthManager::class.java))
 
         val result = service.syncFromRemote(profileId = 1).getOrThrow()
 
@@ -108,7 +110,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, mock(AuthManager::class.java))
 
         val result = service.pushToRemote(profileId = 2)
 
@@ -130,7 +132,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote(deleteFailure = IllegalStateException("offline"))
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, mock(AuthManager::class.java))
 
         val result = service.pushToRemote(profileId = 1)
 
@@ -147,7 +149,7 @@ class LibrarySyncServiceTest {
             )
         )
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, mock(AuthManager::class.java))
 
         val result = service.pushToRemote(profileId = 1)
 
