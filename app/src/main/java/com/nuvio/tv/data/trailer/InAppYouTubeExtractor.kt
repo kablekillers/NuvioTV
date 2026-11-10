@@ -345,10 +345,15 @@ class InAppYouTubeExtractor @Inject constructor() {
                     continue
                 }
                 if (status != null && status != "OK") {
+                    Log.w(TAG, "Client ${client.key} returned playability status: $status")
                     continue
                 }
 
-                val streamingData = playerResponse.mapValue("streamingData") ?: continue
+                val streamingData = playerResponse.mapValue("streamingData")
+                if (streamingData == null) {
+                    Log.w(TAG, "Client ${client.key} returned no streamingData (status=${status ?: "missing"})")
+                    continue
+                }
                 val hlsManifestUrl = streamingData.stringValue("hlsManifestUrl")
                 if (!hlsManifestUrl.isNullOrBlank()) {
                     manifestUrls += Triple(client.key, client.priority, hlsManifestUrl)
@@ -447,7 +452,9 @@ class InAppYouTubeExtractor @Inject constructor() {
             return null
         }
 
+        Log.d(TAG, "Trailer candidates: hls=${manifestUrls.size}, progressive=${progressive.size}, video=${adaptiveVideo.size}, audio=${adaptiveAudio.size}")
         if (manifestUrls.isEmpty() && progressive.isEmpty() && adaptiveVideo.isEmpty() && adaptiveAudio.isEmpty()) {
+            Log.w(TAG, "No playable stream candidates returned by any YouTube client")
             return null
         }
 
@@ -488,7 +495,15 @@ class InAppYouTubeExtractor @Inject constructor() {
                 PlaybackSourceKind.ADAPTIVE -> {
                     val resolvedVideo = bestVideo?.url?.let { resolveReachableUrl(it) }
                     val resolvedAudio = if (resolvedVideo != null) bestAudio?.url?.let { resolveReachableUrl(it) } else null
-                    resolvedVideo?.let { TrailerPlaybackSource(videoUrl = it, audioUrl = resolvedAudio) }
+                    // Adaptive formats are video-only. Never return a silent
+                    // video stream as a successful trailer when the matching
+                    // audio stream is blocked or unavailable.
+                    if (resolvedVideo != null && resolvedAudio != null) {
+                        TrailerPlaybackSource(videoUrl = resolvedVideo, audioUrl = resolvedAudio)
+                    } else {
+                        Log.w(TAG, "Adaptive trailer source incomplete: video=${resolvedVideo != null}, audio=${resolvedAudio != null}")
+                        null
+                    }
                 }
                 // HLS manifest (1080p, always works for COPPA/kids content)
                 PlaybackSourceKind.HLS_MANIFEST ->
