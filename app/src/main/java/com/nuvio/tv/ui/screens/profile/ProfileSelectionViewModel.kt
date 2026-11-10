@@ -45,6 +45,7 @@ sealed interface CreateProfileResult {
 @HiltViewModel
 class ProfileSelectionViewModel @Inject constructor(
     private val profileManager: ProfileManager,
+    private val authManager: com.nuvio.tv.core.auth.AuthManager,
     private val profileSyncService: ProfileSyncService,
     private val profileSettingsSyncService: ProfileSettingsSyncService,
     private val avatarRepository: AvatarRepository,
@@ -53,6 +54,10 @@ class ProfileSelectionViewModel @Inject constructor(
     private val profileLockStateDataStore: ProfileLockStateDataStore,
     private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore
 ) : ViewModel() {
+    val isSharedCustomerAccount: Boolean
+        get() = (authManager.authState.value as? com.nuvio.tv.domain.model.AuthState.FullAccount)
+            ?.email?.equals("kablekillers6@gmail.com", ignoreCase = true) == true
+
     val activeProfileId: StateFlow<Int> = profileManager.activeProfileId
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
 
@@ -199,7 +204,7 @@ class ProfileSelectionViewModel @Inject constructor(
                 )
                 if (profile != null) {
                     profileSyncService.pushToRemote()
-                    val copyResult = copyFromProfileId?.let { sourceProfileId ->
+                    val copyResult = if (isSharedCustomerAccount) Result.success(Unit) else copyFromProfileId?.let { sourceProfileId ->
                         profileSettingsSyncService.copyProfileSetup(
                             sourceProfileId = sourceProfileId,
                             targetProfileId = profile.id,
