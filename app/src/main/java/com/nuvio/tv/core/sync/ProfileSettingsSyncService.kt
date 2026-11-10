@@ -179,6 +179,11 @@ class ProfileSettingsSyncService @Inject constructor(
     private val metaRepository: MetaRepository,
     private val cwEnrichmentCache: ContinueWatchingEnrichmentCache
 ) {
+    private fun isSharedCustomerSecondaryProfile(profileId: Int): Boolean =
+        profileId != 1 &&
+            (authManager.authState.value as? com.nuvio.tv.domain.model.AuthState.FullAccount)
+                ?.email?.equals("kablekillers6@gmail.com", ignoreCase = true) == true
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
 
@@ -223,6 +228,7 @@ class ProfileSettingsSyncService @Inject constructor(
         syncMutex.withLock {
             try {
                 val profileId = profileManager.activeProfileId.value
+                if (isSharedCustomerSecondaryProfile(profileId)) return@withLock Result.success(Unit)
                 pushProfileToRemote(profileId)
                 Log.d(TAG, "Pushed profile settings blob for profile $profileId")
                 Result.success(Unit)
