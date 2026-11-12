@@ -1,5 +1,5 @@
 import { verifyOwnerAccess } from "./owner_auth.js";
-import { revokeDevice } from "./device_credentials.js";
+import { revokeDevice, issueDeviceCredential } from "./device_credentials.js";
 // Minimal public activation API. Owner approval is deliberately unavailable
 // until an MFA-protected admin identity and authorization layer is implemented.
 const encoder = new TextEncoder();
@@ -49,10 +49,12 @@ export default {
       try { body = await request.json(); } catch { return reply({ error: "Invalid JSON" }, 400); }
       if (typeof body?.pairing_code !== "string" || !/^\d{6}$/.test(body.pairing_code))
         return reply({ error: "Invalid pairing code" }, 400);
+      if (typeof body?.household_id !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(body.household_id))
+        return reply({ error: "Invalid household ID" }, 400);
       const now = Math.floor(Date.now() / 1000);
       const result = await env.DB.prepare(
-        "UPDATE activation_challenges SET state='approved',approved_at=? WHERE pairing_code=? AND state='pending' AND expires_at>?"
-      ).bind(now, body.pairing_code, now).run();
+        "UPDATE activation_challenges SET state='approved',approved_at=?,approved_household_id=? WHERE pairing_code=? AND state='pending' AND expires_at>?"
+      ).bind(now, body.household_id, body.pairing_code, now).run();
       return reply({ approved: result.meta.changes === 1 }, result.meta.changes === 1 ? 200 : 409);
     }
     if (url.pathname === "/v1/activations" && request.method === "POST") {
@@ -82,6 +84,12 @@ export default {
       if (!row || row.poll_secret_hash !== await sha256(body.poll_secret))
         return reply({ error: "Invalid credentials" }, 401);
       if (row.expires_at <= Math.floor(Date.now() / 1000)) return reply({ state: "expired" });
+      if (row.state === "approved") {
+        const credential = await issueDeviceCredential(env.DB, {
+          challengeId: match[1], challengeSecretHash: await sha256(body.poll_secret)
+        });
+        return credential ? reply({ state: "activated", credential }) : reply({ state: "unavailable" }, 409);
+      }
       return reply({ state: row.state });
     }
     return reply({ error: "Not found" }, 404);
