@@ -1,0 +1,27 @@
+name: Activation backend unit tests
+
+on:
+  push:
+    branches:
+      - feature/independent-config-backup
+    paths:
+      - 'cloudflare/activation/**'
+      - '.github/workflows/activation-unit-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  activation-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare/activation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run activation unit tests
+        run: npm test
