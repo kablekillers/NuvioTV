@@ -86,20 +86,20 @@ jobs:
           grep -qx "Number of signers: 1" "$RUNNER_TEMP/signature.txt"
           "$build_tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/badging.txt"
           grep -q "name='com.kablekillers.tv'" "$RUNNER_TEMP/badging.txt"
-          grep -q "versionCode='1069'" "$RUNNER_TEMP/badging.txt"
-          grep -q "versionName='1.1.0'" "$RUNNER_TEMP/badging.txt"
+          grep -q "versionCode='1072'" "$RUNNER_TEMP/badging.txt"
+          grep -q "versionName='1.1.2'" "$RUNNER_TEMP/badging.txt"
           if grep -q 'application-debuggable' "$RUNNER_TEMP/badging.txt"; then
             echo "::error::Final APK must not be debuggable"
             exit 1
           fi
           mkdir -p final-release
-          cp "$apk" final-release/Kable-Killers-TV-1.1.0.apk
-          (cd final-release && sha256sum Kable-Killers-TV-1.1.0.apk > SHA256SUMS.txt)
+          cp "$apk" final-release/Kable-Killers-TV-1.1.2.apk
+          (cd final-release && sha256sum Kable-Killers-TV-1.1.2.apk > SHA256SUMS.txt)
 
       - name: Upload final TV release
         uses: actions/upload-artifact@v4
         with:
-          name: Kable-Killers-TV-1.1.0-Final
+          name: Kable-Killers-TV-1.1.2-Final
           path: final-release/*
           if-no-files-found: error
           retention-days: 30
@@ -109,13 +109,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::v1.1.0 already exists; bump the version for a new release."
+          if gh release view v1.1.2 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::v1.1.2 already exists; bump the version for a new release."
             exit 1
           fi
-          gh release create v1.1.0 final-release/Kable-Killers-TV-1.1.0.apk final-release/SHA256SUMS.txt \
+          gh release create v1.1.2 final-release/Kable-Killers-TV-1.1.2.apk final-release/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Kable Killers TV 1.1.0" \
+            --title "Kable Killers TV 1.1.2" \
             --notes "First stable Kable Killers TV release for Fire TV and Android TV. Includes branded animated intro, Advanced cache controls, lighter trailer previews, nonblocking diagnostics startup, and bounded background image refreshes. P2P defaults and disclosure are preserved."
 
       - name: Remove signing material
