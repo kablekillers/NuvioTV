@@ -1,3 +1,4 @@
+import { verifyOwnerAccess } from "./owner_auth.js";
 // Minimal public activation API. Owner approval is deliberately unavailable
 // until an MFA-protected admin identity and authorization layer is implemented.
 const encoder = new TextEncoder();
@@ -12,6 +13,19 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") return reply({ status: "ok" });
     // Fail closed: public activation routes remain disabled until owner MFA,\n    // request throttling, credential issuance and revocation are implemented.\n    if (env.ACTIVATION_API_ENABLED !== "true")\n      return reply({ error: "Activation service is not enabled" }, 503);\n    if (!env.DB) return reply({ error: "Database unavailable" }, 503);
+    if (url.pathname === "/v1/admin/activations/approve" && request.method === "POST") {
+      const owner = await verifyOwnerAccess(request, env);
+      if (!owner) return reply({ error: "Forbidden" }, 403);
+      let body;
+      try { body = await request.json(); } catch { return reply({ error: "Invalid JSON" }, 400); }
+      if (typeof body?.pairing_code !== "string" || !/^\\d{6}$/.test(body.pairing_code))
+        return reply({ error: "Invalid pairing code" }, 400);
+      const now = Math.floor(Date.now() / 1000);
+      const result = await env.DB.prepare(
+        "UPDATE activation_challenges SET state='approved',approved_at=? WHERE pairing_code=? AND state='pending' AND expires_at>?"
+      ).bind(now, body.pairing_code, now).run();
+      return reply({ approved: result.meta.changes === 1 }, result.meta.changes === 1 ? 200 : 409);
+    }
     if (url.pathname === "/v1/activations" && request.method === "POST") {
       const id = random(24);
       const secret = random(32);
