@@ -10,10 +10,10 @@ export function makeDeviceToken() {
   crypto.getRandomValues(bytes);
   return toHex(bytes);
 }
-export async function issueDeviceCredential(db, { challengeId, challengeSecretHash, householdId, displayName = null, now = Math.floor(Date.now() / 1000) }) {
+export async function issueDeviceCredential(db, { challengeId, challengeSecretHash, displayName = null, now = Math.floor(Date.now() / 1000) }) {
   if (!/^[a-f0-9]{48}$/.test(challengeId) || !/^[a-f0-9]{64}$/.test(challengeSecretHash))
     throw new Error("Invalid activation credentials");
-  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(householdId)) throw new Error("Invalid household ID");
+
   const deviceId = crypto.randomUUID();
   const token = makeDeviceToken();
   const tokenHash = await hashToken(token);
@@ -21,10 +21,10 @@ export async function issueDeviceCredential(db, { challengeId, challengeSecretHa
   // D1 batch executes transactionally; the challenge transition must succeed
   // before a credential is returned. Conditional changes are checked below.
   const results = await db.batch([
-    db.prepare("UPDATE activation_challenges SET state='consumed',consumed_at=?,device_id=? WHERE id=? AND poll_secret_hash=? AND state='approved' AND expires_at>?")
+    db.prepare("UPDATE activation_challenges SET state='consumed',consumed_at=?,device_id=? WHERE id=? AND poll_secret_hash=? AND state='approved' AND expires_at>? AND approved_household_id IS NOT NULL")
       .bind(now, deviceId, challengeId, challengeSecretHash, now),
-    db.prepare("INSERT INTO registered_devices(id,household_id,display_name,created_at) SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM activation_challenges WHERE id=? AND state='consumed' AND device_id=?)")
-      .bind(deviceId, householdId, displayName, now, challengeId, deviceId),
+    db.prepare("INSERT INTO registered_devices(id,household_id,display_name,created_at) SELECT ?,approved_household_id,?,? FROM activation_challenges WHERE id=? AND state='consumed' AND device_id=? AND approved_household_id IS NOT NULL")
+      .bind(deviceId, displayName, now, challengeId, deviceId),
     db.prepare("INSERT INTO device_credentials(device_id,token_hash,issued_at,expires_at) SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM registered_devices WHERE id=?)")
       .bind(deviceId, tokenHash, now, expiresAt, deviceId)
   ]);
