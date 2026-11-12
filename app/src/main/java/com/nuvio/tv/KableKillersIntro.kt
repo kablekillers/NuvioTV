@@ -85,9 +85,9 @@ fun ComponentActivity.playKableKillersIntro() {
         )
     )
 
-    // Wait until the existing app has created its screen.
-    // Then place the intro above everything else.
-    root.post {
+    // Defer the overlay until the Compose content has had time to attach.
+    // Otherwise setContent can place the app surface above the video.
+    root.postDelayed({
         root.addView(
             overlay,
             FrameLayout.LayoutParams(
@@ -97,6 +97,6 @@ fun ComponentActivity.playKableKillersIntro() {
         )
 
         overlay.bringToFront()
-        video.start()
-    }
+        // Playback starts in onPreparedListener once the video is ready.
+    }, 500L)
 }
