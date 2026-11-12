@@ -1,6 +1,8 @@
 package com.nuvio.tv.core.sync
 
 import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import android.util.AtomicFile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -15,7 +17,7 @@ import java.nio.charset.StandardCharsets
  * and gather addons, collections and home catalog settings consistently.
  * No cloud upload, Nuvio RPC, or customer distribution is performed here.
  */
-internal class IndependentMasterSnapshotStore(context: Context) {
+internal class IndependentMasterSnapshotStore @Inject constructor(@ApplicationContext context: Context) {
     private val file = AtomicFile(File(context.filesDir, "kk_master_config_v1.json"))
     private val json = Json { ignoreUnknownKeys = false }
 
