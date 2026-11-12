@@ -11,7 +11,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") return reply({ status: "ok" });
-    if (!env.DB) return reply({ error: "Database unavailable" }, 503);
+    // Fail closed: public activation routes remain disabled until owner MFA,\n    // request throttling, credential issuance and revocation are implemented.\n    if (env.ACTIVATION_API_ENABLED !== "true")\n      return reply({ error: "Activation service is not enabled" }, 503);\n    if (!env.DB) return reply({ error: "Database unavailable" }, 503);
     if (url.pathname === "/v1/activations" && request.method === "POST") {
       const id = random(24);
       const secret = random(32);
