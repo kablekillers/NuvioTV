@@ -20,3 +20,12 @@ CREATE TABLE IF NOT EXISTS registered_devices (
   revoked_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_devices_household ON registered_devices(household_id);
+
+CREATE TABLE IF NOT EXISTS device_credentials (
+  device_id TEXT PRIMARY KEY REFERENCES registered_devices(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  issued_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_device_token_hash ON device_credentials(token_hash);
