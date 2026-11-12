@@ -1546,11 +1546,12 @@ private fun LegacySidebarScaffold(
                                     }
                                 }
                             } else {
-                                Text(
-                                    text = stringResource(R.string.app_name).uppercase(),
-                                    color = NuvioTheme.colors.Primary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.fillMaxWidth()
+                                Image(
+                                    painter = painterResource(id = R.mipmap.ic_launcher),
+                                    contentDescription = stringResource(R.string.app_name),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(64.dp)
                                 )
                             }
                         }
