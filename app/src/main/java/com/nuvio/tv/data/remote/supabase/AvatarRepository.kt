@@ -96,7 +96,7 @@ class AvatarRepository @Inject constructor(
     }
 
     private suspend fun getStandardAvatarCatalog(): List<AvatarCatalogItem> {
-        cachedStandardCatalog?.let { return it }
+        cachedStandardCatalog?.takeIf { it.isNotEmpty() }?.let { return it }
         return fetchStandardAvatarCatalog()
     }
 
@@ -104,7 +104,7 @@ class AvatarRepository @Inject constructor(
         val response = postgrest.rpc("get_avatar_catalog")
         val remote = response.decodeList<SupabaseAvatarCatalogItem>()
         standardMetadata = remote
-        standardCatalogLoaded = true
+        standardCatalogLoaded = remote.isNotEmpty()
         val catalog = remote.map(::toStandardCatalogItem)
         cachedStandardCatalog = catalog
         lastStandardRefreshAtMs = SystemClock.elapsedRealtime()
