@@ -1546,11 +1546,11 @@ private fun LegacySidebarScaffold(
                                     }
                                 }
                             } else {
-                                BrandWordmark(
-                                    contentDescription = stringResource(R.string.app_name),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(42.dp)
+                                Text(
+                                    text = stringResource(R.string.app_name).uppercase(),
+                                    color = NuvioTheme.colors.Primary,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }

@@ -33,7 +33,7 @@ fun StartupSplashScreen(
             painter = painterResource(id = R.mipmap.banner),
             contentDescription = "Kable Killers TV",
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Fit
         )
 
         Box(
