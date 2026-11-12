@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS activation_challenges (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   approved_at INTEGER,
+  approved_household_id TEXT,
   consumed_at INTEGER,
   device_id TEXT
 );
