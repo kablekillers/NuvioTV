@@ -348,14 +348,28 @@ private fun AvatarGridItem(
                 .fillMaxSize()
                 .clip(CircleShape)
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
+            val context = LocalContext.current
+            val request = remember(context, avatar.imageUrl) {
+                ImageRequest.Builder(context)
                     .data(avatar.imageUrl)
                     .crossfade(true)
-                    .build(),
+                    .build()
+            }
+            AsyncImage(
+                model = request,
                 contentDescription = avatar.displayName,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                onError = { state ->
+                    android.util.Log.e(
+                        "AvatarImage",
+                        "Failed to load avatar id=${avatar.id}, url=${avatar.imageUrl.substringBefore('?')}",
+                        state.result.throwable
+                    )
+                },
+                onSuccess = {
+                    android.util.Log.d("AvatarImage", "Loaded avatar id=${avatar.id}")
+                }
             )
         }
     }
