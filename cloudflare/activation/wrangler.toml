@@ -1,0 +1,11 @@
+name = "kable-killers-activation"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kable-killers-activation"
+database_id = "REPLACE_WITH_YOUR_PRIVATE_D1_DATABASE_ID"
+
+[vars]
+ALLOWED_ORIGIN = "https://kablekillers.github.io"
