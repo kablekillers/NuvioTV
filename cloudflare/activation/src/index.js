@@ -1,4 +1,5 @@
 import { verifyOwnerAccess } from "./owner_auth.js";
+import { revokeDevice } from "./device_credentials.js";
 // Minimal public activation API. Owner approval is deliberately unavailable
 // until an MFA-protected admin identity and authorization layer is implemented.
 const encoder = new TextEncoder();
@@ -12,13 +13,41 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") return reply({ status: "ok" });
-    // Fail closed: public activation routes remain disabled until owner MFA,\n    // request throttling, credential issuance and revocation are implemented.\n    if (env.ACTIVATION_API_ENABLED !== "true")\n      return reply({ error: "Activation service is not enabled" }, 503);\n    if (!env.DB) return reply({ error: "Database unavailable" }, 503);
+    // Fail closed until owner MFA, rate limits and revocation are tested.
+    if (env.ACTIVATION_API_ENABLED !== "true")\n      return reply({ error: "Activation service is not enabled" }, 503);\n    if (!env.DB) return reply({ error: "Database unavailable" }, 503);
+    if (url.pathname === "/v1/admin/activations/pending" && request.method === "GET") {
+      const owner = await verifyOwnerAccess(request, env);
+      if (!owner) return reply({ error: "Forbidden" }, 403);
+      const now = Math.floor(Date.now() / 1000);
+      const rows = await env.DB.prepare(
+        "SELECT id,pairing_code,created_at,expires_at FROM activation_challenges WHERE state='pending' AND expires_at>? ORDER BY created_at DESC LIMIT 100"
+      ).bind(now).all();
+      return reply({ activations: rows.results || [] });
+    }
+    if (url.pathname === "/v1/admin/devices" && request.method === "GET") {
+      const owner = await verifyOwnerAccess(request, env);
+      if (!owner) return reply({ error: "Forbidden" }, 403);
+      const rows = await env.DB.prepare(
+        "SELECT id,household_id,display_name,created_at,last_seen_at,revoked_at FROM registered_devices ORDER BY created_at DESC LIMIT 100"
+      ).all();
+      return reply({ devices: rows.results || [] });
+    }
+    if (url.pathname === "/v1/admin/devices/revoke" && request.method === "POST") {
+      const owner = await verifyOwnerAccess(request, env);
+      if (!owner) return reply({ error: "Forbidden" }, 403);
+      let body;
+      try { body = await request.json(); } catch { return reply({ error: "Invalid JSON" }, 400); }
+      if (typeof body?.device_id !== "string" || !/^[0-9a-f-]{36}$/.test(body.device_id))
+        return reply({ error: "Invalid device ID" }, 400);
+      const revoked = await revokeDevice(env.DB, body.device_id);
+      return reply({ revoked }, revoked ? 200 : 404);
+    }
     if (url.pathname === "/v1/admin/activations/approve" && request.method === "POST") {
       const owner = await verifyOwnerAccess(request, env);
       if (!owner) return reply({ error: "Forbidden" }, 403);
       let body;
       try { body = await request.json(); } catch { return reply({ error: "Invalid JSON" }, 400); }
-      if (typeof body?.pairing_code !== "string" || !/^\\d{6}$/.test(body.pairing_code))
+      if (typeof body?.pairing_code !== "string" || !/^\d{6}$/.test(body.pairing_code))
         return reply({ error: "Invalid pairing code" }, 400);
       const now = Math.floor(Date.now() / 1000);
       const result = await env.DB.prepare(
