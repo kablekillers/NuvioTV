@@ -244,8 +244,14 @@ class AvatarRepository @Inject constructor(
 
     private fun avatarImageUrl(storagePath: String): String {
         if (storagePath.startsWith("http://") || storagePath.startsWith("https://")) return storagePath
-        val baseUrl = serverConfiguration.avatarPublicBaseUrl.orEmpty().trimEnd('/')
-        return if (baseUrl.isNotEmpty()) "$baseUrl/$storagePath" else storagePath
+        val configuredBase = serverConfiguration.avatarPublicBaseUrl.orEmpty().trim().trimEnd('/')
+        // Some official builds omit AVATAR_PUBLIC_BASE_URL. A bare storage path
+        // is interpreted by Coil as a local file, so always resolve it against
+        // the active Supabase server's public avatars bucket.
+        val baseUrl = configuredBase.ifBlank {
+            "${serverConfiguration.backendUrl.trimEnd('/')}/storage/v1/object/public/avatars"
+        }
+        return "$baseUrl/${storagePath.trimStart('/')}"
     }
 
     private suspend fun cacheMemberAvatar(item: SupabaseMemberAvatarCatalogItem): File = withContext(Dispatchers.IO) {
