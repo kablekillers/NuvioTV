@@ -14,7 +14,9 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") return reply({ status: "ok" });
     // Fail closed until owner MFA, rate limits and revocation are tested.
-    if (env.ACTIVATION_API_ENABLED !== "true")\n      return reply({ error: "Activation service is not enabled" }, 503);\n    if (!env.DB) return reply({ error: "Database unavailable" }, 503);
+    if (env.ACTIVATION_API_ENABLED !== "true")
+      return reply({ error: "Activation service is not enabled" }, 503);
+    if (!env.DB) return reply({ error: "Database unavailable" }, 503);
     if (url.pathname === "/v1/admin/activations/pending" && request.method === "GET") {
       const owner = await verifyOwnerAccess(request, env);
       if (!owner) return reply({ error: "Forbidden" }, 403);
