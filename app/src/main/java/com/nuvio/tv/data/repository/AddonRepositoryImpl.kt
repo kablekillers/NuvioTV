@@ -403,7 +403,9 @@ class AddonRepositoryImpl(
 
         val currentCanonical = initialLocalUrls.map { canonicalizeUrl(it) }
         if (finalList != currentCanonical) {
-            preferences.setAddonOrder(finalList)
+            // Remote reconciliation always targets the shared primary add-on
+            // list, even if a household profile is currently selected.
+            preferences.applyPrimaryAddonOrderFromRemote(finalList)
         }
     }
 
