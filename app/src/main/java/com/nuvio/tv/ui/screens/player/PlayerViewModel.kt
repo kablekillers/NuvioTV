@@ -99,6 +99,7 @@ class PlayerViewModel @Inject constructor(
     private val tvRecommendationManager: com.nuvio.tv.core.recommendations.TvRecommendationManager,
     private val serverPlayback: com.nuvio.tv.data.mediaserver.ServerPlayback,
     private val serverStreams: com.nuvio.tv.data.mediaserver.ServerStreams,
+    partyRepository: com.nuvio.tv.core.party.PartyRepository,
     profileManager: com.nuvio.tv.core.profile.ProfileManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -147,11 +148,34 @@ class PlayerViewModel @Inject constructor(
         tvRecommendationManager = tvRecommendationManager,
         serverPlayback = serverPlayback,
         serverStreams = serverStreams,
+        party = partyRepository,
         profileId = savedStateHandle.get<String>("profileId")?.toIntOrNull()
             ?: profileManager.activeProfileId.value,
         savedStateHandle = savedStateHandle,
         scope = viewModelScope
     )
+
+    init {
+        controller.bindParty()
+    }
+
+    val party: com.nuvio.tv.core.party.PartyRepository
+        get() = controller.party
+
+    val canUseParty: Boolean
+        get() = controller.canUseParty
+
+    val partyKey: String
+        get() = controller.partyKey
+
+    fun startParty() = controller.startParty()
+    fun catchUpParty() = controller.catchUpParty()
+
+    val partyMedia: com.nuvio.tv.core.party.PartyMedia
+        get() = controller.currentPartyMedia()
+
+    fun switchParty() = controller.party.publishMedia(controller.currentPartyMedia(), controller.currentPlaybackPositionMs() ?: 0L)
+    fun currentPartyStream() = controller.currentPartyStream()
 
     private val postPlayRecommendationController = PostPlayRecommendationController(
         playbackController = controller,
@@ -262,7 +286,11 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun onEvent(event: PlayerEvent) {
-        controller.onEvent(event)
+        when (event) {
+            PlayerEvent.OnShowPartyPanel -> controller.showPartyPanel()
+            PlayerEvent.OnDismissPartyPanel -> controller.dismissPartyPanel()
+            else -> controller.onEvent(event)
+        }
     }
 
     fun bindExoSubtitleView(subtitleView: androidx.media3.ui.SubtitleView?) {

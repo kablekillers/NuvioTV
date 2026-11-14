@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - kable-killers-branding
+      - nuvio-beta-2026-10-16-test
+      - watch-party-integration-stage
   workflow_dispatch:
 
 permissions:

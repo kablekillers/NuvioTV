@@ -1595,6 +1595,8 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         is PlayerEvent.OnEpisodeStreamSelected -> {
             switchToEpisodeStream(event.stream)
         }
+        PlayerEvent.OnShowPartyPanel -> showPartyPanel()
+        PlayerEvent.OnDismissPartyPanel -> dismissPartyPanel()
         PlayerEvent.OnShowSourcesPanel -> {
             showSourcesPanel()
         }

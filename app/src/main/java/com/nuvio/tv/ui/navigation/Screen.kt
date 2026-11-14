@@ -139,6 +139,9 @@ sealed class Screen(val route: String) {
     data object Discover : Screen("discover")
     data object Library : Screen("library")
     data object Settings : Screen("settings")
+    data object WatchParty : Screen("watch_party?code={code}") {
+        fun createRoute(code: String = ""): String = "watch_party?code=$code"
+    }
     data object Tracking : Screen("trakt")
     data object TmdbSettings : Screen("tmdb_settings")
     data object ThemeSettings : Screen("theme_settings")
