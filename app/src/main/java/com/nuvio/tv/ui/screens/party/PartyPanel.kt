@@ -77,6 +77,11 @@ fun PartyPanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val panelCloseFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        // Transfer focus from the underlying player after the panel enters composition.
+        panelCloseFocusRequester.requestFocusAfterFrames(frames = 3)
+    }
     Box(
         modifier = modifier
             .fillMaxHeight()
@@ -99,6 +104,7 @@ fun PartyPanel(
                     text = stringResource(R.string.action_close),
                     onClick = onClose,
                     isPrimary = false,
+                    modifier = Modifier.focusRequester(panelCloseFocusRequester),
                 )
             }
             Spacer(modifier = Modifier.height(NuvioTheme.spacing.lg))
