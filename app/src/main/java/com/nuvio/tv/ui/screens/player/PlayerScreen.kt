@@ -2460,13 +2460,12 @@ private fun PlayerControlsOverlay(
 
                     if (onShowPartyPanel != null) {
                         ControlButton(
-                            icon = Icons.Default.Group,
+                            icon = Icons.AutoMirrored.Filled.List,
                             contentDescription = stringResource(R.string.party_title),
                             onClick = onShowPartyPanel,
                             upFocusRequester = progressUpTarget,
                             onDownKey = onHideControls,
-                            onFocused = onResetHideTimer,
-                            contentColor = if (partyActive) NuvioTheme.colors.Secondary else Color.White
+                            onFocused = onResetHideTimer
                         )
                     }
 
