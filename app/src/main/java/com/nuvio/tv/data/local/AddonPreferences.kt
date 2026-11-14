@@ -169,6 +169,19 @@ class AddonPreferences @Inject constructor(
         return changed
     }
 
+    /**
+     * Cloud add-on state belongs to the shared primary profile even when a
+     * household profile is active. Unlike the user-facing setter, remote
+     * synchronization must be able to update inherited state.
+     */
+    suspend fun applyPrimaryAddonEnabledStatesFromRemote(states: Map<String, Boolean>) {
+        store(1).edit { preferences ->
+            preferences[addonEnabledStatesKey] = gson.toJson(
+                states.mapKeys { (url, _) -> canonicalizeUrl(url) }
+            )
+        }
+    }
+
     suspend fun setAddonEnabledStates(states: Map<String, Boolean>) {
         val active = profileManager.activeProfile
         if (active != null && !active.isPrimary && active.usesPrimaryAddons) return
