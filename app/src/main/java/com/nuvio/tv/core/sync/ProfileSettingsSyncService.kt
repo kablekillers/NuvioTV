@@ -295,13 +295,9 @@ class ProfileSettingsSyncService @Inject constructor(
                         signature = buildSettingsSignature(targetFeatures)
                     )
                     if (copyProviderCredentials) {
-                        if (authManager.isAuthenticated) {
-                            if (profileManager.activeProfileId.value == targetProfileId) {
-                                providerCredentialSyncService.syncFromRemote(targetProfileId).getOrThrow()
-                            }
-                        } else {
-                            copyProviderCredentialsLocally(sourceProfileId, targetProfileId)
-                        }
+                        // Household profile IDs are local and reused across customer
+                        // devices. Never fetch credentials for those IDs from cloud.
+                        copyProviderCredentialsLocally(sourceProfileId, targetProfileId)
                     }
                     Log.d(TAG, "Copied profile setup from $sourceProfileId to $targetProfileId")
                     Result.success(Unit)
