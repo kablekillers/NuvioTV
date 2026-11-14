@@ -243,6 +243,8 @@ class AddonPreferences @Inject constructor(
     }
 
     suspend fun setUserSetNames(names: Map<String, String>) {
+        val active = profileManager.activeProfile
+        if (active != null && !active.isPrimary && active.usesPrimaryAddons) return
         store().edit { preferences ->
             preferences[userSetNamesKey] = gson.toJson(
                 names.mapKeys { (url, _) -> canonicalizeUrl(url) }
