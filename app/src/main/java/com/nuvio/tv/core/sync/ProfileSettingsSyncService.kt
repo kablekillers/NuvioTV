@@ -281,65 +281,12 @@ class ProfileSettingsSyncService @Inject constructor(
                     // Household profiles are device-local. Never copy their settings
                     // through Supabase profile IDs shared by all customer devices.
                     // Clone the local primary profile instead.
-                    val targetFeatures = if (sourceProfileId == 1 && targetProfileId != 1) {
-                        exportSettingsBlob(1)["features"]?.jsonObject
-                            ?: error("Primary TV settings are unavailable")
-                    } else if (authManager.isAuthenticated) {
-                        if (
-                            copyProviderCredentials &&
-                            profileManager.activeProfileId.value in setOf(sourceProfileId, targetProfileId)
-                        ) {
-                            providerCredentialSyncService.syncFromRemote().getOrThrow()
-                        }
-                        val sourceBlob = if (sourceProfileId == profileManager.activeProfileId.value) {
-                            exportSettingsBlob(sourceProfileId).also { blob ->
-                                pushProfileToRemote(sourceProfileId, blob)
-                            }
-                        } else {
-                            pullProfileFromRemote(sourceProfileId)
-                                ?: exportSettingsBlob(sourceProfileId).also { blob ->
-                                    pushProfileToRemote(sourceProfileId, blob)
-                                }
-                        }
-                        require(sourceBlob["features"] is JsonObject)
-
-                        val params = buildJsonObject {
-                            put("p_source_profile_id", sourceProfileId)
-                            put("p_target_profile_id", targetProfileId)
-                            put("p_copy_tv", true)
-                            put("p_copy_mobile", false)
-                            put("p_copy_desktop", false)
-                            put("p_copy_provider_credentials", copyProviderCredentials)
-                            put("p_replace_provider_credentials", false)
-                            putSyncOriginClientId(syncClientIdentity)
-                        }
-                        val response = withJwtRefreshRetry {
-                            postgrest.rpc("sync_copy_profile_setup", params)
-                        }
-                        val copyResult = response.decodeList<SupabaseProfileSetupCopyResult>().firstOrNull()
-                            ?: error("Profile settings copy returned no result")
-                        check(copyResult.sourceProfileId == sourceProfileId)
-                        check(copyResult.targetProfileId == targetProfileId)
-                        check(copyResult.tvStatus == "copied" || copyResult.tvStatus == "unchanged")
-                        if (copyProviderCredentials) {
-                            check(
-                                copyResult.providerCredentialsStatus in setOf(
-                                    "copied",
-                                    "copied_partial",
-                                    "kept_existing",
-                                    "unchanged",
-                                    "source_missing"
-                                )
-                            )
-                        }
-                        pullProfileFromRemote(targetProfileId)
-                            ?.get("features")
-                            ?.jsonObject
-                            ?: error("Copied TV settings are unavailable")
-                    } else {
-                        exportSettingsBlob(sourceProfileId)["features"]?.jsonObject
-                            ?: error("Source TV settings are unavailable")
-                    }
+                    // Household IDs are reused on different customer devices.
+                    // Never run a server-side copy or remote read/write for them.
+                    require(targetProfileId != 1) { "Primary profile cannot be overwritten by a household copy" }
+                    require(sourceProfileId == 1) { "Household setup must inherit the primary profile" }
+                    val targetFeatures = exportSettingsBlob(1)["features"]?.jsonObject
+                        ?: error("Primary TV settings are unavailable")
 
                     applySettingsBlob(
                         profileId = targetProfileId,
