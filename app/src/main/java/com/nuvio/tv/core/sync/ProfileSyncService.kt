@@ -103,9 +103,40 @@ class ProfileSyncService @Inject constructor(
         }
     }
 
-    // Do not import profiles from the shared master account onto other devices.
+    // All customers use the same account, but their household profiles must
+    // remain local. Only refresh the master profile's display identity.
+    // Never replace the local list with the server's profile list.
     suspend fun pullFromRemote(force: Boolean = false): Result<List<UserProfile>> =
-        Result.success(profileManager.profiles.value)
+        withContext(Dispatchers.IO) {
+            pullMutex.withLock {
+                try {
+                    val remote = withJwtRefreshRetry {
+                        postgrest.rpc("sync_pull_profiles")
+                    }.decodeList<SupabaseProfile>()
+                    val primary = remote.firstOrNull { it.profileIndex == 1 }
+                    if (primary != null && primary.name.isNotBlank()) {
+                        val current = profileManager.profiles.value.firstOrNull { it.id == 1 }
+                        if (current != null) {
+                            profileDataStore.upsertProfile(
+                                current.copy(
+                                    name = primary.name,
+                                    avatarColorHex = primary.avatarColorHex,
+                                    avatarId = primary.avatarId,
+                                    avatarUrl = primary.avatarUrl,
+                                    profileBackgroundId = primary.profileBackgroundId,
+                                    profileBackgroundUrl = primary.profileBackgroundUrl
+                                )
+                            )
+                            Log.d(TAG, "Restored master profile display identity only")
+                        }
+                    }
+                    Result.success(profileManager.profiles.value)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Could not refresh master profile identity; keeping local profiles", e)
+                    Result.failure(e)
+                }
+            }
+        }
 
     private suspend fun legacyPullFromRemoteDisabled(force: Boolean = false): Result<List<UserProfile>> = withContext(Dispatchers.IO) {
         pullMutex.withLock {
