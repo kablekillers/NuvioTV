@@ -183,7 +183,11 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[hasChosenKey] ?: false
     }
 
-    val heroCatalogSelections: Flow<List<String>> = profileFlow { prefs ->
+    val heroCatalogSelections: Flow<List<String>> = combine(profileManager.activeProfileId, profileManager.profiles) { pid, profiles ->
+        val profile = profiles.find { it.id == pid }
+        if (profile != null && !profile.isPrimary && profile.usesPrimaryAddons) 1 else pid
+    }.distinctUntilChanged().flatMapLatest { effectivePid ->
+        factory.get(effectivePid, FEATURE).data.map { prefs ->
         val multiSelection = parseCatalogKeys(prefs.getStringOrMigrateSet(heroCatalogKeysKey))
         if (multiSelection.isNotEmpty()) {
             multiSelection
@@ -193,6 +197,7 @@ class LayoutPreferenceDataStore @Inject constructor(
                 ?.takeIf { it.isNotEmpty() }
                 ?.let(::listOf)
                 .orEmpty()
+        }
         }
     }
 
@@ -524,7 +529,7 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     suspend fun setHeroCatalogKeys(catalogKeys: List<String>) {
         val normalizedKeys = normalizeCatalogOrderKeys(catalogKeys)
-        store().edit { prefs ->
+        store(1).edit { prefs ->
             if (normalizedKeys.isEmpty()) {
                 prefs.remove(heroCatalogKeysKey)
                 prefs.remove(heroCatalogKey)
