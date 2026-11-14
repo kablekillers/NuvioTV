@@ -66,7 +66,6 @@ import com.nuvio.tv.ui.screens.settings.SettingsDetailHeader
 import com.nuvio.tv.ui.screens.settings.SettingsGroupCard
 import com.nuvio.tv.ui.screens.settings.SettingsStandaloneScaffold
 import com.nuvio.tv.ui.screens.settings.SettingsVerticalScrollIndicators
-import com.nuvio.tv.ui.screens.settings.settingsHeaderInset
 import com.nuvio.tv.ui.screens.stream.StreamBackdrop
 import com.nuvio.tv.ui.theme.NuvioMotion
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -144,7 +143,7 @@ fun PartyScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(start = settingsHeaderInset()),
+                    .padding(start = 0.dp),
             ) { target ->
                 when (target) {
                     PartyScreenMode.Join -> JoinContent(
