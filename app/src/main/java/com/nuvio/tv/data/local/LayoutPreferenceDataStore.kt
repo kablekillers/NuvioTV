@@ -541,7 +541,7 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     suspend fun setHomeCatalogOrderKeys(keys: List<String>) {
         val normalizedKeys = normalizeCatalogOrderKeys(keys)
-        store().edit { prefs ->
+        store(1).edit { prefs ->
             if (normalizedKeys.isEmpty()) {
                 prefs.remove(homeCatalogOrderKeysKey)
             } else {
@@ -552,7 +552,7 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     suspend fun setDisabledHomeCatalogKeys(keys: List<String>) {
         val normalizedKeys = normalizeCatalogOrderKeys(keys)
-        store().edit { prefs ->
+        store(1).edit { prefs ->
             if (normalizedKeys.isEmpty()) {
                 prefs.remove(disabledHomeCatalogKeysKey)
             } else {
@@ -879,7 +879,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     suspend fun setCustomCatalogTitles(titles: Map<String, String>) {
-        store().edit { prefs ->
+        store(1).edit { prefs ->
             val filtered = titles.filterValues { it.isNotBlank() }
             if (filtered.isEmpty()) {
                 prefs.remove(customCatalogTitlesKey)
