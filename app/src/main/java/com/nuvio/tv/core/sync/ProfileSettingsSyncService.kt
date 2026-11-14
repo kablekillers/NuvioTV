@@ -535,7 +535,13 @@ class ProfileSettingsSyncService @Inject constructor(
                         skipNextPushSignature = null
                         return@collect
                     }
-                    pushCurrentProfileToRemote()
+                    syncMutex.withLock {
+                        try {
+                            pushProfileToRemote(1)
+                        } catch (error: Exception) {
+                            Log.e(TAG, "Failed to push primary profile settings", error)
+                        }
+                    }
                 }
         }
     }
