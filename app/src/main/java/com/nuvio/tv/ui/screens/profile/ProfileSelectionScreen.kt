@@ -1415,9 +1415,6 @@ private fun CreateProfileOverlay(
     var selectedColorHex by remember { mutableStateOf("#1E88E5") }
     var selectedAvatarId by remember { mutableStateOf<String?>(null) }
     var focusedAvatarName by remember { mutableStateOf<String?>(null) }
-    var selectedCopySourceId by remember { mutableStateOf<Int?>(null) }
-    var copyProviderCredentials by remember { mutableStateOf(false) }
-    var showSettingsSourceDialog by remember { mutableStateOf(false) }
     val selectedAvatar = remember(avatarCatalog, selectedAvatarId) {
         avatarCatalog.find { it.id == selectedAvatarId }
     }
@@ -1637,19 +1634,7 @@ private fun CreateProfileOverlay(
         }
     }
 
-    if (false && showSettingsSourceDialog) {
-        ProfileSettingsSourceDialog(
-            profiles = profiles,
-            selectedSourceProfileId = selectedCopySourceId,
-            copyProviderCredentials = copyProviderCredentials,
-            onDismiss = { showSettingsSourceDialog = false },
-            onConfirm = { sourceProfileId, shouldCopyProviderCredentials ->
-                selectedCopySourceId = sourceProfileId
-                copyProviderCredentials = shouldCopyProviderCredentials
-                showSettingsSourceDialog = false
-            }
-        )
-    }
+
 }
 
 private fun isProfileSelectKey(keyCode: Int): Boolean {
