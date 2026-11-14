@@ -52,7 +52,9 @@ class CollectionSyncService @Inject constructor(
      */
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val profileId = profileManager.activeProfileId.value
+            // Collections are shared from Profile 1. Household IDs are local
+            // and must never be used as remote synchronization keys.
+            val profileId = 1
             val json = collectionsDataStore.exportCurrentProfileJson()
 
             val collectionsJsonElement = if (json.isNullOrBlank()) {
@@ -85,7 +87,9 @@ class CollectionSyncService @Inject constructor(
      */
     suspend fun pullFromRemote(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val profileId = profileManager.activeProfileId.value
+            // Collections are shared from Profile 1. Household IDs are local
+            // and must never be used as remote synchronization keys.
+            val profileId = 1
 
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
