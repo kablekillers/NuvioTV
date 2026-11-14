@@ -264,8 +264,15 @@ class AvatarRepository @Inject constructor(
 
     private fun avatarImageUrl(storagePath: String): String {
         if (storagePath.startsWith("http://") || storagePath.startsWith("https://")) return storagePath
-        val baseUrl = serverConfiguration.avatarPublicBaseUrl.orEmpty().trimEnd('/')
-        return if (baseUrl.isNotEmpty()) "$baseUrl/$storagePath" else storagePath
+        // CI/test builds may omit AVATAR_PUBLIC_BASE_URL. Resolve the public
+        // avatars bucket against the configured backend rather than passing a
+        // relative storage path to Coil (which cannot fetch it).
+        val baseUrl = serverConfiguration.avatarPublicBaseUrl
+            ?.trim()
+            ?.trimEnd('/')
+            ?.takeIf { it.isNotEmpty() }
+            ?: "${serverConfiguration.backendUrl.trimEnd('/')}/storage/v1/object/public/avatars"
+        return "$baseUrl/${storagePath.trimStart('/')}"
     }
 
     private suspend fun cacheMemberAvatar(item: SupabaseMemberAvatarCatalogItem): File = withContext(Dispatchers.IO) {
