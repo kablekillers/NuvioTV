@@ -206,8 +206,16 @@ class ProfileSelectionViewModel @Inject constructor(
                         targetProfileId = profile.id,
                         copyProviderCredentials = false
                     )
-                    refreshProfilePinStates()
-                    CreateProfileResult.Created(profile, copyResult)
+                    if (copyResult.isFailure) {
+                        // Never present a half-configured household profile as
+                        // successfully created. The next attempt starts clean.
+                        Log.e("ProfileSelectionVM", "Primary profile inheritance failed", copyResult.exceptionOrNull())
+                        profileManager.deleteProfile(profile.id)
+                        CreateProfileResult.Failed
+                    } else {
+                        refreshProfilePinStates()
+                        CreateProfileResult.Created(profile, copyResult)
+                    }
                 } else {
                     CreateProfileResult.Failed
                 }
