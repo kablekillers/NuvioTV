@@ -320,6 +320,8 @@ fun PlayerScreen(
             dismissStreamInfoOverlay()
         } else if (uiState.showPauseOverlay) {
             viewModel.onEvent(PlayerEvent.OnDismissPauseOverlay)
+        } else if (uiState.showPartyPanel) {
+            viewModel.onEvent(PlayerEvent.OnDismissPartyPanel)
         } else if (uiState.showMoreDialog) {
             focusPlayAfterMoreBack = true
             viewModel.onEvent(PlayerEvent.OnDismissMoreDialog)
@@ -500,10 +502,11 @@ fun PlayerScreen(
         uiState.showAudioOverlay,
         uiState.showSubtitleOverlay,
         uiState.showSpeedDialog,
+        uiState.showPartyPanel,
         shouldConfirmNextEpisodeOnEnd,
         postPlayRecommendationState.isVisible,
     ) {
-        if (shouldConfirmNextEpisodeOnEnd || postPlayRecommendationState.isVisible) return@LaunchedEffect
+        if (shouldConfirmNextEpisodeOnEnd || postPlayRecommendationState.isVisible || uiState.showPartyPanel) return@LaunchedEffect
         if (uiState.error != null) return@LaunchedEffect
         if (uiState.showControls && !uiState.showEpisodesPanel && !uiState.showSourcesPanel &&
             !uiState.showAudioOverlay && !uiState.showSubtitleOverlay &&
