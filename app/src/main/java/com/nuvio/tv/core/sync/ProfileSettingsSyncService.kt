@@ -510,18 +510,15 @@ class ProfileSettingsSyncService @Inject constructor(
 
     private fun observeLocalSettingsChangesAndSync() {
         scope.launch {
-            profileManager.activeProfileId
-                .flatMapLatest { profileId ->
-                    val featureFlows = syncedFeatures.map { feature ->
-                        profileDataStoreFactory.get(profileId, feature).data
-                            .map { prefs ->
-                                "$feature={${buildFeatureSignature(prefs, feature)}}"
-                            }
-                    }
-                    combine(featureFlows) { signatures ->
-                        signatures.joinToString(separator = "||")
-                    }
-                }
+            // Monitor Profile 1 regardless of which household profile is active.
+            // Household settings must never be pushed to the shared cloud account.
+            val featureFlows = syncedFeatures.map { feature ->
+                profileDataStoreFactory.get(1, feature).data
+                    .map { prefs -> "$feature={${buildFeatureSignature(prefs, feature)}}" }
+            }
+            combine(featureFlows) { signatures ->
+                signatures.joinToString(separator = "||")
+            }
                 .distinctUntilChanged()
                 .drop(1)
                 .debounce(SETTINGS_PUSH_DEBOUNCE_MS)
