@@ -951,6 +951,7 @@ private fun SettingsDetailPane(
                 null
             }
         )
+        SettingsCategory.TRACKING -> Unit // External navigation handles this category
         SettingsCategory.DEBUG -> DebugSettingsContent()
     }
 }
