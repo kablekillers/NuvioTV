@@ -587,10 +587,7 @@ fun SettingsScreen(
                                             topBarCoordinates?.let { container ->
                                                 focusedTabBounds = container.localBoundingBoxOf(tabCoordinates, clipBounds = false)
                                             }
-                                        },
-                                        suppressSelectedVisual = railHadFocus
-                                            && focusedTabCategory != null
-                                            && focusedTabCategory != section.category
+                                        }
                                     )
                                 }
                             }
@@ -752,10 +749,7 @@ fun SettingsScreen(
                                     rawIconRes = section.rawIconRes,
                                     isSelected = selectedCategory == section.category,
                                     focusRequester = railFocusRequesters[section.category],
-                                    onClick = { onSectionClick(section) },
-                                    suppressSelectedVisual = railHadFocus
-                                        && focusedTabCategory != null
-                                        && focusedTabCategory != section.category
+                                    onClick = { onSectionClick(section) }
                                 )
                             }
                         }
