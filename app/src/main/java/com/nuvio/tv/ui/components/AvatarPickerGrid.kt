@@ -150,10 +150,12 @@ fun AvatarPickerGrid(
             }
         }
 
+        // A lazy grid needs a bounded viewport inside the profile editor.
+        // wrapContentHeight left the avatar list with unreliable TV layout/focus.
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight()
+                .height(320.dp)
         ) {
             val minCellWidth = 88.dp
             val horizontalSpacing = NuvioTheme.spacing.md
