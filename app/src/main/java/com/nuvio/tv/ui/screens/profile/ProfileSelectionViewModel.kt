@@ -199,13 +199,13 @@ class ProfileSelectionViewModel @Inject constructor(
                 )
                 if (profile != null) {
                     profileSyncService.pushToRemote()
-                    val copyResult = copyFromProfileId?.let { sourceProfileId ->
-                        profileSettingsSyncService.copyProfileSetup(
-                            sourceProfileId = sourceProfileId,
-                            targetProfileId = profile.id,
-                            copyProviderCredentials = copyProviderCredentials
-                        )
-                    }
+                    // Every household profile inherits Profile 1. Do not let
+                    // callers bypass this by omitting the optional UI argument.
+                    val copyResult = profileSettingsSyncService.copyProfileSetup(
+                        sourceProfileId = 1,
+                        targetProfileId = profile.id,
+                        copyProviderCredentials = false
+                    )
                     refreshProfilePinStates()
                     CreateProfileResult.Created(profile, copyResult)
                 } else {
