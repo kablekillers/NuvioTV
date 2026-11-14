@@ -236,6 +236,11 @@ fun ProfileSelectionScreen(
     var suppressOptionsDialogFirstKeyUp by remember { mutableStateOf(true) }
     var profileToDelete by remember { mutableStateOf<UserProfile?>(null) }
     var profileToEdit by remember { mutableStateOf<UserProfile?>(null) }
+    LaunchedEffect(showCreateProfile, profileToEdit) {
+        if ((showCreateProfile || profileToEdit != null) && avatarCatalog.isEmpty()) {
+            viewModel.loadAvatarCatalog()
+        }
+    }
     var settingsCopyTarget by remember { mutableStateOf<UserProfile?>(null) }
     var settingsCopyError by remember { mutableStateOf<String?>(null) }
     var pinOverlayState by remember { mutableStateOf<ProfilePinOverlayState?>(null) }
@@ -250,11 +255,7 @@ fun ProfileSelectionScreen(
     }
     val focusedProfile = profiles.firstOrNull { it.id == focusedProfileId }
     val profileThemes by viewModel.profileThemes.collectAsState()
-    val focusedBrandWordmarkRes = remember(focusedProfileId, profileThemes) {
-        val pid = focusedProfileId ?: return@remember null
-        val theme = profileThemes[pid]
-        theme?.brandWordmarkResource
-    }
+    val focusedBrandWordmarkRes: Int? = null // Always use Kable Killers branding
     val selectProfile: (Int) -> Unit = { profileId ->
         if (!viewModel.isSelectingProfile) {
             onProfileClicked()
