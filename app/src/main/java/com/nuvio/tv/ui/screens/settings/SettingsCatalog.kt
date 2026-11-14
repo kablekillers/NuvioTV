@@ -34,7 +34,7 @@ internal fun visibleSettingsCategories(
         SettingsCategory.ACCOUNT,
         SettingsCategory.PROFILES -> isPrimaryProfile
         SettingsCategory.DEBUG -> isDebugBuild && !isEssentialMode
-        SettingsCategory.WATCH_PARTY -> isWatchPartyAvailable
+        SettingsCategory.WATCH_PARTY -> true // Always show entry; surface server availability inside party UI
         SettingsCategory.EXPERIENCE -> false
         else -> true
     }
