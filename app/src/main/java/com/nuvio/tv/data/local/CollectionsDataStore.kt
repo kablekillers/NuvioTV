@@ -25,6 +25,8 @@ import com.nuvio.tv.domain.model.TraktSortHow
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import java.util.UUID
@@ -48,15 +50,24 @@ class CollectionsDataStore @Inject constructor(
         private const val FEATURE = "collections"
     }
 
-    private fun store(profileId: Int = profileManager.activeProfileId.value) =
+    private fun store(profileId: Int = 1) =
         factory.get(profileId, FEATURE)
+
+    // Collections are controlled by the shared primary profile, not by
+    // device-local household profile IDs.
+    private val collectionProfileId = combine(
+        profileManager.activeProfileId,
+        profileManager.profiles
+    ) { activeId, profiles ->
+        if (activeId == 1 || profiles.any { it.id == activeId }) 1 else activeId
+    }.distinctUntilChanged()
 
     private val gson = Gson()
     private val collectionsKey = stringPreferencesKey("collections_json")
     private fun string(resId: Int, vararg args: Any): String = appContext.getString(resId, *args)
 
     val collections: Flow<List<Collection>> =
-        profileManager.activeProfileId.flatMapLatest { pid ->
+        collectionProfileId.flatMapLatest { pid ->
             factory.get(pid, FEATURE).data.map { prefs ->
                 parseCollections(prefs[collectionsKey])
             }
