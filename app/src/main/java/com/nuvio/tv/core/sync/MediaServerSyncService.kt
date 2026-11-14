@@ -150,7 +150,8 @@ class MediaServerSyncService @Inject constructor(
     }
 
     private fun canSync(profileId: Int): Boolean =
-        authManager.authState.value is AuthState.FullAccount &&
+        profileId == 1 &&
+            authManager.authState.value is AuthState.FullAccount &&
             profileManager.activeProfileId.value == profileId
 
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T =
