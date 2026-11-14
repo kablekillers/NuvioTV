@@ -286,7 +286,11 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun onEvent(event: PlayerEvent) {
-        controller.onEvent(event)
+        when (event) {
+            PlayerEvent.OnShowPartyPanel -> controller.showPartyPanel()
+            PlayerEvent.OnDismissPartyPanel -> controller.dismissPartyPanel()
+            else -> controller.onEvent(event)
+        }
     }
 
     fun bindExoSubtitleView(subtitleView: androidx.media3.ui.SubtitleView?) {
