@@ -237,8 +237,9 @@ class ProfileSettingsSyncService @Inject constructor(
     suspend fun pullCurrentProfileFromRemote(): Result<Boolean> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
             try {
-                val profileId = profileManager.activeProfileId.value
-                if (profileId != 1) return@withLock Result.success(false)
+                // Household profiles inherit Profile 1's remote settings.
+                // Never query the shared server using a device-local household ID.
+                val profileId = 1
                 val inheritedPluginSettingsApplied = pullInheritedPluginSettings(profileId)
                 val blob = pullProfileFromRemote(profileId)
                 lastForegroundPullAtMs = SystemClock.elapsedRealtime()
