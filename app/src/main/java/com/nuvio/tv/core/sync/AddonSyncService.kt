@@ -116,7 +116,7 @@ class AddonSyncService @Inject constructor(
                 enabledMap[canonicalUrl] = addon.enabled
             }
             if (remoteAddons.isNotEmpty()) {
-                addonPreferences.setUserSetNames(nameMap)
+                addonPreferences.applyPrimaryAddonNamesFromRemote(nameMap)
                 addonPreferences.applyPrimaryAddonEnabledStatesFromRemote(enabledMap)
             }
 
