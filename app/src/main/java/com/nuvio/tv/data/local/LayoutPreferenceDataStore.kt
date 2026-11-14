@@ -198,28 +198,28 @@ class LayoutPreferenceDataStore @Inject constructor(
         selections.firstOrNull()
     }
 
-    val homeCatalogOrderKeys: Flow<List<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        val profile = profileManager.profiles.value.find { it.id == pid }
-        val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
-        val effectivePid = if (usePrimary) 1 else pid
+    val homeCatalogOrderKeys: Flow<List<String>> = combine(profileManager.activeProfileId, profileManager.profiles) { pid, profiles ->
+        val profile = profiles.find { it.id == pid }
+        if (profile != null && !profile.isPrimary && profile.usesPrimaryAddons) 1 else pid
+    }.distinctUntilChanged().flatMapLatest { effectivePid ->
         factory.get(effectivePid, FEATURE).data.map { prefs ->
             parseCatalogKeys(prefs.getStringOrMigrateSet(homeCatalogOrderKeysKey))
         }
     }
 
-    val disabledHomeCatalogKeys: Flow<List<String>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        val profile = profileManager.profiles.value.find { it.id == pid }
-        val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
-        val effectivePid = if (usePrimary) 1 else pid
+    val disabledHomeCatalogKeys: Flow<List<String>> = combine(profileManager.activeProfileId, profileManager.profiles) { pid, profiles ->
+        val profile = profiles.find { it.id == pid }
+        if (profile != null && !profile.isPrimary && profile.usesPrimaryAddons) 1 else pid
+    }.distinctUntilChanged().flatMapLatest { effectivePid ->
         factory.get(effectivePid, FEATURE).data.map { prefs ->
             parseCatalogKeys(prefs.getStringOrMigrateSet(disabledHomeCatalogKeysKey))
         }
     }
 
-    val customCatalogTitles: Flow<Map<String, String>> = profileManager.activeProfileId.flatMapLatest { pid ->
-        val profile = profileManager.profiles.value.find { it.id == pid }
-        val usePrimary = profile != null && !profile.isPrimary && profile.usesPrimaryAddons
-        val effectivePid = if (usePrimary) 1 else pid
+    val customCatalogTitles: Flow<Map<String, String>> = combine(profileManager.activeProfileId, profileManager.profiles) { pid, profiles ->
+        val profile = profiles.find { it.id == pid }
+        if (profile != null && !profile.isPrimary && profile.usesPrimaryAddons) 1 else pid
+    }.distinctUntilChanged().flatMapLatest { effectivePid ->
         factory.get(effectivePid, FEATURE).data.map { prefs ->
             parseCustomTitles(prefs.getStringOrMigrateSet(customCatalogTitlesKey))
         }
