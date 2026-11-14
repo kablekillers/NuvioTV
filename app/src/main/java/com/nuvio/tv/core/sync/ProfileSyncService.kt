@@ -64,7 +64,11 @@ class ProfileSyncService @Inject constructor(
         }
     }
 
-    suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
+    // Household profiles are device-local. Never upload the shared account's
+    // profile list: every customer signs in using the same master account.
+    suspend fun pushToRemote(): Result<Unit> = Result.success(Unit)
+
+    private suspend fun legacyPushToRemoteDisabled(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val profiles = profileManager.profiles.value
 
@@ -99,7 +103,11 @@ class ProfileSyncService @Inject constructor(
         }
     }
 
-    suspend fun pullFromRemote(force: Boolean = false): Result<List<UserProfile>> = withContext(Dispatchers.IO) {
+    // Do not import profiles from the shared master account onto other devices.
+    suspend fun pullFromRemote(force: Boolean = false): Result<List<UserProfile>> =
+        Result.success(profileManager.profiles.value)
+
+    private suspend fun legacyPullFromRemoteDisabled(force: Boolean = false): Result<List<UserProfile>> = withContext(Dispatchers.IO) {
         pullMutex.withLock {
             val userId = (authManager.authState.value as? AuthState.FullAccount)?.userId
             val now = SystemClock.elapsedRealtime()
@@ -149,7 +157,10 @@ class ProfileSyncService @Inject constructor(
         }
     }
 
-    suspend fun deleteProfileData(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
+    // Deleting a household profile must not delete another device's data.
+    suspend fun deleteProfileData(profileId: Int): Result<Unit> = Result.success(Unit)
+
+    private suspend fun legacyDeleteProfileDataDisabled(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)
