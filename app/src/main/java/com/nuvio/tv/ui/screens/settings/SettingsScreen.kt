@@ -162,7 +162,7 @@ private fun settingsSectionSpec(category: SettingsCategory): SettingsSectionSpec
     SettingsCategory.CONTENT_DISCOVERY -> SettingsSectionSpec(category, stringResource(R.string.settings_content_discovery), Icons.Default.Explore, destination = SettingsSectionDestination.Inline)
     SettingsCategory.PLAYBACK -> SettingsSectionSpec(category, stringResource(R.string.settings_playback), Icons.Rounded.PlayArrow, destination = SettingsSectionDestination.Inline)
     SettingsCategory.INTEGRATION -> SettingsSectionSpec(category, stringResource(R.string.settings_integration), Icons.Default.Link, destination = SettingsSectionDestination.Inline)
-    SettingsCategory.TRACKING -> SettingsSectionSpec(category, stringResource(R.string.settings_tracking_title), Icons.Default.Sync, destination = SettingsSectionDestination.Inline)
+    SettingsCategory.TRACKING -> SettingsSectionSpec(category, stringResource(R.string.settings_tracking_title), Icons.Default.Sync, destination = SettingsSectionDestination.External)
     SettingsCategory.ADVANCED -> SettingsSectionSpec(category, stringResource(R.string.settings_advanced), Icons.Default.Build, destination = SettingsSectionDestination.Inline)
     SettingsCategory.ABOUT -> SettingsSectionSpec(category, stringResource(R.string.about_title), Icons.Default.Info, destination = SettingsSectionDestination.Inline)
     SettingsCategory.DEBUG -> SettingsSectionSpec(category, stringResource(R.string.settings_debug), Icons.Default.BugReport, destination = SettingsSectionDestination.Inline)
@@ -179,6 +179,7 @@ fun SettingsScreen(
     onNavigateToSupportersContributors: () -> Unit = {},
     onNavigateToLicensesAttributions: () -> Unit = {},
     onNavigateToWatchParty: () -> Unit = {},
+    onNavigateToTracking: () -> Unit = {},
     profileViewModel: ProfileSettingsViewModel = hiltViewModel(),
     experienceModeViewModel: ExperienceModeSettingsViewModel = hiltViewModel(),
     partyViewModel: PartyViewModel = hiltViewModel()
@@ -430,6 +431,7 @@ fun SettingsScreen(
                     allowDetailAutofocus = false
                     when (section.category) {
                         SettingsCategory.ACCOUNT -> onNavigateToAuthQrSignIn()
+                        SettingsCategory.TRACKING -> onNavigateToTracking()
                         else -> Unit
                     }
                 } else {
@@ -945,13 +947,6 @@ private fun SettingsDetailPane(
             onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
             initialFocusRequester = if (allowDetailAutofocus) {
                 contentFocusRequesters[SettingsCategory.ACCOUNT]
-            } else {
-                null
-            }
-        )
-        SettingsCategory.TRACKING -> TrackingSettingsContent(
-            initialFocusRequester = if (allowDetailAutofocus) {
-                contentFocusRequesters[SettingsCategory.TRACKING]
             } else {
                 null
             }
