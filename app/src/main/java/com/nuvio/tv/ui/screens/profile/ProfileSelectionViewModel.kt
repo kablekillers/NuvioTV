@@ -198,7 +198,8 @@ class ProfileSelectionViewModel @Inject constructor(
                     avatarId = avatarId
                 )
                 if (profile != null) {
-                    profileSyncService.pushToRemote()
+                    // Household profiles remain local; never push their identity
+                    // to the shared Nuvio account.
                     // Every household profile inherits Profile 1. Do not let
                     // callers bypass this by omitting the optional UI argument.
                     val copyResult = profileSettingsSyncService.copyProfileSetup(
