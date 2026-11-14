@@ -890,7 +890,9 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     internal suspend fun getHomeCatalogSettingsState(): LocalHomeCatalogSettingsState {
-        return readHomeCatalogSettingsState(store().data.first())
+        // The shared catalog configuration always belongs to Profile 1,
+        // even when a local household profile is currently selected.
+        return readHomeCatalogSettingsState(store(1).data.first())
     }
 
     internal suspend fun exportCatalogSettingsToSyncPayload(
@@ -920,7 +922,7 @@ class LayoutPreferenceDataStore @Inject constructor(
             key to item.customTitle
         }.filterValues { it.isNotBlank() }
 
-        store().edit { prefs ->
+        store(1).edit { prefs ->
             val local = readHomeCatalogSettingsState(prefs)
             val orderKeys = remoteOrderKeys.withLocalServerKeys(local.orderKeys)
             val disabledKeys = remoteDisabledKeys + local.disabledKeys.filter(ServerCatalog::isServerKey)
