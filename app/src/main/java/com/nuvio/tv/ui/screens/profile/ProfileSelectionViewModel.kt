@@ -191,6 +191,7 @@ class ProfileSelectionViewModel @Inject constructor(
         if (_isCreating.value) return
         viewModelScope.launch {
             _isCreating.value = true
+            var createdProfileId: Int? = null
             val result = try {
                 val profile = profileManager.createProfile(
                     name = name,
@@ -198,6 +199,7 @@ class ProfileSelectionViewModel @Inject constructor(
                     avatarId = avatarId
                 )
                 if (profile != null) {
+                    createdProfileId = profile.id
                     // Household profiles remain local; never push their identity
                     // to the shared Nuvio account.
                     // Every household profile inherits Profile 1. Do not let
@@ -212,9 +214,11 @@ class ProfileSelectionViewModel @Inject constructor(
                         // successfully created. The next attempt starts clean.
                         Log.e("ProfileSelectionVM", "Primary profile inheritance failed", copyResult.exceptionOrNull())
                         profileManager.deleteProfile(profile.id)
+                        createdProfileId = null
                         CreateProfileResult.Failed
                     } else {
                         refreshProfilePinStates()
+                        createdProfileId = null
                         CreateProfileResult.Created(profile, copyResult)
                     }
                 } else {
@@ -224,6 +228,13 @@ class ProfileSelectionViewModel @Inject constructor(
                 throw error
             } catch (error: Exception) {
                 Log.e("ProfileSelectionVM", "Failed to create profile", error)
+                createdProfileId?.let { id ->
+                    try {
+                        profileManager.deleteProfile(id)
+                    } catch (cleanupError: Exception) {
+                        Log.e("ProfileSelectionVM", "Failed to clean up incomplete profile $id", cleanupError)
+                    }
+                }
                 CreateProfileResult.Failed
             } finally {
                 _isCreating.value = false
