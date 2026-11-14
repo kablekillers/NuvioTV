@@ -174,9 +174,14 @@ fun PlayerScreen(
     onPlaybackErrorBack: () -> Unit = { onBackPress(null, null, null, false, false) },
     onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?, exitReason: PlayerExitReason?) -> Unit)? = null,
     onPlayRecommendation: (PostPlayRecommendation, manualSelection: Boolean) -> Unit = { _, _ -> },
-    onOpenRecommendationDetails: (PostPlayRecommendation) -> Unit = {}
+    onOpenRecommendationDetails: (PostPlayRecommendation) -> Unit = {},
+    onOpenPartyMedia: (com.nuvio.tv.core.party.PartyMedia) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val partyState by viewModel.party.state.collectAsState()
+    val partyAvailable by viewModel.party.available.collectAsState()
+    val partyCanUse by viewModel.party.canUse.collectAsState()
+    val partyProfile by viewModel.party.profile.collectAsState()
     val postPlayRecommendationState by viewModel.postPlayRecommendationUiState.collectAsState()
     val effectiveAutoplayEnabled by viewModel.effectiveAutoplayEnabled.collectAsState(initial = false)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1338,6 +1343,8 @@ fun PlayerScreen(
                 onSeekTo = { viewModel.onEvent(PlayerEvent.OnSeekTo(it)) },
                 onShowEpisodesPanel = { viewModel.onEvent(PlayerEvent.OnShowEpisodesPanel) },
                 onShowSourcesPanel = { viewModel.onEvent(PlayerEvent.OnShowSourcesPanel) },
+                onShowPartyPanel = if (partyAvailable && viewModel.canUseParty) ({ viewModel.onEvent(PlayerEvent.OnShowPartyPanel) }) else null,
+                partyActive = partyState.party != null,
                 onShowAudioDialog = { viewModel.onEvent(PlayerEvent.OnShowAudioOverlay) },
                 onShowSubtitleDialog = { viewModel.onEvent(PlayerEvent.OnShowSubtitleOverlay) },
                 onShowSpeedDialog = { viewModel.onEvent(PlayerEvent.OnShowSpeedDialog) },
@@ -1522,6 +1529,57 @@ fun PlayerScreen(
                     onAddonFilterSelected = { viewModel.onEvent(PlayerEvent.OnEpisodeAddonFilterSelected(it)) },
                     onEpisodeSelected = { viewModel.onEvent(PlayerEvent.OnEpisodeSelected(it)) },
                     onStreamSelected = { viewModel.onEvent(PlayerEvent.OnEpisodeStreamSelected(it)) },
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = uiState.showPartyPanel && uiState.error == null,
+            enter = fadeIn(animationSpec = tween(120)),
+            exit = fadeOut(animationSpec = tween(120))
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
+        }
+        AnimatedVisibility(
+            visible = uiState.showPartyPanel && uiState.error == null,
+            enter = slideInHorizontally(animationSpec = tween(220), initialOffsetX = { it }),
+            exit = slideOutHorizontally(animationSpec = tween(220), targetOffsetX = { it })
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                com.nuvio.tv.ui.screens.party.PartyPanel(
+                    state = partyState,
+                    profile = partyProfile,
+                    playerMedia = viewModel.partyMedia,
+                    isSupported = partyAvailable,
+                    canStart = partyCanUse,
+                    canShareStream = viewModel.currentPartyStream() != null,
+                    onStart = { viewModel.startParty() },
+                    onSwitchParty = { viewModel.switchParty() },
+                    onWatchWithParty = {
+                        partyState.party?.media?.let { media ->
+                            viewModel.onEvent(PlayerEvent.OnDismissPartyPanel)
+                            viewModel.stopAndRelease()
+                            onOpenPartyMedia(media)
+                        }
+                    },
+                    onLeave = {
+                        viewModel.onEvent(PlayerEvent.OnDismissPartyPanel)
+                        viewModel.party.leave()
+                    },
+                    onEnd = {
+                        viewModel.onEvent(PlayerEvent.OnDismissPartyPanel)
+                        viewModel.party.end()
+                    },
+                    onRemove = { member -> viewModel.party.removeMember(member.id) },
+                    onHostOnlyChange = { enabled -> viewModel.party.setHostOnly(enabled) },
+                    onSharingChange = { enabled -> viewModel.party.setSharing(enabled) },
+                    behindMs = if (uiState.partyBehind) uiState.partyBehindMs ?: 0L else null,
+                    onCatchUp = {
+                        viewModel.catchUpParty()
+                        viewModel.onEvent(PlayerEvent.OnDismissPartyPanel)
+                    },
+                    onClose = { viewModel.onEvent(PlayerEvent.OnDismissPartyPanel) },
                     modifier = Modifier.align(Alignment.CenterEnd)
                 )
             }
@@ -2156,6 +2214,8 @@ private fun PlayerControlsOverlay(
     onSeekTo: (Long) -> Unit,
     onShowEpisodesPanel: () -> Unit,
     onShowSourcesPanel: () -> Unit,
+    onShowPartyPanel: (() -> Unit)?,
+    partyActive: Boolean,
     onShowAudioDialog: () -> Unit,
     onShowSubtitleDialog: () -> Unit,
     onShowSpeedDialog: () -> Unit,
@@ -2397,6 +2457,18 @@ private fun PlayerControlsOverlay(
                         onDownKey = onHideControls,
                         onFocused = onResetHideTimer
                     )
+
+                    if (onShowPartyPanel != null) {
+                        ControlButton(
+                            icon = Icons.Default.Group,
+                            contentDescription = stringResource(R.string.party_title),
+                            onClick = onShowPartyPanel,
+                            upFocusRequester = progressUpTarget,
+                            onDownKey = onHideControls,
+                            onFocused = onResetHideTimer,
+                            contentColor = if (partyActive) NuvioTheme.colors.Secondary else Color.White
+                        )
+                    }
 
                     ControlButton(
                         icon = Icons.Default.SwapHoriz,
