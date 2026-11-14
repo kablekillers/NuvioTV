@@ -1496,8 +1496,8 @@ private fun CreateProfileOverlay(
                                 profileName,
                                 selectedColorHex,
                                 selectedAvatarId,
-                                selectedCopySourceId,
-                                copyProviderCredentials
+                                1,
+                                false
                             )
                         }
                     )
@@ -1550,20 +1550,12 @@ private fun CreateProfileOverlay(
                         focusRequester = nameFocusRequester
                     )
 
-                    val selectedCopySource = profiles.firstOrNull { it.id == selectedCopySourceId }
-                    OverlayButton(
-                        text = if (selectedCopySource == null) {
-                            stringResource(R.string.profile_copy_settings_create_fresh)
-                        } else {
-                            stringResource(
-                                R.string.profile_copy_settings_create_source,
-                                selectedCopySource.name
-                            )
-                        },
-                        isPrimary = false,
+                    Text(
+                        text = "Automatically inherits the Kable Killers primary profile",
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isCreating,
-                        onClick = { showSettingsSourceDialog = true }
+                        color = NuvioTheme.colors.TextSecondary,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
                     )
 
                 }
@@ -1645,7 +1637,7 @@ private fun CreateProfileOverlay(
         }
     }
 
-    if (showSettingsSourceDialog) {
+    if (false && showSettingsSourceDialog) {
         ProfileSettingsSourceDialog(
             profiles = profiles,
             selectedSourceProfileId = selectedCopySourceId,
