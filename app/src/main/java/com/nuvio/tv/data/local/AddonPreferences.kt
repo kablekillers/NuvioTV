@@ -218,6 +218,14 @@ class AddonPreferences @Inject constructor(
         }
     }
 
+    suspend fun applyPrimaryAddonNamesFromRemote(names: Map<String, String>) {
+        store(1).edit { preferences ->
+            preferences[userSetNamesKey] = gson.toJson(
+                names.mapKeys { (url, _) -> canonicalizeUrl(url) }
+            )
+        }
+    }
+
     suspend fun setUserSetNames(names: Map<String, String>) {
         store().edit { preferences ->
             preferences[userSetNamesKey] = gson.toJson(
