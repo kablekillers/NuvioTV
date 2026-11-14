@@ -362,10 +362,12 @@ class ProfileSettingsSyncService @Inject constructor(
         featuresJson: JsonObject,
         signature: String
     ) {
-        val isActiveProfile = profileManager.activeProfileId.value == profileId
         importSettingsBlob(profileId, featuresJson)
-        if (isActiveProfile) {
-            skipNextPushSignature = signature
+        if (profileId == 1) {
+            // The settings observer always watches Profile 1, including when a
+            // household profile is active. Match its local signature format so
+            // a remote pull is not immediately echoed back as a cloud push.
+            skipNextPushSignature = buildSettingsSignature(1)
         }
     }
 
