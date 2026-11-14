@@ -1343,7 +1343,7 @@ fun PlayerScreen(
                 onSeekTo = { viewModel.onEvent(PlayerEvent.OnSeekTo(it)) },
                 onShowEpisodesPanel = { viewModel.onEvent(PlayerEvent.OnShowEpisodesPanel) },
                 onShowSourcesPanel = { viewModel.onEvent(PlayerEvent.OnShowSourcesPanel) },
-                onShowPartyPanel = if (partyAvailable && viewModel.canUseParty) ({ viewModel.onEvent(PlayerEvent.OnShowPartyPanel) }) else null,
+                onShowPartyPanel = if (viewModel.canUseParty) ({ viewModel.onEvent(PlayerEvent.OnShowPartyPanel) }) else null,
                 partyActive = partyState.party != null,
                 onShowAudioDialog = { viewModel.onEvent(PlayerEvent.OnShowAudioOverlay) },
                 onShowSubtitleDialog = { viewModel.onEvent(PlayerEvent.OnShowSubtitleOverlay) },
