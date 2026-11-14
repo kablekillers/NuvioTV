@@ -117,7 +117,7 @@ class AddonSyncService @Inject constructor(
             }
             if (remoteAddons.isNotEmpty()) {
                 addonPreferences.setUserSetNames(nameMap)
-                addonPreferences.setAddonEnabledStates(enabledMap)
+                addonPreferences.applyPrimaryAddonEnabledStatesFromRemote(enabledMap)
             }
 
             Result.success(
