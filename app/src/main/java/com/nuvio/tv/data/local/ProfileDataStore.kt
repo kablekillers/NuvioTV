@@ -159,8 +159,15 @@ class ProfileDataStore @Inject constructor(
 
     private fun normalizeProfiles(profiles: List<UserProfile>): List<UserProfile> {
         val nonEmpty = profiles.ifEmpty { listOf(defaultPrimaryProfile()) }
-        if (nonEmpty.any { it.id == 1 }) return nonEmpty
-        return listOf(defaultPrimaryProfile()) + nonEmpty
+        // Existing household profiles created before mandatory inheritance
+        // must also use the primary add-ons and plugins. Normalize on read so
+        // older saved profiles inherit without needing to be recreated.
+        val withPrimary = if (nonEmpty.any { it.id == 1 }) nonEmpty
+            else listOf(defaultPrimaryProfile()) + nonEmpty
+        return withPrimary.map { profile ->
+            if (profile.id == 1) profile
+            else profile.copy(usesPrimaryAddons = true, usesPrimaryPlugins = true)
+        }
     }
 
     private fun serializeProfiles(profiles: List<UserProfile>): String {
