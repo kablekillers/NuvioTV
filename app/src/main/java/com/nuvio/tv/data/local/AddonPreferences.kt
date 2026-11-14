@@ -136,6 +136,22 @@ class AddonPreferences @Inject constructor(
         return changed
     }
 
+    suspend fun applyPrimaryAddonOrderFromRemote(urls: List<String>): Boolean {
+        var changed = false
+        store(1).edit { preferences ->
+            val orderedUrls = urls.map(::canonicalizeUrl)
+            val currentUrls = getCurrentList(preferences).map(::canonicalizeUrl)
+            if (orderedUrls == currentUrls) return@edit
+            preferences[orderedUrlsKey] = gson.toJson(orderedUrls)
+            val currentStates = getCurrentEnabledStates(preferences)
+            preferences[addonEnabledStatesKey] = gson.toJson(
+                orderedUrls.associateWith { url -> currentStates[url] ?: true }
+            )
+            changed = true
+        }
+        return changed
+    }
+
     suspend fun setAddonOrder(urls: List<String>): Boolean {
             val active = profileManager.activeProfile
             if (active != null && !active.isPrimary && active.usesPrimaryAddons) return false
