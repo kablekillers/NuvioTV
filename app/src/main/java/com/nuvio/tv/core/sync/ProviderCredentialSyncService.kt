@@ -243,6 +243,9 @@ class ProviderCredentialSyncService @Inject constructor(
     }
 
     private fun currentScope(profileId: Int): ProviderCredentialScope? {
+        // Household profile IDs are reused on different customer devices.
+        // Only Profile 1 may participate in shared-cloud credential sync.
+        if (profileId != 1) return null
         val state = authManager.authState.value as? AuthState.FullAccount ?: return null
         if (profileManager.activeProfileId.value != profileId) return null
         return ProviderCredentialScope(state.userId, profileId)
