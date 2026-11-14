@@ -276,7 +276,13 @@ class ProfileSettingsSyncService @Inject constructor(
                     require(profileManager.profiles.value.any { it.id == sourceProfileId })
                     require(profileManager.profiles.value.any { it.id == targetProfileId })
 
-                    val targetFeatures = if (authManager.isAuthenticated) {
+                    // Household profiles are device-local. Never copy their settings
+                    // through Supabase profile IDs shared by all customer devices.
+                    // Clone the local primary profile instead.
+                    val targetFeatures = if (sourceProfileId == 1 && targetProfileId != 1) {
+                        exportSettingsBlob(1)["features"]?.jsonObject
+                            ?: error("Primary TV settings are unavailable")
+                    } else if (authManager.isAuthenticated) {
                         if (
                             copyProviderCredentials &&
                             profileManager.activeProfileId.value in setOf(sourceProfileId, targetProfileId)
