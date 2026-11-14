@@ -66,7 +66,6 @@ import com.nuvio.tv.ui.screens.settings.SettingsDetailHeader
 import com.nuvio.tv.ui.screens.settings.SettingsGroupCard
 import com.nuvio.tv.ui.screens.settings.SettingsStandaloneScaffold
 import com.nuvio.tv.ui.screens.settings.SettingsVerticalScrollIndicators
-import com.nuvio.tv.ui.screens.stream.StreamBackdrop
 import com.nuvio.tv.ui.theme.NuvioMotion
 import com.nuvio.tv.ui.theme.NuvioTheme
 import kotlinx.coroutines.Job
@@ -118,7 +117,12 @@ fun PartyScreen(
             animationSpec = tween(NuvioMotion.tokens.durations.hero),
             label = "partyBackdrop",
         ) { image ->
-            if (image != null) StreamBackdrop(backdrop = image, isLoading = false)
+            if (image != null) AsyncImage(
+                model = image,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
         }
         SettingsStandaloneScaffold(
             title = stringResource(R.string.party_title),
