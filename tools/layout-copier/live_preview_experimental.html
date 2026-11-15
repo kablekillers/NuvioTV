@@ -15,11 +15,12 @@ const BASE="https://dpyhjjcoabcglfmgecug.supabase.co";
 const $=id=>document.getElementById(id);
 const sessions={src:null,dst:null};
 let generation=0;
+let comparisonGeneration=0;
 const loginGenerations={src:0,dst:0};
 function resetSessions(){generation++;loginGenerations.src++;loginGenerations.dst++;sessions.src=null;sessions.dst=null;invalidate();}
 function logout(){resetSessions();for(const side of ["src","dst"]){$(side+"Password").value="";$(side+"Profile").replaceChildren();}report("Both sessions cleared from this page.");}
 const report=message=>$("report").textContent=message;
-function invalidate(){ $("compare").disabled=true;$("rows").replaceChildren();report("Sign in to two different accounts to preview."); }
+function invalidate(){ comparisonGeneration++;$("compare").disabled=true;$("rows").replaceChildren();report("Sign in to two different accounts to preview."); }
 async function post(path,body,token){
   const key=$("key").value.trim();
   if(!key)throw Error("Publishable key required");
@@ -81,6 +82,7 @@ function key(row){
 }
 async function compare(){
   const requestGeneration=generation;
+  const requestComparison=++comparisonGeneration;
   $("compare").disabled=true;$("rows").replaceChildren();report("Reading layouts...");
   try{
     const platform=$("platform").value;
@@ -88,7 +90,7 @@ async function compare(){
     const pull=async side=>decode(await post("/rest/v1/rpc/sync_pull_home_catalog_settings",
       {p_profile_id:selected(side),p_platform:platform},sessions[side].token));
     const [source,destination]=await Promise.all([pull("src"),pull("dst")]);
-    if(requestGeneration!==generation)return;
+    if(requestGeneration!==generation||requestComparison!==comparisonGeneration)return;
     if(!source.length||!destination.length)throw Error("Empty Home layout; comparison blocked");
     const src=[...source].sort((a,b)=>Number(a.order||0)-Number(b.order));
     const dst=[...destination].sort((a,b)=>Number(a.order||0)-Number(b.order));
@@ -121,7 +123,7 @@ async function compare(){
       li.textContent="DESTINATION ONLY: "+title(row)+" — would remain unchanged";
       $("rows").append(li);
     }
-  }catch(error){if(requestGeneration===generation)report(error.message);}finally{if(requestGeneration===generation)ready();}
+  }catch(error){if(requestGeneration===generation&&requestComparison===comparisonGeneration)report(error.message);}finally{if(requestGeneration===generation&&requestComparison===comparisonGeneration)ready();}
 }
 $("srcLogin").addEventListener("click",()=>signIn("src"));
 $("dstLogin").addEventListener("click",()=>signIn("dst"));
