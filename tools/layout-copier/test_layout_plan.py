@@ -38,5 +38,17 @@ class LayoutPlanTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             plan({"items":[None]},{"items":[]})
 
+    def test_empty_source_blocks_transfer(self):
+        self.assertFalse(plan({"items":[]},{"items":[cat("x")]})["safe_to_apply"])
+    def test_empty_destination_blocks_transfer(self):
+        self.assertFalse(plan({"items":[cat("x")]},{"items":[]})["safe_to_apply"])
+    def test_invalid_destination_only_row_blocks_transfer(self):
+        r=plan({"items":[cat("x")]},{"items":[cat("x"),{"order":1}]})
+        self.assertFalse(r["safe_to_apply"])
+        self.assertTrue(r["invalid_destination"])
+    def test_duplicate_destination_only_rows_block_transfer(self):
+        r=plan({"items":[cat("x")]},{"items":[cat("x"),cat("y"),cat("y")]})
+        self.assertFalse(r["safe_to_apply"])
+        self.assertTrue(r["duplicate_destination"])
 if __name__=="__main__":
     unittest.main()
