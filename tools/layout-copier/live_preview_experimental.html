@@ -8,7 +8,7 @@
 <label>Platform <select id="platform"><option value="tv">TV</option><option value="mobile">Mobile</option></select></label></section>
 <section><h2>1. Source: Kable Killers</h2><label>Email <input id="srcEmail" type="email" autocomplete="off"></label><label>Password <input id="srcPassword" type="password" autocomplete="off"></label><label>Profile <select id="srcProfile"><option value="">Sign in first</option></select></label><button id="srcLogin">Sign in to source</button></section>
 <section><h2>2. Destination: Personal Nuvio</h2><label>Email <input id="dstEmail" type="email" autocomplete="off"></label><label>Password <input id="dstPassword" type="password" autocomplete="off"></label><label>Profile <select id="dstProfile"><option value="">Sign in first</option></select></label><button id="dstLogin">Sign in to destination</button></section>
-<section><h2>3. Read-only comparison</h2><button id="compare" disabled>Read and compare Home layouts</button><pre id="report" aria-live="polite">Sign in to two different accounts to preview.</pre><ol id="rows"></ol><p class="warning">There is intentionally no Copy, Save, or Apply button.</p></section>
+<section><button id="logout" type="button">Clear both sessions</button><h2>3. Read-only comparison</h2><button id="compare" disabled>Read and compare Home layouts</button><pre id="report" aria-live="polite">Sign in to two different accounts to preview.</pre><ol id="rows"></ol><p class="warning">There is intentionally no Copy, Save, or Apply button.</p></section>
 <script>
 "use strict";
 const BASE="https://dpyhjjcoabcglfmgecug.supabase.co";
@@ -17,6 +17,7 @@ const sessions={src:null,dst:null};
 let generation=0;
 const loginGenerations={src:0,dst:0};
 function resetSessions(){generation++;loginGenerations.src++;loginGenerations.dst++;sessions.src=null;sessions.dst=null;invalidate();}
+function logout(){resetSessions();for(const side of ["src","dst"]){$(side+"Password").value="";$(side+"Profile").replaceChildren();}report("Both sessions cleared from this page.");}
 const report=message=>$("report").textContent=message;
 function invalidate(){ $("compare").disabled=true;$("rows").replaceChildren();report("Sign in to two different accounts to preview."); }
 async function post(path,body,token){
@@ -125,6 +126,7 @@ async function compare(){
 $("srcLogin").addEventListener("click",()=>signIn("src"));
 $("dstLogin").addEventListener("click",()=>signIn("dst"));
 $("compare").addEventListener("click",compare);
+$("logout").addEventListener("click",logout);
 for(const id of ["srcProfile","dstProfile"])$(id).addEventListener("change",()=>{generation++;invalidate();ready();});
 $("platform").addEventListener("change",()=>{generation++;invalidate();ready();});
 for(const id of ["key","srcEmail","dstEmail"])$(id).addEventListener("input",resetSessions);
