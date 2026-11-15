@@ -202,38 +202,37 @@ class ProfileSettingsPluginSyncTest {
     }
 
     @Test
-    fun `independent profiles restore their own grouping without altering the primary profile`() = runTest(dispatcher) {
+    fun `household profiles pull only primary cloud settings and do not push their own IDs`() = runTest(dispatcher) {
         val harness = harness(profileId = 2)
         harness.remote[1] = settings(grouping(true))
-        harness.remote[2] = settings(grouping(true))
+        harness.remote[2] = settings(grouping(false))
 
-        harness.service.pullCurrentProfileFromRemote().getOrThrow()
+        assertTrue(harness.service.pullCurrentProfileFromRemote().getOrThrow())
 
-        assertTrue(harness.plugins.groupStreamsByRepository.first())
-        assertEquals(listOf(2), harness.pulls)
-        assertTrue(harness.pluginStore(1).value.asMap().isEmpty())
-        harness.plugins.setGroupStreamsByRepository(false)
+        assertEquals(listOf(1), harness.pulls)
+        assertTrue(harness.pluginStore(1).value[booleanPreferencesKey(PluginDataStore.GROUP_STREAMS_BY_REPOSITORY)] == true)
+        assertTrue(harness.pluginStore(2).value.asMap().isEmpty())
         harness.service.pushCurrentProfileToRemote().getOrThrow()
-        assertEquals(listOf(2), harness.pushes)
-        assertEquals(settings(grouping(true)), harness.remote[1])
+        assertTrue(harness.pushes.isEmpty())
+        assertEquals(settings(grouping(false)), harness.remote[2])
     }
 
     @Test
-    fun `shared profiles restore primary grouping even without their own cloud settings`() = runTest(dispatcher) {
+    fun `shared household profiles inherit primary grouping without cloud household reads`() = runTest(dispatcher) {
         val harness = harness(profileId = 3)
         harness.remote[1] = settings(grouping(true))
 
         assertTrue(harness.service.pullCurrentProfileFromRemote().getOrThrow())
 
         assertTrue(harness.plugins.groupStreamsByRepository.first())
-        assertEquals(listOf(1, 3), harness.pulls)
+        assertEquals(listOf(1), harness.pulls)
         assertTrue(harness.pluginStore(3).value.asMap().isEmpty())
         harness.plugins.setGroupStreamsByRepository(false)
         assertTrue(harness.plugins.groupStreamsByRepository.first())
     }
 
     @Test
-    fun `shared profile settings never overwrite the primary grouping or other primary settings`() = runTest(dispatcher) {
+    fun `household cloud pull does not overwrite household settings or echo a push`() = runTest(dispatcher) {
         val harness = harness(profileId = 3, authenticated = true)
         harness.remote[1] = settings(grouping(true), theme = "cloud primary theme")
         harness.remote[3] = settings(grouping(false))
@@ -247,8 +246,9 @@ class ProfileSettingsPluginSyncTest {
         runCurrent()
 
         assertTrue(harness.plugins.groupStreamsByRepository.first())
-        assertEquals(false, harness.pluginStore(3).value[booleanPreferencesKey(PluginDataStore.GROUP_STREAMS_BY_REPOSITORY)])
-        assertEquals("primary theme", primaryTheme.value[stringPreferencesKey("theme")])
+        assertEquals("cloud primary theme", primaryTheme.value[stringPreferencesKey("theme")])
+        assertTrue(harness.pluginStore(3).value.asMap().isEmpty())
+        assertEquals(listOf(1), harness.pulls)
         assertTrue(harness.pushes.isEmpty())
     }
 
