@@ -63,6 +63,10 @@ assert.equal(JSON.stringify(ctx.resolveProfilesTest([{profile_index:4},{profile_
 assert.throws(()=>ctx.resolveProfilesTest([{profile_index:1},{profile_index:2}]),/Ambiguous/);
 assert.throws(()=>ctx.resolveProfilesTest([{profile_id:1},{profile_id:1}]),/duplicate/i);
 assert.throws(()=>ctx.resolveProfilesTest([{name:"No ID"}]),/identifiers/);
+assert.throws(()=>ctx.resolveProfilesTest([{profile_id:5}]),/identifiers|range/i);
+assert.throws(()=>ctx.resolveProfilesTest([{profile_index:0},{profile_index:0}]),/duplicate/i);
+assert.equal(JSON.stringify(ctx.resolveProfilesTest([{profile_id:2,name:"Child"},{profile_id:"1",name:"Main"}]).map(p=>p.id)),"[2,1]");
+
 
 (async()=>{
  await Promise.all([ctx.loginTest("src"),ctx.loginTest("dst")]);
