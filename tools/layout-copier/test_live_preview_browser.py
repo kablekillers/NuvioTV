@@ -51,7 +51,7 @@ const fetch=async(url,options)=>{
 };
 const ctx=vm.createContext({document,fetch,console,URL,JSON});
 vm.runInContext(SCRIPT,ctx);
-vm.runInContext("globalThis.loginTest=signIn;globalThis.compareTest=compare;",ctx);
+vm.runInContext("globalThis.loginTest=signIn;globalThis.compareTest=compare;globalThis.logoutTest=logout;",ctx);
 (async()=>{
  await Promise.all([ctx.loginTest("src"),ctx.loginTest("dst")]);
  assert.equal(get("compare").disabled,false,"Both logins must work concurrently");
@@ -71,7 +71,13 @@ vm.runInContext("globalThis.loginTest=signIn;globalThis.compareTest=compare;",ct
  assert.match(get("rows").children[1].textContent,/UNMATCHED SOURCE/);
  assert.match(get("rows").children[2].textContent,/DESTINATION ONLY/);
  assert.equal(calls.filter(c=>c.url.includes("sync_push")).length,0);
- console.log("Read-only phone sign-in and preview passed");
+ ctx.logoutTest();
+ assert.equal(get("compare").disabled,true);
+ assert.equal(get("srcProfile").children.length,0);
+ assert.equal(get("dstProfile").children.length,0);
+ assert.match(get("report").textContent,/sessions cleared/);
+ assert.equal(calls.filter(c=>c.url.includes("sync_push")).length,0);
+ console.log("Read-only phone sign-in, preview, and session clearing passed");
 })().catch(e=>{console.error(e);process.exitCode=1});
 '''
         runner=runner.replace("SCRIPT",json.dumps(script),1)
