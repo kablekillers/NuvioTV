@@ -22,10 +22,12 @@ from guarded_apply import apply_with_durable_backup
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--platform",choices=("tv","mobile"),required=True)
-    p.add_argument("--source-profile",type=int,choices=(1,2,3,4),default=1)
-    p.add_argument("--destination-profile",type=int,choices=(1,2,3,4),default=1)
+    p.add_argument("--source-profile",type=int,default=1)
+    p.add_argument("--destination-profile",type=int,default=1)
     p.add_argument("--backup-dir",default="private-backups")
     args=p.parse_args()
+    if args.source_profile <= 0 or args.destination_profile <= 0:
+        p.error("Profile IDs must be positive integers")
     key=os.getenv("NUVIO_ANON_KEY")
     if not key:
         p.error("NUVIO_ANON_KEY publishable key is required")
