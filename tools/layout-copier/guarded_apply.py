@@ -29,11 +29,13 @@ def save_backup_exclusive(path, layout):
     return str(target)
 
 def apply_with_durable_backup(source, destination_adapter, receipt, confirmation,
-                              source_profile, destination_profile, backup_path):
+                              source_profile, destination_profile, backup_path, source_loader=None):
     if confirmation!="COPY HOME LAYOUT":
         raise TransferError("Explicit confirmation required")
     # Check receipt and preview before creating a backup.
     from preview_receipt import preview_receipt, digest
+    if source_loader is not None:
+        source=source_loader()  # Re-read source to detect changes since preview.
     current=destination_adapter.pull()
     fresh=preview_receipt(source,current,destination_adapter.platform,
                           source_profile,destination_profile)
