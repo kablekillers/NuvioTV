@@ -128,17 +128,15 @@ class MediaServerSyncServiceTest {
     }
 
     @Test
-    fun switchingProfilesPullsThatProfilesServers() = runBlocking {
+    fun switchingToHouseholdProfileDoesNotSyncSharedServerIds() = runBlocking {
         remote = listOf(synced("a", server = "s1", token = "shared"))
 
         activeProfileId.value = 6
+        service.syncFromRemote(6).getOrThrow()
 
-        withTimeout(5_000L) {
-            while (repository.uiState.value.connections.isEmpty()) delay(20)
-        }
-        assertEquals(listOf("s1"), repository.uiState.value.connections.map { it.remoteServerId })
-        assertEquals("shared", repository.session("a")?.token)
-        assertTrue(calls.contains("sync_pull_media_servers"))
+        assertTrue(repository.uiState.value.connections.isEmpty())
+        assertTrue(calls.isEmpty())
+        assertEquals(listOf("s1"), remote!!.map { it.remoteServerId })
     }
 
     @Test
