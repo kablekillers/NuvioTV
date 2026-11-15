@@ -54,7 +54,9 @@ assert.equal(shown.length,3);
 assert.equal(shown[1].children[0].children[0].textContent,"1. b");
 assert.equal(shown[2].children[0].children[0].textContent,"2. a");
 assert.equal(shown[1].children[1].textContent,"Visible • moved");
-context.testShowRows([{...row("hidden",0),enabled:false}],[]);
+context.testShowRows([{...row("hidden",0),enabled:false}],[row("hidden",0)]);
+assert.equal(elements.get("rows").children.at(-1).children[1].textContent,"Hidden • visibility changed");
+context.testShowRows([{...row("hidden",0),enabled:false}],[{...row("hidden",0),enabled:false}]);
 assert.equal(elements.get("rows").children.at(-1).children[1].textContent,"Hidden");
 console.log("Mobile preview JS: planner and visible/hidden row rendering passed");
 '''
