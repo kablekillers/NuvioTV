@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from transfer_engine import TransferError
 import apply_live
 
 def row(name, order):
@@ -50,6 +51,33 @@ class LiveCliTests(unittest.TestCase):
         self.assertEqual(len(FakeClient.writes),1)
         self.assertEqual(FakeClient.writes[0][2],"destination")
         self.assertEqual([r["catalog_id"] for r in FakeClient.accounts["source"]["tv"]["items"]],["b","a"])
+
+    def test_source_changed_after_preview_blocks_live_write(self):
+        original=FakeClient.home_layout
+        source_reads=[0]
+        def changing_source(client,jwt,profile,platform):
+            if jwt=="source":
+                source_reads[0]+=1
+                if source_reads[0]==2:
+                    FakeClient.accounts["source"]["tv"]["items"][0]["enabled"]=False
+            return original(client,jwt,profile,platform)
+        with patch.object(FakeClient,"home_layout",changing_source):
+            with self.assertRaises(TransferError):
+                self.run_cli("COPY HOME LAYOUT")
+        self.assertEqual(source_reads[0],2)
+        self.assertEqual(FakeClient.writes,[])
+
+    def test_identical_emails_block_before_password_prompt(self):
+        with patch.object(sys,"argv",["apply_live.py","--platform","tv"]), \\
+             patch.dict(os.environ,{"NUVIO_ANON_KEY":"test"}), \\
+             patch.object(apply_live,"NuvioClient",FakeClient), \\
+             patch("builtins.input",side_effect=["same@example.com","same@example.com"]), \\
+             patch.object(apply_live.getpass,"getpass") as password_prompt, \\
+             patch("sys.stdout",new_callable=io.StringIO):
+            with self.assertRaises(SystemExit):
+                apply_live.main()
+        password_prompt.assert_not_called()
+        self.assertEqual(FakeClient.writes,[])
 
 if __name__ == "__main__":
     unittest.main()
