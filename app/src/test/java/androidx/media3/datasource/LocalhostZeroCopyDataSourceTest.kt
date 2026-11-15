@@ -189,12 +189,9 @@ class LocalhostZeroCopyDataSourceTest {
         val port = serverSocket.localPort
 
         val observedRequest = java.util.concurrent.atomic.AtomicReference<String?>()
-        val responseHeaders = "HTTP/1.1 404 Not Found\r
-" +
-                "Content-Length: 0\r
-" +
-                "\r
-"
+        val crlf = "${13.toChar()}${10.toChar()}"
+        val responseHeaders = "HTTP/1.1 404 Not Found" + crlf +
+                "Content-Length: 0" + crlf + crlf
 
         thread {
             try {
