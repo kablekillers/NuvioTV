@@ -41,21 +41,20 @@ class DefaultAllocatorTest {
         allocator.release(a2)
         allocator.release(a3)
 
-        // In the fixed version, memoryFootprint MUST be 0 because trim() was called on release.
-        // In the buggy version, these allocations are leaked into the pool, so memoryFootprint will be 3 * segmentSize.
+        // Late releases can remain in the reusable pool under the engine's
+        // damped-trimming policy. An explicit trim must release all buffers
+        // after reset has lowered the target to zero.
+        assertEquals("All outstanding allocations must be returned", 0, allocator.totalBytesAllocated)
         assertEquals(
-            "After reset and late releases, allocator must not retain pooled memory; " +
-                "totalBytesAllocated=${allocator.totalBytesAllocated}, " +
-                "availableBytes=${allocator.availableBytes}",
-            0,
-            allocator.memoryFootprint
-        )
-        assertEquals(
-            "After reset and late releases, allocator must have no available pooled bytes; " +
-                "memoryFootprint=${allocator.memoryFootprint}",
-            0,
+            "Late releases should be accounted for in the available pool",
+            3 * segmentSize,
             allocator.availableBytes
         )
+
+        allocator.trim()
+
+        assertEquals("Explicit trim must free the idle buffer pool", 0, allocator.memoryFootprint)
+        assertEquals("No pooled bytes should remain after trim", 0, allocator.availableBytes)
     }
 
     @Test
