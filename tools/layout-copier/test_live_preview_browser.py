@@ -57,6 +57,13 @@ const fetch=async(url,options)=>{
 const ctx=vm.createContext({document,fetch,console,URL,JSON});
 vm.runInContext(SCRIPT,ctx);
 vm.runInContext("globalThis.loginTest=signIn;globalThis.compareTest=compare;globalThis.logoutTest=logout;",ctx);
+vm.runInContext("globalThis.resolveProfilesTest=resolveProfiles;",ctx);
+assert.equal(JSON.stringify(ctx.resolveProfilesTest([{profile_index:0},{profile_index:1}]).map(p=>p.id)),"[1,2]");
+assert.equal(JSON.stringify(ctx.resolveProfilesTest([{profile_index:4},{profile_index:2}]).map(p=>p.id)),"[4,2]");
+assert.throws(()=>ctx.resolveProfilesTest([{profile_index:1},{profile_index:2}]),/Ambiguous/);
+assert.throws(()=>ctx.resolveProfilesTest([{profile_id:1},{profile_id:1}]),/duplicate/i);
+assert.throws(()=>ctx.resolveProfilesTest([{name:"No ID"}]),/identifiers/);
+
 (async()=>{
  await Promise.all([ctx.loginTest("src"),ctx.loginTest("dst")]);
  assert.equal(get("compare").disabled,false,"Both logins must work concurrently");
