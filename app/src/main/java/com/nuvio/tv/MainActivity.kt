@@ -1029,6 +1029,7 @@ open class MainActivity : ComponentActivity() {
                     val rootRoutes = remember(discoverLocation) {
                         buildSet {
                             add(Screen.Home.route)
+                            add(Screen.SportsHub.route)
                             add(Screen.Search.route)
                             add(Screen.Library.route)
                             add(Screen.Settings.route)
@@ -1057,6 +1058,13 @@ open class MainActivity : ComponentActivity() {
                                     route = Screen.Home.route,
                                     label = strNavHome,
                                     icon = Icons.Default.Home
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.SportsHub.route,
+                                    label = "Sports Hub",
+                                    icon = Icons.Default.Explore
                                 )
                             )
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
