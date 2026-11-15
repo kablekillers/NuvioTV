@@ -217,6 +217,10 @@ class LocalhostZeroCopyDataSourceTest {
         every { mockUri.port } returns port
         every { mockUri.path } returns "/stream.mp4"
         every { mockUri.query } returns null
+        // A real HTTP URI is required by the datasource's HTTP error path.
+        // MockK's default toString() is not a usable URL.
+        every { mockUri.scheme } returns "http"
+        every { mockUri.toString() } returns "http://127.0.0.1:$port/stream.mp4"
 
         val dataSource = LocalhostZeroCopyDataSource()
         val dataSpec = DataSpec.Builder()
