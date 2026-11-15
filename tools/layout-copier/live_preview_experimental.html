@@ -32,7 +32,7 @@ async function post(path,body,token){
 }
 function profileNumber(value,allowZero=false){
   const id=typeof value==="number"&&Number.isSafeInteger(value)?value:
-    (typeof value==="string"&&/^\\d+$/.test(value)?Number(value):NaN);
+    (typeof value==="string"&&/^\d+$/.test(value)?Number(value):NaN);
   return Number.isSafeInteger(id)&&(allowZero?id>=0:id>0)?id:null;
 }
 function resolveProfiles(profiles){
