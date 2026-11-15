@@ -19,6 +19,23 @@ from layout_adapter import decode_home_layout
 from preview_receipt import preview_receipt
 from guarded_apply import apply_with_durable_backup
 
+def verify_profile_membership(client, jwt, requested_id):
+    """Fail closed unless the authenticated account lists the requested profile."""
+    profiles=client.profiles(jwt)
+    ids=set()
+    for profile in profiles:
+        if not isinstance(profile,dict):
+            raise ValueError("Unexpected profile entry")
+        value=profile.get("profile_id",profile.get("id"))
+        if type(value) is int and value>0:
+            ids.add(value)
+        elif isinstance(value,str) and value.isdecimal() and int(value)>0:
+            ids.add(int(value))
+        else:
+            raise ValueError("Unrecognized profile identifier")
+    if requested_id not in ids:
+        raise ValueError("Selected profile not found in authenticated account")
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--platform",choices=("tv","mobile"),required=True)
@@ -52,6 +69,11 @@ def main():
         p.error("Could not verify both Nuvio account identities; transfer blocked")
     if source_id==destination_id or src_auth["access_token"]==dst_auth["access_token"]:
         p.error("Both sessions belong to the same account; transfer blocked")
+    try:
+        verify_profile_membership(client,src_auth["access_token"],args.source_profile)
+        verify_profile_membership(client,dst_auth["access_token"],args.destination_profile)
+    except ValueError:
+        p.error("Could not verify selected profiles belong to their accounts; transfer blocked")
     source=decode_home_layout(client.home_layout(
         src_auth["access_token"],args.source_profile,args.platform))
     destination=HomeSettingsAdapter(client,dst_auth["access_token"],
