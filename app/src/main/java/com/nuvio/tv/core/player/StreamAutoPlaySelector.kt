@@ -94,13 +94,11 @@ object StreamAutoPlaySelector {
         }
         if (candidateStreams.isEmpty()) return null
 
-        // Binge group matching takes priority over mode and source filters — even in MANUAL mode,
-        // a persisted binge group should auto-play without showing the picker.
-        // Search ALL streams, not just candidateStreams, since binge group reuse should
-        // not be limited by autoplay source/addon selection filters.
+        // A persisted binge group takes priority over the selection mode, including MANUAL,
+        // but must never bypass the user's source and addon/plugin filters.
         val targetBingeGroup = preferredBingeGroup?.trim().orEmpty()
         if (preferBingeGroupInSelection && targetBingeGroup.isNotEmpty()) {
-            val bingeGroupMatch = streams.firstOrNull { stream ->
+            val bingeGroupMatch = candidateStreams.firstOrNull { stream ->
                 !stream.isExternal() &&
                     stream.behaviorHints?.bingeGroup == targetBingeGroup &&
                     isPlayable(stream)
