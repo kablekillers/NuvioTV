@@ -196,6 +196,13 @@ class LocalhostZeroCopyDataSourceTest {
         thread {
             try {
                 val client = serverSocket.accept()
+                // Consume the request headers before returning the error, just as
+                // the successful loopback test server does.
+                val reader = client.getInputStream().bufferedReader()
+                while (true) {
+                    val line = reader.readLine()
+                    if (line.isNullOrEmpty()) break
+                }
                 val out = client.getOutputStream()
                 out.write(responseHeaders.toByteArray())
                 out.flush()
