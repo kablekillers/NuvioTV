@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>Kable Killers — Read-only Nuvio Preview (experimental)</title>
+<style>:root{color-scheme:dark;font-family:system-ui;background:#080e1c;color:#edf4ff}body{max-width:720px;margin:auto;padding:20px}h1{color:#69baff}section{background:#141e31;border:1px solid #2c4260;border-radius:14px;padding:16px;margin:14px 0}label{display:block;margin:12px 0}input,select{box-sizing:border-box;width:100%;padding:11px;margin-top:5px;background:#0b1424;color:white;border:1px solid #527096;border-radius:8px}button{padding:12px;background:#1478dc;border:0;border-radius:8px;color:white;font-weight:bold}button:disabled{opacity:.4}pre{white-space:pre-wrap;overflow-wrap:anywhere}.warning{color:#ffcc80}li{padding:6px 0;border-bottom:1px solid #2c4260}</style></head><body>
+<h1>⚡ Kable Killers — Read-only Preview</h1>
+<p class="warning">Experimental developer prototype. Do not deploy publicly or enter real passwords until its authentication and browser security have been reviewed. This page has NO write operation.</p>
+<section><label>Nuvio publishable (anon) key <input id="key" type="password" autocomplete="off" spellcheck="false"></label>
+<label>Platform <select id="platform"><option value="tv">TV</option><option value="mobile">Mobile</option></select></label></section>
+<section><h2>1. Source: Kable Killers</h2><label>Email <input id="srcEmail" type="email" autocomplete="off"></label><label>Password <input id="srcPassword" type="password" autocomplete="off"></label><label>Profile <select id="srcProfile"><option value="">Sign in first</option></select></label><button id="srcLogin">Sign in to source</button></section>
+<section><h2>2. Destination: Personal Nuvio</h2><label>Email <input id="dstEmail" type="email" autocomplete="off"></label><label>Password <input id="dstPassword" type="password" autocomplete="off"></label><label>Profile <select id="dstProfile"><option value="">Sign in first</option></select></label><button id="dstLogin">Sign in to destination</button></section>
+<section><h2>3. Read-only comparison</h2><button id="compare" disabled>Read and compare Home layouts</button><pre id="report" aria-live="polite">Sign in to two different accounts to preview.</pre><ol id="rows"></ol><p class="warning">There is intentionally no Copy, Save, or Apply button.</p></section>
+<script>
+"use strict";
+const BASE="https://dpyhjjcoabcglfmgecug.supabase.co";
+const $=id=>document.getElementById(id);
+const sessions={src:null,dst:null};
+const report=message=>$("report").textContent=message;
+function invalidate(){ $("compare").disabled=true;$("rows").replaceChildren();report("Sign in to two different accounts to preview."); }
+async function post(path,body,token){
+  const key=$("key").value.trim();
+  if(!key)throw Error("Publishable key required");
+  const headers={"Content-Type":"application/json","apikey":key};
+  if(token)headers.Authorization="Bearer "+token;
+  const response=await fetch(BASE+path,{method:"POST",headers,body:JSON.stringify(body),cache:"no-store",credentials:"omit",referrerPolicy:"no-referrer"});
+  if(!response.ok)throw Error("Nuvio request failed (HTTP "+response.status+")");
+  return response.json();
+}
+function profileId(item){
+  const value=item.profile_id??item.id;
+  const id=typeof value==="number"?value:(typeof value==="string"&&/^\d+$/.test(value)?Number(value):NaN);
+  if(!Number.isSafeInteger(id)||id<=0)throw Error("Unrecognized Nuvio profile ID");
+  return id;
+}
+function ready(){
+  const a=sessions.src,b=sessions.dst;
+  $("compare").disabled=!(a&&b&&a.userId!==b.userId&&$("srcProfile").value&&$("dstProfile").value);
+}
+async function signIn(side){
+  invalidate();sessions[side]=null;
+  const email=$(side+"Email").value.trim(),password=$(side+"Password").value;
+  try{
+    if(!email||!password)throw Error("Email and password required");
+    const auth=await post("/auth/v1/token?grant_type=password",{email,password});
+    $(side+"Password").value="";
+    const userId=auth.user?.id;
+    if(!userId||!auth.access_token)throw Error("Account identity could not be verified");
+    const profiles=await post("/rest/v1/rpc/sync_pull_profiles",{},auth.access_token);
+    if(!Array.isArray(profiles)||!profiles.length)throw Error("No profiles returned");
+    const select=$(side+"Profile");select.replaceChildren();
+    for(const [index,p] of profiles.entries()){
+      const id=profileId(p),option=document.createElement("option");
+      option.value=String(id);option.textContent=String(p.name||p.profile_name||"Profile "+(index+1));
+      select.append(option);
+    }
+    sessions[side]={token:auth.access_token,userId,profiles:profiles.map(profileId)};
+    if(sessions.src&&sessions.dst&&sessions.src.userId===sessions.dst.userId)
+      throw Error("Both logins belong to the same Nuvio account");
+    report("Signed in to "+side+". Credentials are not saved. Select profiles and compare.");
+    ready();
+  }catch(error){sessions[side]=null;$(side+"Password").value="";report(error.message);}
+}
+function decode(data){
+  const entry=Array.isArray(data)?(data.length===1?data[0]:null):data;
+  let obj=entry?.settings_json??entry;
+  if(typeof obj==="string")obj=JSON.parse(obj);
+  if(!obj||!Array.isArray(obj.items)||!obj.items.every(r=>r&&typeof r==="object"&&!Array.isArray(r)))
+    throw Error("Unrecognized Home layout response");
+  return obj.items;
+}
+function key(row){
+  if(row.is_collection)return row.collection_id?"collection::"+row.collection_id:null;
+  return row.addon_id&&row.catalog_id?"catalog::"+row.addon_id+"::"+(row.type||"")+"::"+row.catalog_id:null;
+}
+async function compare(){
+  $("compare").disabled=true;$("rows").replaceChildren();report("Reading layouts...");
+  try{
+    const platform=$("platform").value;
+    const selected=side=>{const id=Number($(side+"Profile").value);if(!sessions[side]?.profiles.includes(id))throw Error("Profile not verified");return id};
+    const pull=async side=>decode(await post("/rest/v1/rpc/sync_pull_home_catalog_settings",
+      {p_profile_id:selected(side),p_platform:platform},sessions[side].token));
+    const [source,destination]=await Promise.all([pull("src"),pull("dst")]);
+    if(!source.length||!destination.length)throw Error("Empty Home layout; comparison blocked");
+    const src=[...source].sort((a,b)=>Number(a.order||0)-Number(b.order));
+    const dst=[...destination].sort((a,b)=>Number(a.order||0)-Number(b.order));
+    const counts=rows=>{const map=new Map();for(const r of rows){const k=key(r);if(!k)throw Error("Invalid row identifier");map.set(k,(map.get(k)||0)+1);}return map};
+    const sc=counts(src),dc=counts(dst);
+    if([...sc.values(),...dc.values()].some(v=>v!==1))throw Error("Duplicate Home rows; comparison blocked");
+    const dm=new Map(dst.map(r=>[key(r),r]));
+    const missing=src.filter(r=>!dm.has(key(r)));
+    const matches=src.filter(r=>dm.has(key(r)));
+    report("Platform: "+platform+"\nMatched: "+matches.length+"\nMissing or differently identified: "+missing.length+
+      "\nDestination-only: "+(dst.length-matches.length)+"\n\nREAD ONLY — no changes made."+
+      (missing.length?"\nSome collections may have different IDs. Do not transfer until mapping is verified.":""));
+    for(const [i,row] of matches.entries()){
+      const li=document.createElement("li"),old=dm.get(key(row));
+      const title=row.custom_title||row.catalog_id||row.collection_id||"Untitled";
+      li.textContent=(i+1)+". "+title+" — "+(row.enabled===false?"Hidden":"Visible")+
+        (Number(old.order)!==i?" (would move)":"")+
+        (Boolean(old.enabled??true)!==Boolean(row.enabled??true)?" (visibility change)":"");
+      $("rows").append(li);
+    }
+  }catch(error){report(error.message);}finally{ready();}
+}
+$("srcLogin").addEventListener("click",()=>signIn("src"));
+$("dstLogin").addEventListener("click",()=>signIn("dst"));
+$("compare").addEventListener("click",compare);
+for(const id of ["srcProfile","dstProfile"])$(id).addEventListener("change",()=>{invalidate();ready();});
+$("platform").addEventListener("change",()=>{invalidate();ready();});
+for(const id of ["key","srcEmail","dstEmail"])$(id).addEventListener("input",()=>{sessions.src=null;sessions.dst=null;invalidate();});
+</script></body></html>
