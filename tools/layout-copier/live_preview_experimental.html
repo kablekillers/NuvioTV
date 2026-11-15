@@ -30,11 +30,32 @@ async function post(path,body,token){
   if(!response.ok)throw Error("Nuvio request failed (HTTP "+response.status+")");
   return response.json();
 }
-function profileId(item){
-  const value=item.profile_id??item.id;
-  const id=typeof value==="number"?value:(typeof value==="string"&&/^\d+$/.test(value)?Number(value):NaN);
-  if(!Number.isSafeInteger(id)||id<=0)throw Error("Unrecognized Nuvio profile ID");
-  return id;
+function profileNumber(value,allowZero=false){
+  const id=typeof value==="number"&&Number.isSafeInteger(value)?value:
+    (typeof value==="string"&&/^\\d+$/.test(value)?Number(value):NaN);
+  return Number.isSafeInteger(id)&&(allowZero?id>=0:id>0)?id:null;
+}
+function resolveProfiles(profiles){
+  if(!Array.isArray(profiles)||!profiles.length||profiles.length>4||
+     !profiles.every(p=>p&&typeof p==="object"&&!Array.isArray(p)))
+    throw Error("Unrecognized Nuvio profile list");
+  const ids=profiles.map(p=>profileNumber(p.profile_id));
+  let resolved;
+  if(ids.every(id=>id!==null&&id<=4)&&new Set(ids).size===ids.length){
+    resolved=ids;
+  }else{
+    const indexes=profiles.map(p=>profileNumber(p.profile_index,true));
+    if(indexes.some(id=>id===null)||new Set(indexes).size!==indexes.length)
+      throw Error("Missing or duplicate profile identifiers");
+    if(indexes.includes(0))resolved=indexes.map(id=>id+1);
+    else if(indexes.includes(4))resolved=indexes;
+    else throw Error("Ambiguous profile index base; no positional guessing");
+    if(resolved.some(id=>id<1||id>4))throw Error("Profile ID outside supported range");
+  }
+  return profiles.map((profile,index)=>({
+    id:resolved[index],
+    name:String(profile.name||profile.profile_name||"Profile "+(index+1))
+  }));
 }
 function ready(){
   const a=sessions.src,b=sessions.dst;
@@ -54,14 +75,14 @@ async function signIn(side){
     if(!userId||!auth.access_token)throw Error("Account identity could not be verified");
     const profiles=await post("/rest/v1/rpc/sync_pull_profiles",{},auth.access_token);
     if(requestGeneration!==loginGenerations[side])return;
-    if(!Array.isArray(profiles)||!profiles.length)throw Error("No profiles returned");
+    const resolved=resolveProfiles(profiles);
     const select=$(side+"Profile");select.replaceChildren();
-    for(const [index,p] of profiles.entries()){
-      const id=profileId(p),option=document.createElement("option");
-      option.value=String(id);option.textContent=String(p.name||p.profile_name||"Profile "+(index+1));
+    for(const p of resolved){
+      const option=document.createElement("option");
+      option.value=String(p.id);option.textContent=p.name;
       select.append(option);
     }
-    sessions[side]={token:auth.access_token,userId,profiles:profiles.map(profileId)};
+    sessions[side]={token:auth.access_token,userId,profiles:resolved.map(p=>p.id)};
     if(sessions.src&&sessions.dst&&sessions.src.userId===sessions.dst.userId)
       throw Error("Both logins belong to the same Nuvio account");
     report("Signed in to "+side+". Credentials are not saved. Select profiles and compare.");
