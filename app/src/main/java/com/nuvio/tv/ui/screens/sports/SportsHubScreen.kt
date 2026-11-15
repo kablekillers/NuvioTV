@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.sports
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,8 +55,7 @@ fun SportsHubScreen() {
                             RoundedCornerShape(12.dp))
                         .background(if (active) Color(0xFF124B78) else Surface, RoundedCornerShape(12.dp))
                         .onFocusChanged { focused = it.isFocused }
-                        .focusable()
-                        .then(Modifier)
+                        .clickable { selectedLeague = league }
                         .padding(horizontal = 14.dp, vertical = 13.dp)
                 ) {
                     Text(league, color = Color.White, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal)
