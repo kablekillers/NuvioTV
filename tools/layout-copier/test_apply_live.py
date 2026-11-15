@@ -16,7 +16,8 @@ class FakeClient:
     accounts = {}
     def __init__(self, key): self.key = key
     def login(self, email, password):
-        return {"access_token": "source" if email == "source@example.com" else "destination"}
+        return {"access_token": "source" if email == "source@example.com" else "destination",
+                "user":{"id":"source-user" if email == "source@example.com" else "destination-user"}}
     def home_layout(self, jwt, profile, platform):
         return {"settings_json": self.accounts[jwt][platform]}
     def _post(self, path, payload, jwt):
@@ -65,6 +66,28 @@ class LiveCliTests(unittest.TestCase):
             with self.assertRaises(TransferError):
                 self.run_cli("COPY HOME LAYOUT")
         self.assertEqual(source_reads[0],2)
+        self.assertEqual(FakeClient.writes,[])
+
+    def test_different_emails_same_user_id_block_transfer(self):
+        original=FakeClient.login
+        def same_user(client,email,password):
+            result=original(client,email,password)
+            result["user"]["id"]="shared-user"
+            return result
+        with patch.object(FakeClient,"login",same_user):
+            with self.assertRaises(SystemExit):
+                self.run_cli("COPY HOME LAYOUT")
+        self.assertEqual(FakeClient.writes,[])
+
+    def test_missing_account_identity_blocks_transfer(self):
+        original=FakeClient.login
+        def missing_id(client,email,password):
+            result=original(client,email,password)
+            result["user"]={}
+            return result
+        with patch.object(FakeClient,"login",missing_id):
+            with self.assertRaises(SystemExit):
+                self.run_cli("COPY HOME LAYOUT")
         self.assertEqual(FakeClient.writes,[])
 
     def test_identical_emails_block_before_password_prompt(self):
