@@ -19,9 +19,9 @@ class LocalhostZeroCopyDataSourceTest {
         val port = serverSocket.localPort
 
         val expectedData = "Hello, zero-copy socket loopback data pipeline!"
-        val crlf = "${13.toChar()}${10.toChar()}"
-        val responseHeaders = "HTTP/1.1 404 Not Found" + crlf +
-                "Content-Length: 0" + crlf + crlf
+        val responseHeaders = "HTTP/1.1 200 OK" + "${13.toChar()}${10.toChar()}" +
+                "Content-Length: ${expectedData.length}" + "${13.toChar()}${10.toChar()}" +
+                "${13.toChar()}${10.toChar()}"
 
         thread {
             try {
