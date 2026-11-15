@@ -189,7 +189,7 @@ class LocalhostZeroCopyDataSourceTest {
         val serverSocket = ServerSocket(0)
         val port = serverSocket.localPort
 
-        val responseHeaders = "HTTP/1.1 404 Not Found\r\n" +
+        val observedRequest = java.util.concurrent.atomic.AtomicReference<String?>()\n        val responseHeaders = "HTTP/1.1 404 Not Found\r\n" +
                 "Content-Length: 0\r\n" +
                 "\r\n"
 
@@ -198,7 +198,7 @@ class LocalhostZeroCopyDataSourceTest {
                 val client = serverSocket.accept()
                 // Consume the request headers before returning the error, just as
                 // the successful loopback test server does.
-                val reader = client.getInputStream().bufferedReader()
+                val reader = client.getInputStream().bufferedReader()\n                observedRequest.set(reader.readLine())
                 while (true) {
                     val line = reader.readLine()
                     if (line.isNullOrEmpty()) break
@@ -236,7 +236,7 @@ class LocalhostZeroCopyDataSourceTest {
                 .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
                 .firstOrNull()
             assertTrue("Expected HTTP 404 in the exception chain", responseError != null)
-            assertEquals(404, responseError!!.responseCode)
+            assertEquals(\n                "Request=${observedRequest.get()}, HTTP error=${responseError!!.message}, " +\n                    "exception chain=" + generateSequence(error as Throwable) { it.cause }.joinToString(" -> "),\n                404, responseError!!.responseCode\n            )
         } finally {
             dataSource.close()
             serverSocket.close()
