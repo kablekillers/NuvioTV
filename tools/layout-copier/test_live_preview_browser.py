@@ -16,6 +16,9 @@ class LivePreviewBrowserTests(unittest.TestCase):
         self.assertNotIn("sync_push_home_catalog_settings",script)
         self.assertNotIn("localStorage",script)
         self.assertNotIn("sessionStorage",script)
+        compare_code=script.split("async function compare(){",1)[1].split('$("srcLogin").addEventListener',1)[0]
+        self.assertIn("requestGeneration!==generation",compare_code)
+        self.assertNotIn("loginGenerations[side]",compare_code)
         runner=r'''
 const vm=require("node:vm"),assert=require("node:assert/strict");
 const elements=new Map(),calls=[];
