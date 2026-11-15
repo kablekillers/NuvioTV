@@ -49,6 +49,12 @@ jobs:
             echo "NUVIO_RELEASE_STORE_PASSWORD=$TV_STORE_PASSWORD"
             echo "CI_USE_DEBUG_SIGNING=false"
           } >> "$GITHUB_ENV"
+      - name: Run targeted playback regression tests
+        run: |
+          bash ./gradlew :app:testFullReleaseUnitTest \
+            --tests 'androidx.media3.datasource.LocalhostZeroCopyDataSourceTest' \
+            --tests 'androidx.media3.exoplayer.upstream.DefaultAllocatorTest' \
+            --stacktrace --no-daemon
       - name: Test and build release candidate
         run: bash ./gradlew :app:testFullReleaseUnitTest :app:assembleFullRelease --stacktrace --no-daemon
       - name: Upload unit-test failure reports
