@@ -97,15 +97,27 @@ async function compare(){
     const dm=new Map(dst.map(r=>[key(r),r]));
     const missing=src.filter(r=>!dm.has(key(r)));
     const matches=src.filter(r=>dm.has(key(r)));
+    const sourceKeys=new Set(src.map(key));
+    const destinationOnly=dst.filter(r=>!sourceKeys.has(key(r)));
+    const title=row=>String(row.custom_title||row.catalog_id||row.collection_id||"Untitled");
     report("Platform: "+platform+"\nMatched: "+matches.length+"\nMissing or differently identified: "+missing.length+
-      "\nDestination-only: "+(dst.length-matches.length)+"\n\nREAD ONLY — no changes made."+
+      "\nDestination-only: "+destinationOnly.length+"\n\nREAD ONLY — no changes made."+
       (missing.length?"\nSome collections may have different IDs. Do not transfer until mapping is verified.":""));
     for(const [i,row] of matches.entries()){
       const li=document.createElement("li"),old=dm.get(key(row));
-      const title=row.custom_title||row.catalog_id||row.collection_id||"Untitled";
-      li.textContent=(i+1)+". "+title+" — "+(row.enabled===false?"Hidden":"Visible")+
+      li.textContent=(i+1)+". "+title(row)+" — "+(row.enabled===false?"Hidden":"Visible")+
         (Number(old.order)!==i?" (would move)":"")+
         (Boolean(old.enabled??true)!==Boolean(row.enabled??true)?" (visibility change)":"");
+      $("rows").append(li);
+    }
+    for(const row of missing){
+      const li=document.createElement("li");
+      li.textContent="UNMATCHED SOURCE: "+title(row)+" — no exact destination row ID";
+      $("rows").append(li);
+    }
+    for(const row of destinationOnly){
+      const li=document.createElement("li");
+      li.textContent="DESTINATION ONLY: "+title(row)+" — would remain unchanged";
       $("rows").append(li);
     }
   }catch(error){if(requestGeneration===generation)report(error.message);}finally{if(requestGeneration===generation)ready();}
