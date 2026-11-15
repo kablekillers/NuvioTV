@@ -88,7 +88,7 @@ async function compare(){
     const pull=async side=>decode(await post("/rest/v1/rpc/sync_pull_home_catalog_settings",
       {p_profile_id:selected(side),p_platform:platform},sessions[side].token));
     const [source,destination]=await Promise.all([pull("src"),pull("dst")]);
-    if(requestGeneration!==loginGenerations[side])return;
+    if(requestGeneration!==generation)return;
     if(!source.length||!destination.length)throw Error("Empty Home layout; comparison blocked");
     const src=[...source].sort((a,b)=>Number(a.order||0)-Number(b.order));
     const dst=[...destination].sort((a,b)=>Number(a.order||0)-Number(b.order));
