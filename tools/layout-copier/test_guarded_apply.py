@@ -51,4 +51,13 @@ class DurableTests(unittest.TestCase):
                     "COPY HOME LAYOUT",1,1,path)
             self.assertFalse(path.exists())
             self.assertEqual(self.dst.writes,0)
+    def test_source_changed_after_preview_blocks_write(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/"backup.json"
+            changed={"items":[row("a",0),row("b",1)]}
+            with self.assertRaises(TransferError):
+                apply_with_durable_backup(self.src,self.dst,self.receipt,
+                    "COPY HOME LAYOUT",1,1,path,source_loader=lambda: changed)
+            self.assertEqual(self.dst.writes,0)
+            self.assertFalse(path.exists())
 if __name__=="__main__": unittest.main()
