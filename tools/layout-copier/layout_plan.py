@@ -30,6 +30,11 @@ def plan(source, destination):
     src_counts = Counter(identity(x) for x in src if identity(x))
     dst_counts = Counter(identity(x) for x in dst if identity(x))
     used, ordered, unmatched, ambiguous, title_fallbacks = set(), [], [], [], []
+    # Empty RPC responses can mean sync failure or missing settings. Never
+    # interpret them as permission to replace a real Home layout.
+    empty_layout = not src or not dst
+    invalid_destination = any(identity(x) is None for x in dst)
+    duplicate_destination = any(count > 1 for count in dst_counts.values())
     for s in src:
         key = identity(s)
         if key is None or src_counts[key] > 1 or dst_counts[key] > 1:
@@ -63,4 +68,8 @@ def plan(source, destination):
             "unmatched_source": unmatched, "ambiguous_source": ambiguous,
             "title_fallbacks_needing_verification": title_fallbacks,
             "destination_only": len(dst) - len(used),
-            "safe_to_apply": not unmatched and not ambiguous and not title_fallbacks}
+            "safe_to_apply": not (empty_layout or invalid_destination or duplicate_destination
+                                  or unmatched or ambiguous or title_fallbacks),
+            "empty_layout": empty_layout,
+            "invalid_destination": invalid_destination,
+            "duplicate_destination": duplicate_destination}
