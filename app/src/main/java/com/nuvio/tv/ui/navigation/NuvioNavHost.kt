@@ -20,6 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import com.nuvio.tv.ui.screens.party.PartyScreen
+import com.nuvio.tv.ui.screens.sports.SportsHubScreen
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
@@ -162,6 +163,8 @@ private fun PlaybackNavHost(
                 }
             )
         }
+
+        composable(Screen.SportsHub.route) { SportsHubScreen() }
 
         composable(Screen.Home.route) {
             fun createContinueWatchingRoute(
