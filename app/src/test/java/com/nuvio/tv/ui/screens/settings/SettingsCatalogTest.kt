@@ -19,6 +19,7 @@ class SettingsCatalogTest {
             listOf(
                 SettingsCategory.ACCOUNT,
                 SettingsCategory.PROFILES,
+                SettingsCategory.WATCH_PARTY,
                 SettingsCategory.APPEARANCE,
                 SettingsCategory.LAYOUT,
                 SettingsCategory.CONTENT_DISCOVERY,
@@ -43,7 +44,8 @@ class SettingsCatalogTest {
 
         assertFalse(SettingsCategory.ACCOUNT in categories)
         assertFalse(SettingsCategory.PROFILES in categories)
-        assertEquals(SettingsCategory.APPEARANCE, categories.first())
+        assertEquals(SettingsCategory.WATCH_PARTY, categories.first())
+        assertTrue(SettingsCategory.WATCH_PARTY in categories)
     }
 
     @Test
