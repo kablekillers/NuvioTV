@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kable Killers Layout Copier — Preview</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,Arial;background:#080e1c;color:#edf4ff}body{max-width:780px;margin:auto;padding:20px}h1{color:#69baff}section{background:#141e31;border:1px solid #2c4260;border-radius:14px;padding:16px;margin:16px 0}label{display:block;margin:12px 0}input{max-width:100%;margin-top:8px}button{background:#1478dc;border:0;color:white;border-radius:9px;padding:12px;margin:5px 5px 5px 0;font-weight:700}button:disabled{opacity:.4}pre{white-space:pre-wrap;overflow-wrap:anywhere}small{color:#aebfd8}.warning{color:#ffcc80}.layout-row{padding:10px 0;border-top:1px solid #2c4260;display:flex;justify-content:space-between;gap:12px}.layout-row small{display:block}.layout-row strong{overflow-wrap:anywhere}.layout-row span{white-space:nowrap}</style></head><body>
+<h1>⚡ Kable Killers Layout Copier</h1>
+<p>Offline JSON preview prototype. Nothing is uploaded, and this page cannot sign in to Nuvio or change an account.</p>
+<section><h2>1. Load layout exports</h2><label>Source: Kable Killers main <input id="source" type="file" accept=".json,application/json"></label>
+<label>Destination: Personal main <input id="destination" type="file" accept=".json,application/json"></label>
+<small>Use Home layout JSON containing an <code>items</code> array, not the collections export. Do not upload passwords or access tokens.</small></section>
+<section><h2>2. Review transfer</h2><button id="compare" disabled>Compare layouts</button><pre id="report" aria-live="polite">Choose both JSON files to continue.</pre><div id="rows" aria-live="polite"></div></section>
+<section><h2>3. Save files locally</h2><button id="backup" disabled>Download destination backup</button><button id="preview" disabled>Download proposed layout JSON</button><p class="warning">This tool deliberately does not apply settings to Nuvio. A secure authenticated backend, verified row mapping, and rollback are still required.</p></section>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+let source=null,destination=null,proposal=null,ok=false;
+function valid(obj){return obj&&Array.isArray(obj.items)&&obj.items.every(x=>x&&typeof x==="object"&&!Array.isArray(x))}
+function key(x){
+  if(x.is_collection){const id=String(x.collection_id||"").trim();return id?"collection::"+id:null;}
+  const addon=String(x.addon_id||"").trim(),catalog=String(x.catalog_id||"").trim();
+  return addon&&catalog?"catalog::"+[addon,String(x.type||"").trim(),catalog].join("::"):null;
+}
+function plan(src,dst){
+  const s=[...src.items].sort((a,b)=>(+a.order||0)-(+b.order||0));
+  const d=[...dst.items].sort((a,b)=>(+a.order||0)-(+b.order||0));
+  const count=rows=>{const counts=new Map();for(const x of rows){const k=key(x);if(k)counts.set(k,(counts.get(k)||0)+1);}return counts};
+  const sc=count(s),dc=count(d),used=new Set(),out=[],missing=[],ambiguous=[],unverified=[];
+  for(const row of s){
+    const k=key(row);
+    if(!k||sc.get(k)>1||dc.get(k)>1){ambiguous.push(row);continue;}
+    let matches=d.map((v,i)=>({v,i})).filter(({v,i})=>!used.has(i)&&key(v)===k);
+    let fallback=false;
+    if(!matches.length&&row.is_collection){
+      const title=String(row.custom_title||"").trim().toLocaleLowerCase();
+      if(title){
+        matches=d.map((v,i)=>({v,i})).filter(({v,i})=>!used.has(i)&&v.is_collection&&String(v.custom_title||"").trim().toLocaleLowerCase()===title);
+        fallback=matches.length>0;
+      }
+    }
+    if(matches.length!==1){(matches.length?ambiguous:missing).push(row);continue;}
+    const {v,i}=matches[0];used.add(i);out.push({...v,enabled:Boolean(row.enabled??true)});
+    if(fallback)unverified.push({source:row.collection_id,destination:v.collection_id,title:row.custom_title});
+  }
+  d.forEach((row,i)=>{if(!used.has(i))out.push({...row})});
+  out.forEach((row,i)=>row.order=i);
+  const duplicateDestination=[...dc.values()].some(n=>n>1);
+  const invalidDestination=d.some(row=>!key(row));
+  const safe=s.length>0&&d.length>0&&!duplicateDestination&&!invalidDestination&&
+    missing.length===0&&ambiguous.length===0&&unverified.length===0;
+  return {payload:{items:out},matched:used.size,missing,ambiguous,unverified,
+    destinationOnly:d.length-used.size,safe,duplicateDestination,invalidDestination};
+}
+function showRows(rows,previous){
+  const old=new Map(previous.map(row=>[key(row),row]));
+  const target=$("rows");target.textContent="";
+  const heading=document.createElement("h3");heading.textContent="Proposed Home row order";target.appendChild(heading);
+  for(const [index,row] of rows.entries()){
+    const item=document.createElement("div");item.className="layout-row";
+    const left=document.createElement("div");
+    const title=document.createElement("strong");
+    title.textContent=(index+1)+". "+(row.custom_title||row.catalog_id||row.collection_id||"Untitled row");
+    const detail=document.createElement("small");
+    detail.textContent=row.is_collection?"Collection":"Catalog • "+String(row.type||"unspecified");
+    left.append(title,detail);
+    const status=document.createElement("span");
+    const prior=old.get(key(row));
+    const visibility=row.enabled===false?"Hidden":"Visible";
+    const changedVisibility=prior&&Boolean(prior.enabled??true)!==Boolean(row.enabled??true);
+    const moved=prior&&Number(prior.order)!==index;
+    status.textContent=visibility+(changedVisibility?" • visibility changed":"")+(moved?" • moved":"");
+    item.append(left,status);target.appendChild(item);
+  }
+}
+async function load(id){const file=$(id).files[0];try{if(!file)return null;if(file.size>4*1024*1024)throw Error("File exceeds 4 MB");const obj=JSON.parse(await file.text());if(!valid(obj))throw Error("Expected Home layout JSON with items array");return obj;}catch(e){throw Error(id+": "+e.message)}}
+function download(name,obj){const blob=new Blob([JSON.stringify(obj,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+async function changed(){$("rows").textContent="";proposal=null;ok=false;$("backup").disabled=true;$("preview").disabled=true;$("report").textContent="Choose both JSON files to continue.";$("compare").disabled=!($("source").files.length&&$("destination").files.length)}
+$("source").addEventListener("change",changed);$("destination").addEventListener("change",changed);
+$("compare").addEventListener("click",async()=>{try{source=await load("source");destination=await load("destination");const p=plan(source,destination);proposal=p.payload;ok=p.safe;
+$("report").textContent="Matched: "+p.matched+"\nSource rows missing in destination: "+p.missing.length+"\nAmbiguous matches: "+p.ambiguous.length+"\nDestination-only rows retained: "+p.destinationOnly+"\n\n"+(ok?"All source rows matched. Review proposed layout before any future import.":"WARNING: Unsafe or unverified mapping. Proposed file download disabled.");
+if(ok)showRows(proposal.items,destination.items);else $("rows").textContent="Row preview withheld until mapping is safe.";
+$("backup").disabled=false;$("preview").disabled=!ok;
+}catch(e){$("rows").textContent="";$("report").textContent=e.message;$("backup").disabled=true;$("preview").disabled=true;}});
+$("backup").addEventListener("click",()=>{if(destination)download("personal-layout-backup.json",destination)});
+$("preview").addEventListener("click",()=>{if(ok&&proposal)download("proposed-personal-layout.json",proposal)});
+</script></body></html>
