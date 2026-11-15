@@ -18,14 +18,14 @@ class BrowserPreviewTests(unittest.TestCase):
         runner=r'''
 const vm=require("node:vm"), assert=require("node:assert/strict");
 const elements=new Map();
-const document={getElementById(id){
- if(!elements.has(id)) elements.set(id,{disabled:true,files:[],textContent:"",
+const document={createElement(tag){return {tag,textContent:"",children:[],append(...nodes){this.children.push(...nodes)}}},getElementById(id){
+ if(!elements.has(id)) elements.set(id,{disabled:true,files:[],textContent:"",children:[],appendChild(node){this.children.push(node)},
    addEventListener(){}});
  return elements.get(id);
 }};
 const context=vm.createContext({document,console,Blob,URL,setTimeout});
 vm.runInContext(SCRIPT,context);
-vm.runInContext("globalThis.testPlan=plan;",context);
+vm.runInContext("globalThis.testPlan=plan;globalThis.testShowRows=showRows;",context);
 const plan=context.testPlan;
 const row=(id,order,extra={})=>({addon_id:"a",type:"movie",catalog_id:id,
   order,enabled:true,...extra});
@@ -48,7 +48,15 @@ assert.equal(fallback.safe,false);
 assert.equal(fallback.unverified.length,1);
 assert.equal(plan({items:[collection("same","Movies")]},
   {items:[collection("same","Movies")]}).safe,true);
-console.log("Mobile preview JS: 9 assertions passed");
+context.testShowRows(ok.payload.items);
+const shown=elements.get("rows").children;
+assert.equal(shown.length,3);
+assert.equal(shown[1].children[0].children[0].textContent,"1. b");
+assert.equal(shown[2].children[0].children[0].textContent,"2. a");
+assert.equal(shown[1].children[1].textContent,"Visible");
+context.testShowRows([{...row("hidden",0),enabled:false}]);
+assert.equal(elements.get("rows").children.at(-1).children[1].textContent,"Hidden");
+console.log("Mobile preview JS: planner and visible/hidden row rendering passed");
 '''
         runner=runner.replace("SCRIPT",repr(script),1)
         result=subprocess.run(["node","-e",runner],capture_output=True,text=True,timeout=15)
