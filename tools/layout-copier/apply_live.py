@@ -19,22 +19,7 @@ from layout_adapter import decode_home_layout
 from preview_receipt import preview_receipt
 from guarded_apply import apply_with_durable_backup
 
-def verify_profile_membership(client, jwt, requested_id):
-    """Fail closed unless the authenticated account lists the requested profile."""
-    profiles=client.profiles(jwt)
-    ids=set()
-    for profile in profiles:
-        if not isinstance(profile,dict):
-            raise ValueError("Unexpected profile entry")
-        value=profile.get("profile_id",profile.get("id"))
-        if type(value) is int and value>0:
-            ids.add(value)
-        elif isinstance(value,str) and value.isdecimal() and int(value)>0:
-            ids.add(int(value))
-        else:
-            raise ValueError("Unrecognized profile identifier")
-    if requested_id not in ids:
-        raise ValueError("Selected profile not found in authenticated account")
+from profile_resolver import verify_profile_membership
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
