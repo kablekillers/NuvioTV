@@ -77,6 +77,18 @@ vm.runInContext("globalThis.loginTest=signIn;globalThis.compareTest=compare;glob
  assert.match(get("rows").children[2].textContent,/DESTINATION ONLY/);
  assert.equal(calls.filter(c=>c.url.includes("sync_push")).length,0);
  holdLayout=true;
+ const older=ctx.compareTest();
+ await new Promise(resolve=>setImmediate(resolve));
+ holdLayout=false;
+ rows.src.splice(1,1);
+ const newer=ctx.compareTest();
+ await newer;
+ assert.match(get("report").textContent,/Missing or differently identified: 0/);
+ for(const release of releaseLayouts.splice(0))release();
+ await older;
+ assert.match(get("report").textContent,/Missing or differently identified: 0/);
+ assert.equal(get("rows").children.length,2);
+ holdLayout=true;
  const pending=ctx.compareTest();
  await new Promise(resolve=>setImmediate(resolve));
  ctx.logoutTest();
