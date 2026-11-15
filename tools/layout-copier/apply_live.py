@@ -72,7 +72,9 @@ def main():
     backup=folder/("destination-"+args.platform+"-"+stamp+".json")
     result=apply_with_durable_backup(
         source,destination,receipt,phrase,args.source_profile,
-        args.destination_profile,backup)
+        args.destination_profile,backup,
+        source_loader=lambda: decode_home_layout(client.home_layout(
+            src_auth["access_token"],args.source_profile,args.platform)))
     print("Result:",result["status"],"Matched:",result["matched"])
     print("Backup:",result["backup_path"])
     return 0
