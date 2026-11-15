@@ -32,13 +32,13 @@ def main():
     client=NuvioClient(key)
     print("Source: Kable Killers main account")
     src_email=input("Source email: ").strip()
+    dst_email=input("Destination email: ").strip()
+    if not src_email or not dst_email or src_email.casefold()==dst_email.casefold():
+        p.error("Source and destination must be distinct accounts")
     src_password=getpass.getpass("Source password (hidden): ")
     src_auth=client.login(src_email,src_password)
     del src_password
     print("Destination: personal main account")
-    dst_email=input("Destination email: ").strip()
-    if not src_email or not dst_email or src_email.casefold()==dst_email.casefold():
-        p.error("Source and destination must be distinct accounts")
     dst_password=getpass.getpass("Destination password (hidden): ")
     dst_auth=client.login(dst_email,dst_password)
     del dst_password
