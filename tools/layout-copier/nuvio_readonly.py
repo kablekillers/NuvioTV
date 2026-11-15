@@ -60,8 +60,8 @@ class NuvioClient:
     def home_layout(self,jwt,profile_id,platform):
         if platform not in ("tv","mobile"):
             raise ValueError("Platform must be tv or mobile")
-        if type(profile_id) is not int or profile_id not in (1,2,3,4):
-            raise ValueError("Profile ID must be an integer from 1 to 4")
+        if type(profile_id) is not int or profile_id <= 0:
+            raise ValueError("Profile ID must be a positive integer")
         data=self._post("/rest/v1/rpc/sync_pull_home_catalog_settings",
                         {"p_profile_id":profile_id,"p_platform":platform},jwt)
         # RPC response can be a wrapped settings_json object or JSON string;
