@@ -68,12 +68,12 @@ class LiveCliTests(unittest.TestCase):
         self.assertEqual(FakeClient.writes,[])
 
     def test_identical_emails_block_before_password_prompt(self):
-        with patch.object(sys,"argv",["apply_live.py","--platform","tv"]), \\
-             patch.dict(os.environ,{"NUVIO_ANON_KEY":"test"}), \\
-             patch.object(apply_live,"NuvioClient",FakeClient), \\
-             patch("builtins.input",side_effect=["same@example.com","same@example.com"]), \\
-             patch.object(apply_live.getpass,"getpass") as password_prompt, \\
-             patch("sys.stdout",new_callable=io.StringIO):
+        with (patch.object(sys,"argv",["apply_live.py","--platform","tv"]),
+              patch.dict(os.environ,{"NUVIO_ANON_KEY":"test"}),
+              patch.object(apply_live,"NuvioClient",FakeClient),
+              patch("builtins.input",side_effect=["same@example.com","same@example.com"]),
+              patch.object(apply_live.getpass,"getpass") as password_prompt,
+              patch("sys.stdout",new_callable=io.StringIO)):
             with self.assertRaises(SystemExit):
                 apply_live.main()
         password_prompt.assert_not_called()
