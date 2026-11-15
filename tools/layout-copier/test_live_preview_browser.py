@@ -22,7 +22,7 @@ class LivePreviewBrowserTests(unittest.TestCase):
         runner=r'''
 const vm=require("node:vm"),assert=require("node:assert/strict");
 const elements=new Map(),calls=[];
-let holdLayout=false,releaseLayout=null;
+let holdLayout=false;const releaseLayouts=[];
 function element(){return {value:"",disabled:false,textContent:"",children:[],
  addEventListener(){},replaceChildren(){this.children=[];this.value=""},
  append(child){this.children.push(child);if(!this.value)this.value=child.value},
@@ -49,7 +49,7 @@ const fetch=async(url,options)=>{
  }
  if(url.includes("sync_pull_profiles"))return {ok:true,json:async()=>[{profile_id:1,name:"Main"}]};
  if(url.includes("sync_pull_home_catalog_settings")){
-  if(holdLayout)await new Promise(resolve=>{const prev=releaseLayout;releaseLayout=()=>{if(prev)prev();resolve()}});
+  if(holdLayout)await new Promise(resolve=>releaseLayouts.push(resolve));
   return {ok:true,json:async()=>({settings_json:{items:token.includes("source-token")?rows.src:rows.dst}})};
  }
  throw Error("Unexpected API endpoint "+url);
@@ -81,7 +81,7 @@ vm.runInContext("globalThis.loginTest=signIn;globalThis.compareTest=compare;glob
  await new Promise(resolve=>setImmediate(resolve));
  ctx.logoutTest();
  holdLayout=false;
- if(releaseLayout)releaseLayout();
+ for(const release of releaseLayouts.splice(0))release();
  await pending;
  assert.match(get("report").textContent,/sessions cleared/);
  assert.equal(get("rows").children.length,0,"Late comparison must not repopulate rows");
