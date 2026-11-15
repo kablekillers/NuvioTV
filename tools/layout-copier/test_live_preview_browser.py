@@ -13,6 +13,9 @@ class LivePreviewBrowserTests(unittest.TestCase):
     def test_two_account_signin_and_readonly_comparison(self):
         html=HTML.read_text(encoding="utf-8")
         script=html.split("<script>",1)[1].split("</script>",1)[0]
+        self.assertNotIn("sync_push_home_catalog_settings",script)
+        self.assertNotIn("localStorage",script)
+        self.assertNotIn("sessionStorage",script)
         runner=r'''
 const vm=require("node:vm"),assert=require("node:assert/strict");
 const elements=new Map(),calls=[];
