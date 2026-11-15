@@ -28,7 +28,8 @@ get("platform").value="tv";
 get("srcEmail").value="source@example.com";get("dstEmail").value="dest@example.com";
 get("srcPassword").value="fake-password";get("dstPassword").value="fake-password";
 const rows={src:[{addon_id:"a",type:"movie",catalog_id:"x",order:0,enabled:true}],
- dst:[{addon_id:"a",type:"movie",catalog_id:"x",order:0,enabled:false}]};
+ dst:[{addon_id:"a",type:"movie",catalog_id:"x",order:0,enabled:false},
+ {addon_id:"a",type:"movie",catalog_id:"destination-only",order:1,enabled:true}]};
 const fetch=async(url,options)=>{
  const body=JSON.parse(options.body),token=options.headers.Authorization||"";
  calls.push({url,body,token});
@@ -55,7 +56,9 @@ vm.runInContext("globalThis.loginTest=signIn;globalThis.compareTest=compare;",ct
  assert.equal(get("dstPassword").value,"");
  await ctx.compareTest();
  assert.match(get("report").textContent,/Matched: 1/);
- assert.equal(get("rows").children.length,1);
+ assert.equal(get("rows").children.length,2);
+ assert.match(get("report").textContent,/Destination-only: 1/);
+ assert.match(get("rows").children[1].textContent,/DESTINATION ONLY/);
  assert.match(get("rows").children[0].textContent,/visibility change/);
  assert.equal(calls.filter(c=>c.url.includes("sync_push")).length,0);
  console.log("Read-only phone sign-in and preview passed");
