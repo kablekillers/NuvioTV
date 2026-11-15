@@ -49,7 +49,8 @@ function plan(src,dst){
   return {payload:{items:out},matched:used.size,missing,ambiguous,unverified,
     destinationOnly:d.length-used.size,safe,duplicateDestination,invalidDestination};
 }
-function showRows(rows){
+function showRows(rows,previous){
+  const old=new Map(previous.map(row=>[key(row),row]));
   const target=$("rows");target.textContent="";
   const heading=document.createElement("h3");heading.textContent="Proposed Home row order";target.appendChild(heading);
   for(const [index,row] of rows.entries()){
@@ -60,7 +61,12 @@ function showRows(rows){
     const detail=document.createElement("small");
     detail.textContent=row.is_collection?"Collection":"Catalog • "+String(row.type||"unspecified");
     left.append(title,detail);
-    const status=document.createElement("span");status.textContent=row.enabled===false?"Hidden":"Visible";
+    const status=document.createElement("span");
+    const prior=old.get(key(row));
+    const visibility=row.enabled===false?"Hidden":"Visible";
+    const changedVisibility=prior&&Boolean(prior.enabled??true)!==Boolean(row.enabled??true);
+    const moved=prior&&Number(prior.order)!==index;
+    status.textContent=visibility+(changedVisibility?" • visibility changed":"")+(moved?" • moved":"");
     item.append(left,status);target.appendChild(item);
   }
 }
@@ -70,7 +76,7 @@ async function changed(){$("rows").textContent="";proposal=null;ok=false;$("back
 $("source").addEventListener("change",changed);$("destination").addEventListener("change",changed);
 $("compare").addEventListener("click",async()=>{try{source=await load("source");destination=await load("destination");const p=plan(source,destination);proposal=p.payload;ok=p.safe;
 $("report").textContent="Matched: "+p.matched+"\nSource rows missing in destination: "+p.missing.length+"\nAmbiguous matches: "+p.ambiguous.length+"\nDestination-only rows retained: "+p.destinationOnly+"\n\n"+(ok?"All source rows matched. Review proposed layout before any future import.":"WARNING: Unsafe or unverified mapping. Proposed file download disabled.");
-if(ok)showRows(proposal.items);else $("rows").textContent="Row preview withheld until mapping is safe.";
+if(ok)showRows(proposal.items,destination.items);else $("rows").textContent="Row preview withheld until mapping is safe.";
 $("backup").disabled=false;$("preview").disabled=!ok;
 }catch(e){$("rows").textContent="";$("report").textContent=e.message;$("backup").disabled=true;$("preview").disabled=true;}});
 $("backup").addEventListener("click",()=>{if(destination)download("personal-layout-backup.json",destination)});
