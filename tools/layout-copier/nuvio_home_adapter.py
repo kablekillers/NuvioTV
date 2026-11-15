@@ -11,7 +11,7 @@ class HomeSettingsAdapter:
     def __init__(self, client, destination_jwt, profile_id, platform):
         if not isinstance(destination_jwt,str) or not destination_jwt.strip():
             raise ValueError("Destination access token required")
-        if type(profile_id) is not int or profile_id not in (1,2,3,4):
+        if type(profile_id) is not int or profile_id <= 0:
             raise ValueError("Invalid profile ID")
         if platform not in ("tv","mobile"):
             raise ValueError("Invalid platform")
