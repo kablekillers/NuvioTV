@@ -189,16 +189,21 @@ class LocalhostZeroCopyDataSourceTest {
         val serverSocket = ServerSocket(0)
         val port = serverSocket.localPort
 
-        val observedRequest = java.util.concurrent.atomic.AtomicReference<String?>()\n        val responseHeaders = "HTTP/1.1 404 Not Found\r\n" +
-                "Content-Length: 0\r\n" +
-                "\r\n"
+        val observedRequest = java.util.concurrent.atomic.AtomicReference<String?>()
+        val responseHeaders = "HTTP/1.1 404 Not Found\r
+" +
+                "Content-Length: 0\r
+" +
+                "\r
+"
 
         thread {
             try {
                 val client = serverSocket.accept()
                 // Consume the request headers before returning the error, just as
                 // the successful loopback test server does.
-                val reader = client.getInputStream().bufferedReader()\n                observedRequest.set(reader.readLine())
+                val reader = client.getInputStream().bufferedReader()
+                observedRequest.set(reader.readLine())
                 while (true) {
                     val line = reader.readLine()
                     if (line.isNullOrEmpty()) break
@@ -236,7 +241,11 @@ class LocalhostZeroCopyDataSourceTest {
                 .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
                 .firstOrNull()
             assertTrue("Expected HTTP 404 in the exception chain", responseError != null)
-            assertEquals(\n                "Request=${observedRequest.get()}, HTTP error=${responseError!!.message}, " +\n                    "exception chain=" + generateSequence(error as Throwable) { it.cause }.joinToString(" -> "),\n                404, responseError!!.responseCode\n            )
+            assertEquals(
+                "Request=${observedRequest.get()}, HTTP error=${responseError!!.message}, " +
+                    "exception chain=" + generateSequence(error as Throwable) { it.cause }.joinToString(" -> "),
+                404, responseError!!.responseCode
+            )
         } finally {
             dataSource.close()
             serverSocket.close()
