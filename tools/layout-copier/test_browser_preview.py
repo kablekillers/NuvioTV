@@ -48,13 +48,13 @@ assert.equal(fallback.safe,false);
 assert.equal(fallback.unverified.length,1);
 assert.equal(plan({items:[collection("same","Movies")]},
   {items:[collection("same","Movies")]}).safe,true);
-context.testShowRows(ok.payload.items);
+context.testShowRows(ok.payload.items,dst.items);
 const shown=elements.get("rows").children;
 assert.equal(shown.length,3);
 assert.equal(shown[1].children[0].children[0].textContent,"1. b");
 assert.equal(shown[2].children[0].children[0].textContent,"2. a");
-assert.equal(shown[1].children[1].textContent,"Visible");
-context.testShowRows([{...row("hidden",0),enabled:false}]);
+assert.equal(shown[1].children[1].textContent,"Visible • moved");
+context.testShowRows([{...row("hidden",0),enabled:false}],[]);
 assert.equal(elements.get("rows").children.at(-1).children[1].textContent,"Hidden");
 console.log("Mobile preview JS: planner and visible/hidden row rendering passed");
 '''
