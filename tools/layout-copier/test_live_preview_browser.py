@@ -22,6 +22,7 @@ class LivePreviewBrowserTests(unittest.TestCase):
         runner=r'''
 const vm=require("node:vm"),assert=require("node:assert/strict");
 const elements=new Map(),calls=[];
+let holdLayout=false,releaseLayout=null;
 function element(){return {value:"",disabled:false,textContent:"",children:[],
  addEventListener(){},replaceChildren(){this.children=[];this.value=""},
  append(child){this.children.push(child);if(!this.value)this.value=child.value},
@@ -48,6 +49,7 @@ const fetch=async(url,options)=>{
  }
  if(url.includes("sync_pull_profiles"))return {ok:true,json:async()=>[{profile_id:1,name:"Main"}]};
  if(url.includes("sync_pull_home_catalog_settings")){
+  if(holdLayout)await new Promise(resolve=>{const prev=releaseLayout;releaseLayout=()=>{if(prev)prev();resolve()}});
   return {ok:true,json:async()=>({settings_json:{items:token.includes("source-token")?rows.src:rows.dst}})};
  }
  throw Error("Unexpected API endpoint "+url);
@@ -74,7 +76,15 @@ vm.runInContext("globalThis.loginTest=signIn;globalThis.compareTest=compare;glob
  assert.match(get("rows").children[1].textContent,/UNMATCHED SOURCE/);
  assert.match(get("rows").children[2].textContent,/DESTINATION ONLY/);
  assert.equal(calls.filter(c=>c.url.includes("sync_push")).length,0);
+ holdLayout=true;
+ const pending=ctx.compareTest();
+ await new Promise(resolve=>setImmediate(resolve));
  ctx.logoutTest();
+ holdLayout=false;
+ if(releaseLayout)releaseLayout();
+ await pending;
+ assert.match(get("report").textContent,/sessions cleared/);
+ assert.equal(get("rows").children.length,0,"Late comparison must not repopulate rows");
  assert.equal(get("compare").disabled,true);
  assert.equal(get("srcProfile").children.length,0);
  assert.equal(get("dstProfile").children.length,0);
