@@ -217,9 +217,15 @@ class LocalhostZeroCopyDataSourceTest {
             .build()
         
         try {
-            assertThrows(HttpDataSource.InvalidResponseCodeException::class.java) {
+            val error = assertThrows(HttpDataSource.HttpDataSourceException::class.java) {
                 dataSource.open(dataSpec)
             }
+            // The zero-copy wrapper exposes the HTTP 404 as its cause.
+            val responseError = generateSequence(error as Throwable) { it.cause }
+                .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                .firstOrNull()
+            assertTrue("Expected HTTP 404 in the exception chain", responseError != null)
+            assertEquals(404, responseError!!.responseCode)
         } finally {
             dataSource.close()
             serverSocket.close()
