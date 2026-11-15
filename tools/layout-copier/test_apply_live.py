@@ -18,6 +18,8 @@ class FakeClient:
     def login(self, email, password):
         return {"access_token": "source" if email == "source@example.com" else "destination",
                 "user":{"id":"source-user" if email == "source@example.com" else "destination-user"}}
+    def profiles(self,jwt):
+        return [{"profile_id":1}]
     def home_layout(self, jwt, profile, platform):
         return {"settings_json": self.accounts[jwt][platform]}
     def _post(self, path, payload, jwt):
@@ -86,6 +88,22 @@ class LiveCliTests(unittest.TestCase):
             result["user"]={}
             return result
         with patch.object(FakeClient,"login",missing_id):
+            with self.assertRaises(SystemExit):
+                self.run_cli("COPY HOME LAYOUT")
+        self.assertEqual(FakeClient.writes,[])
+
+    def test_missing_source_profile_blocks_without_write(self):
+        def wrong_profiles(client,jwt):
+            return [{"profile_id":99}] if jwt=="source" else [{"profile_id":1}]
+        with patch.object(FakeClient,"profiles",wrong_profiles):
+            with self.assertRaises(SystemExit):
+                self.run_cli("COPY HOME LAYOUT")
+        self.assertEqual(FakeClient.writes,[])
+
+    def test_missing_destination_profile_blocks_without_write(self):
+        def wrong_profiles(client,jwt):
+            return [{"profile_id":1}] if jwt=="source" else [{"profile_id":99}]
+        with patch.object(FakeClient,"profiles",wrong_profiles):
             with self.assertRaises(SystemExit):
                 self.run_cli("COPY HOME LAYOUT")
         self.assertEqual(FakeClient.writes,[])
