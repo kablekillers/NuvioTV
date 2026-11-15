@@ -24,7 +24,8 @@ const document={getElementById(id){
  return elements.get(id);
 }};
 const context=vm.createContext({document,console,Blob,URL,setTimeout});
-vm.runInContext(SCRIPT+"\\n;globalThis.testPlan=plan;",context);
+vm.runInContext(SCRIPT,context);
+vm.runInContext("globalThis.testPlan=plan;",context);
 const plan=context.testPlan;
 const row=(id,order,extra={})=>({addon_id:"a",type:"movie",catalog_id:id,
   order,enabled:true,...extra});
