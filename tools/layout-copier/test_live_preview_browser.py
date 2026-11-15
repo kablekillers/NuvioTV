@@ -61,6 +61,13 @@ vm.runInContext("globalThis.loginTest=signIn;globalThis.compareTest=compare;",ct
  assert.match(get("rows").children[1].textContent,/DESTINATION ONLY/);
  assert.match(get("rows").children[0].textContent,/visibility change/);
  assert.equal(calls.filter(c=>c.url.includes("sync_push")).length,0);
+ rows.src.push({addon_id:"a",type:"movie",catalog_id:"source-only",order:1,enabled:true});
+ await ctx.compareTest();
+ assert.match(get("report").textContent,/Missing or differently identified: 1/);
+ assert.equal(get("rows").children.length,3);
+ assert.match(get("rows").children[1].textContent,/UNMATCHED SOURCE/);
+ assert.match(get("rows").children[2].textContent,/DESTINATION ONLY/);
+ assert.equal(calls.filter(c=>c.url.includes("sync_push")).length,0);
  console.log("Read-only phone sign-in and preview passed");
 })().catch(e=>{console.error(e);process.exitCode=1});
 '''
