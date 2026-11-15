@@ -42,8 +42,14 @@ def main():
     dst_password=getpass.getpass("Destination password (hidden): ")
     dst_auth=client.login(dst_email,dst_password)
     del dst_password
-    if src_auth["access_token"]==dst_auth["access_token"]:
-        p.error("Both sessions appear identical; transfer blocked")
+    source_user=src_auth.get("user") if isinstance(src_auth,dict) else None
+    destination_user=dst_auth.get("user") if isinstance(dst_auth,dict) else None
+    source_id=source_user.get("id") if isinstance(source_user,dict) else None
+    destination_id=destination_user.get("id") if isinstance(destination_user,dict) else None
+    if not source_id or not destination_id:
+        p.error("Could not verify both Nuvio account identities; transfer blocked")
+    if source_id==destination_id or src_auth["access_token"]==dst_auth["access_token"]:
+        p.error("Both sessions belong to the same account; transfer blocked")
     source=decode_home_layout(client.home_layout(
         src_auth["access_token"],args.source_profile,args.platform))
     destination=HomeSettingsAdapter(client,dst_auth["access_token"],
