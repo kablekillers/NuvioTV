@@ -15,7 +15,8 @@ const BASE="https://dpyhjjcoabcglfmgecug.supabase.co";
 const $=id=>document.getElementById(id);
 const sessions={src:null,dst:null};
 let generation=0;
-function resetSessions(){generation++;sessions.src=null;sessions.dst=null;invalidate();}
+const loginGenerations={src:0,dst:0};
+function resetSessions(){generation++;loginGenerations.src++;loginGenerations.dst++;sessions.src=null;sessions.dst=null;invalidate();}
 const report=message=>$("report").textContent=message;
 function invalidate(){ $("compare").disabled=true;$("rows").replaceChildren();report("Sign in to two different accounts to preview."); }
 async function post(path,body,token){
@@ -38,18 +39,19 @@ function ready(){
   $("compare").disabled=!(a&&b&&a.userId!==b.userId&&$("srcProfile").value&&$("dstProfile").value);
 }
 async function signIn(side){
-  const requestGeneration=++generation;
+  generation++;
+  const requestGeneration=++loginGenerations[side];
   invalidate();sessions[side]=null;
   const email=$(side+"Email").value.trim(),password=$(side+"Password").value;
   try{
     if(!email||!password)throw Error("Email and password required");
     const auth=await post("/auth/v1/token?grant_type=password",{email,password});
-    if(requestGeneration!==generation)return;
+    if(requestGeneration!==loginGenerations[side])return;
     $(side+"Password").value="";
     const userId=auth.user?.id;
     if(!userId||!auth.access_token)throw Error("Account identity could not be verified");
     const profiles=await post("/rest/v1/rpc/sync_pull_profiles",{},auth.access_token);
-    if(requestGeneration!==generation)return;
+    if(requestGeneration!==loginGenerations[side])return;
     if(!Array.isArray(profiles)||!profiles.length)throw Error("No profiles returned");
     const select=$(side+"Profile");select.replaceChildren();
     for(const [index,p] of profiles.entries()){
@@ -62,7 +64,7 @@ async function signIn(side){
       throw Error("Both logins belong to the same Nuvio account");
     report("Signed in to "+side+". Credentials are not saved. Select profiles and compare.");
     ready();
-  }catch(error){if(requestGeneration===generation){sessions[side]=null;$(side+"Password").value="";report(error.message);}}
+  }catch(error){if(requestGeneration===loginGenerations[side]){sessions[side]=null;$(side+"Password").value="";report(error.message);}}
 }
 function decode(data){
   const entry=Array.isArray(data)?(data.length===1?data[0]:null):data;
@@ -85,7 +87,7 @@ async function compare(){
     const pull=async side=>decode(await post("/rest/v1/rpc/sync_pull_home_catalog_settings",
       {p_profile_id:selected(side),p_platform:platform},sessions[side].token));
     const [source,destination]=await Promise.all([pull("src"),pull("dst")]);
-    if(requestGeneration!==generation)return;
+    if(requestGeneration!==loginGenerations[side])return;
     if(!source.length||!destination.length)throw Error("Empty Home layout; comparison blocked");
     const src=[...source].sort((a,b)=>Number(a.order||0)-Number(b.order));
     const dst=[...destination].sort((a,b)=>Number(a.order||0)-Number(b.order));
@@ -114,5 +116,5 @@ $("compare").addEventListener("click",compare);
 for(const id of ["srcProfile","dstProfile"])$(id).addEventListener("change",()=>{generation++;invalidate();ready();});
 $("platform").addEventListener("change",()=>{generation++;invalidate();ready();});
 for(const id of ["key","srcEmail","dstEmail"])$(id).addEventListener("input",resetSessions);
-for(const id of ["srcPassword","dstPassword"])$(id).addEventListener("input",()=>{generation++;sessions.src=null;sessions.dst=null;invalidate();});
+for(const id of ["srcPassword","dstPassword"])$(id).addEventListener("input",resetSessions);
 </script></body></html>
