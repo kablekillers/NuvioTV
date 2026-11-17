@@ -22,3 +22,9 @@ Branch: `feature/kk-sports-hub`. Do not change published v1.1.3 or store listing
 ## Release safety
 - Do not merge this branch into `kable-killers-branding` or change Kable Killers Store listing during development.
 - Existing 1.1.3 APK and GitHub release remain immutable.
+
+## Status (Nov 16)
+- Done: route + sidebar entry, league tabs, ESPN scoreboard metadata (scores, status detail, venue, TV networks),
+  Live / Upcoming / Final sections, D-pad focusable game cards, game details dialog (Back closes, focus returns),
+  per-league in-memory cache, auto-refresh while visible (30s with live games, 2 min otherwise), unit tests.
+- Playback is not wired from Sports Hub. The "Watch on" field shows only the networks ESPN lists.

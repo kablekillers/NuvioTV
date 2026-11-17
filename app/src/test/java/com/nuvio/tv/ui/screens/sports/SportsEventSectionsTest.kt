@@ -41,4 +41,23 @@ class SportsEventSectionsTest {
     fun rejectInsecurePlaybackUrl() {
         SportsEvent("x", SportsLeague.NHL, "Match", null, SportsEventStatus.LIVE, providerName = "Provider", authorizedPlaybackUrl = "http://example.com/video")
     }
+
+    @Test fun finalSectionIsMostRecentFirstAndExcludesLive() {
+        val events = listOf(
+            event("old", SportsEventStatus.FINAL, time = 100),
+            event("live", SportsEventStatus.LIVE, time = 300),
+            event("recent", SportsEventStatus.FINAL, time = 200),
+            event("no-time", SportsEventStatus.FINAL)
+        )
+        assertEquals(listOf("recent", "old", "no-time"), SportsEventSections.final(events).map { it.id })
+    }
+
+    @Test fun postponedGamesStayVisibleAfterScheduledOnes() {
+        val events = listOf(
+            event("postponed", SportsEventStatus.POSTPONED, time = 50),
+            event("scheduled", SportsEventStatus.SCHEDULED, time = 100),
+            event("unknown", SportsEventStatus.UNKNOWN, time = 10)
+        )
+        assertEquals(listOf("scheduled", "postponed"), SportsEventSections.upcoming(events).map { it.id })
+    }
 }
