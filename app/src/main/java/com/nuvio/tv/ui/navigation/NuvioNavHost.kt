@@ -19,6 +19,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
+import com.nuvio.tv.core.party.PartyMedia
 import com.nuvio.tv.ui.screens.party.PartyScreen
 import com.nuvio.tv.ui.screens.sports.SportsHubScreen
 import androidx.navigation.compose.NavHost
@@ -85,6 +86,27 @@ private fun PlaybackNavHost(
 
     fun isPlayerToStream(from: String, to: String): Boolean {
         return from.startsWith("player/") && to.startsWith("stream/")
+    }
+
+    // Opens the party's current title; leaves the player first if one is showing.
+    fun openPartyMedia(media: PartyMedia) {
+        if (navController.currentDestination?.route?.startsWith("player/") == true) navController.popBackStack()
+        navController.navigate(
+            Screen.Stream.createRoute(
+                videoId = media.videoId ?: media.metaId,
+                contentType = media.type,
+                title = media.title,
+                poster = media.poster,
+                backdrop = media.background,
+                logo = media.logo,
+                season = media.season,
+                episode = media.episode,
+                episodeName = media.episodeTitle,
+                contentId = media.metaId,
+                contentName = media.title,
+                manualSelection = true
+            )
+        )
     }
 
     NavHost(
@@ -861,6 +883,7 @@ private fun PlaybackNavHost(
             }
 
             PlayerScreen(
+                onOpenPartyMedia = ::openPartyMedia,
                 onBackPress = { currentVideoId, currentSeason, currentEpisode, autoPlayEnabled, playbackCompleted ->
                     val args = backStackEntry.arguments
                     val initialSeason = args?.getString("season")?.toIntOrNull()
@@ -1231,22 +1254,7 @@ private fun PlaybackNavHost(
             PartyScreen(
                 initialCode = entry.arguments?.getString("code").orEmpty(),
                 onBackPress = { navController.popBackStack() },
-                onWatch = { media ->
-                    navController.navigate(Screen.Stream.createRoute(
-                        videoId = media.videoId ?: media.metaId,
-                        contentType = media.type,
-                        title = media.title,
-                        poster = media.poster,
-                        backdrop = media.background,
-                        logo = media.logo,
-                        season = media.season,
-                        episode = media.episode,
-                        episodeName = media.episodeTitle,
-                        contentId = media.metaId,
-                        contentName = media.title,
-                        manualSelection = true
-                    ))
-                }
+                onWatch = ::openPartyMedia
             )
         }
 
