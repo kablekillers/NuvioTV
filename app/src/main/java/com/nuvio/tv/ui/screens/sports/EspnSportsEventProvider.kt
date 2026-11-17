@@ -19,9 +19,19 @@ import java.time.Instant
  * Endpoint availability and usage terms must be reviewed before a production release.
  */
 class EspnSportsEventProvider : SportsEventProvider {
-    override suspend fun events(league: SportsLeague): List<SportsEvent> = withContext(Dispatchers.IO) {
-        val connection = (URL("https://site.api.espn.com/apis/site/v2/sports/${pathFor(league)}/scoreboard")
-            .openConnection() as HttpURLConnection).apply {
+    override suspend fun events(league: SportsLeague): List<SportsEvent> =
+        parseScoreboard(get("https://site.api.espn.com/apis/site/v2/sports/${pathFor(league)}/scoreboard"), league)
+
+    override suspend fun boxScore(event: SportsEvent): SportsBoxScore? {
+        // UFC summaries have no per-athlete stat tables.
+        if (event.league == SportsLeague.UFC || event.status == SportsEventStatus.SCHEDULED) return null
+        val id = java.net.URLEncoder.encode(event.providerEventId, "UTF-8")
+        val payload = get("https://site.api.espn.com/apis/site/v2/sports/${pathFor(event.league)}/summary?event=$id")
+        return parseBoxScore(payload, event.id)
+    }
+
+    private suspend fun get(url: String): String = withContext(Dispatchers.IO) {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 8000
             readTimeout = 8000
             setRequestProperty("Accept", "application/json")
@@ -31,8 +41,7 @@ class EspnSportsEventProvider : SportsEventProvider {
             if (connection.responseCode !in 200..299) {
                 error("Sports schedule unavailable (HTTP ${connection.responseCode})")
             }
-            val payload = connection.inputStream.bufferedReader().use { it.readText() }
-            parseScoreboard(payload, league)
+            connection.inputStream.bufferedReader().use { it.readText() }
         } finally {
             connection.disconnect()
         }
@@ -126,6 +135,58 @@ class EspnSportsEventProvider : SportsEventProvider {
                 venue = venue,
                 broadcasts = broadcasts
             )
+        }
+
+        /** Parses `boxscore.players` from ESPN's game summary into per-team stat tables. */
+        internal fun parseBoxScore(payload: String, eventId: String): SportsBoxScore? {
+            val root = runCatching { json.parseToJsonElement(payload) }.getOrNull() as? JsonObject ?: return null
+            val teams = root.obj("boxscore")?.arr("players").orEmpty().mapNotNull { element ->
+                val entry = element as? JsonObject ?: return@mapNotNull null
+                val team = entry.obj("team")
+                val teamName = team?.str("displayName") ?: team?.str("shortDisplayName") ?: return@mapNotNull null
+                val teamPrefix = listOfNotNull(team?.str("location"), team?.str("shortDisplayName"), teamName)
+                val groups = entry.arr("statistics").orEmpty().mapNotNull { g ->
+                    val group = g as? JsonObject ?: return@mapNotNull null
+                    val labels = group.arr("labels").orEmpty().mapNotNull { it.primitiveContent() }
+                    if (labels.isEmpty()) return@mapNotNull null
+                    val players = group.arr("athletes").orEmpty().mapNotNull { a ->
+                        val line = a as? JsonObject ?: return@mapNotNull null
+                        if ((line["didNotPlay"] as? JsonPrimitive)?.booleanOrNull == true) return@mapNotNull null
+                        val stats = line.arr("stats").orEmpty().map { (it as? JsonPrimitive)?.contentOrNull.orEmpty() }
+                        if (stats.isEmpty() || stats.all { it.isBlank() }) return@mapNotNull null
+                        val athlete = line.obj("athlete") ?: return@mapNotNull null
+                        val name = athlete.str("displayName") ?: athlete.str("shortName") ?: return@mapNotNull null
+                        SportsPlayerLine(
+                            name = name,
+                            position = athlete.obj("position")?.str("abbreviation"),
+                            jersey = athlete.str("jersey"),
+                            starter = (line["starter"] as? JsonPrimitive)?.booleanOrNull == true,
+                            stats = stats
+                        )
+                    }
+                    if (players.isEmpty()) return@mapNotNull null
+                    SportsStatGroup(
+                        title = groupTitle(group.str("text"), group.str("name"), teamPrefix),
+                        labels = labels,
+                        players = players,
+                        totals = group.arr("totals").orEmpty().map { (it as? JsonPrimitive)?.contentOrNull.orEmpty() }
+                            .takeIf { it.size == labels.size && it.any { v -> v.isNotBlank() } }.orEmpty()
+                    )
+                }
+                SportsTeamBox(teamName, team?.str("abbreviation"), groups)
+            }
+            return SportsBoxScore(eventId, teams).takeUnless { it.teams.isEmpty() || it.isEmpty }
+        }
+
+        /** "Washington Passing" -> "Passing"; falls back to the key name ("kickReturns" -> "Kick Returns"). */
+        private fun groupTitle(text: String?, name: String?, teamPrefixes: List<String>): String? {
+            text?.let { raw ->
+                val stripped = teamPrefixes.sortedByDescending { it.length }
+                    .firstOrNull { raw.startsWith("$it ", ignoreCase = true) }
+                    ?.let { raw.substring(it.length).trim() } ?: raw
+                if (stripped.isNotBlank()) return stripped
+            }
+            return name?.replace(Regex("([a-z])([A-Z])"), "$1 $2")?.replaceFirstChar { it.uppercase() }
         }
 
         private fun parseCompetitor(c: JsonObject): SportsCompetitor? {

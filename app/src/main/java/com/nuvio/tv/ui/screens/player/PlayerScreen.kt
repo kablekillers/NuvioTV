@@ -122,6 +122,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.core.player.PlayerWindowBackdrop
@@ -2507,26 +2508,6 @@ private fun PlayerControlsOverlay(
                         onFocused = onResetHideTimer
                     )
 
-                    if (onShowPartyPanel != null) {
-                        ControlButton(
-                            icon = Icons.AutoMirrored.Filled.List,
-                            contentDescription = stringResource(R.string.party_title),
-                            onClick = onShowPartyPanel,
-                            upFocusRequester = progressUpTarget,
-                            onDownKey = onHideControls,
-                            onFocused = onResetHideTimer
-                        )
-                    }
-
-                    ControlButton(
-                        icon = Icons.Default.SwapHoriz,
-                        contentDescription = stringResource(R.string.cd_switch_player_engine),
-                        onClick = onSwitchPlayerEngine,
-                        upFocusRequester = progressUpTarget,
-                        onDownKey = onHideControls,
-                        onFocused = onResetHideTimer
-                    )
-
                     if (hasEpisodeContext) {
                         ControlButton(
                             icon = Icons.AutoMirrored.Filled.List,
@@ -2536,6 +2517,19 @@ private fun PlayerControlsOverlay(
                             upFocusRequester = progressUpTarget,
                             onDownKey = onHideControls,
                             onFocused = onResetHideTimer
+                        )
+                    }
+
+                    // Watch Party: same people icon as Nuvio TV, highlighted while in a party.
+                    if (onShowPartyPanel != null) {
+                        ControlButton(
+                            icon = Icons.Rounded.Groups,
+                            contentDescription = stringResource(R.string.party_title),
+                            onClick = onShowPartyPanel,
+                            upFocusRequester = progressUpTarget,
+                            onDownKey = onHideControls,
+                            onFocused = onResetHideTimer,
+                            contentColor = if (partyActive) NuvioTheme.colors.Secondary else Color.White
                         )
                     }
 
@@ -2571,6 +2565,14 @@ private fun PlayerControlsOverlay(
                                 onClick = {
                                     onToggleAspectRatio()
                                 },
+                                upFocusRequester = progressUpTarget,
+                                onDownKey = onHideControls,
+                                onFocused = onResetHideTimer
+                            )
+                            ControlButton(
+                                icon = Icons.Default.SwapHoriz,
+                                contentDescription = stringResource(R.string.cd_switch_player_engine),
+                                onClick = onSwitchPlayerEngine,
                                 upFocusRequester = progressUpTarget,
                                 onDownKey = onHideControls,
                                 onFocused = onResetHideTimer
@@ -2729,7 +2731,8 @@ private fun ControlButton(
     upFocusRequester: FocusRequester? = null,
     enabled: Boolean = true,
     onDownKey: (() -> Unit)? = null,
-    onFocused: (() -> Unit)? = null
+    onFocused: (() -> Unit)? = null,
+    contentColor: Color = Color.White
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
@@ -2777,7 +2780,7 @@ private fun ControlButton(
         colors = IconButtonDefaults.colors(
             containerColor = Color.Transparent,
             focusedContainerColor = Color.White,
-            contentColor = Color.White,
+            contentColor = contentColor,
             focusedContentColor = Color.Black
         ),
         shape = IconButtonDefaults.shape(shape = CircleShape)

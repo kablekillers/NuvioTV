@@ -3,6 +3,8 @@ package com.nuvio.tv.ui.screens.sports
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -150,7 +152,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             // Game dropped off the provider's scoreboard (e.g. league switched); just close.
             LaunchedEffect(Unit) { closeDetails() }
         } else {
-            GameDetailsDialog(selected, onDismiss = closeDetails)
+            GameDetailsDialog(selected, repository, onDismiss = closeDetails)
         }
     }
 }
@@ -255,41 +257,79 @@ private fun GameCard(event: SportsEvent, focusRequester: FocusRequester, onSelec
 }
 
 @Composable
-private fun GameDetailsDialog(event: SportsEvent, onDismiss: () -> Unit) {
+private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventRepository, onDismiss: () -> Unit) {
+    var boxScore by remember(event.id) { mutableStateOf<SportsBoxScore?>(null) }
+    var statsLoading by remember(event.id) { mutableStateOf(event.status != SportsEventStatus.SCHEDULED) }
+    var statsFailed by remember(event.id) { mutableStateOf(false) }
+    var selectedTeam by remember(event.id) { mutableStateOf(0) }
+
+    // Load player stats; keep them updating while the game is live.
+    LaunchedEffect(event.id, event.status) {
+        if (event.status == SportsEventStatus.SCHEDULED || event.league == SportsLeague.UFC) {
+            statsLoading = false
+            return@LaunchedEffect
+        }
+        var first = true
+        while (true) {
+            try {
+                repository.boxScore(event, forceRefresh = !first)?.let { boxScore = it }
+                statsFailed = false
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                statsFailed = boxScore == null
+            }
+            statsLoading = false
+            first = false
+            if (event.status != SportsEventStatus.LIVE) break
+            delay(SportsEventRepository.LIVE_BOX_SCORE_MAX_AGE_MILLIS)
+        }
+    }
+
     // Dialog keeps remote focus inside the panel and closes on Back.
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val closeFocus = remember { FocusRequester() }
         LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
         Column(
-            modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth(0.7f)
+            modifier = Modifier.widthIn(max = 1100.dp).fillMaxWidth(0.94f).fillMaxHeight(0.92f)
                 .background(Background, RoundedCornerShape(18.dp))
                 .border(2.dp, ElectricBlue, RoundedCornerShape(18.dp))
-                .padding(28.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Actions first so focus starts at the top of the panel.
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                PanelButton("Close", active = false, modifier = Modifier.focusRequester(closeFocus), onClick = onDismiss)
+                boxScore?.teams?.forEachIndexed { index, team ->
+                    PanelButton(team.shortLabel, active = index == selectedTeam) { selectedTeam = index }
+                }
+                Spacer(Modifier.weight(1f))
                 StatusBadge(event)
                 Text(event.league.label.uppercase(), color = ElectricBlue, fontWeight = FontWeight.Bold)
             }
-            Text(event.title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text(event.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
 
             val sides = if (event.home != null && event.away != null) listOfNotNull(event.away, event.home) else event.competitors
-            sides.forEach { side ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            side.name + if (side.isHome) "  (Home)" else "",
-                            color = Color.White, fontSize = 18.sp,
-                            fontWeight = if (side.isWinner) FontWeight.Bold else FontWeight.Normal
-                        )
-                        side.record?.let { Text("Record $it", color = Muted, fontSize = 13.sp) }
-                    }
-                    if (!side.score.isNullOrBlank()) {
-                        Text(side.score, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                sides.forEach { side ->
+                    Row(
+                        modifier = Modifier.weight(1f).background(Surface, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                side.name + if (side.isHome) "  (Home)" else "",
+                                color = Color.White, fontSize = 16.sp,
+                                fontWeight = if (side.isWinner) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                            side.record?.let { Text("Record $it", color = Muted, fontSize = 12.sp) }
+                        }
+                        if (!side.score.isNullOrBlank()) {
+                            Text(side.score, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -298,20 +338,94 @@ private fun GameDetailsDialog(event: SportsEvent, onDismiss: () -> Unit) {
             event.venue?.let { DetailRow("Venue", it) }
             DetailRow("Watch on", event.broadcasts.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "Not listed yet")
 
-            Spacer(Modifier.padding(top = 4.dp))
-            var focused by remember { mutableStateOf(false) }
+            Text("PLAYER STATS", color = ElectricBlue, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            val team = boxScore?.teams?.getOrNull(selectedTeam)
+            when {
+                event.league == SportsLeague.UFC -> InfoPanel("Fight stats aren't available for UFC cards.")
+                event.status == SportsEventStatus.SCHEDULED -> InfoPanel("Player stats appear once the game starts.")
+                team != null -> team.groups.forEach { group -> StatTable(group) }
+                statsLoading -> InfoPanel("Loading player stats…")
+                statsFailed -> InfoPanel("Player stats unavailable right now.")
+                else -> InfoPanel("No player stats reported for this game yet.")
+            }
+        }
+    }
+}
+
+@Composable
+private fun PanelButton(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Text(
+        label,
+        color = Color.White,
+        fontWeight = FontWeight.Bold,
+        modifier = modifier
+            .border(2.dp, if (focused) Color.White else if (active) ElectricBlue else Color.DarkGray, RoundedCornerShape(10.dp))
+            .background(if (focused) ElectricBlue else if (active) Color(0xFF124B78) else Surface, RoundedCornerShape(10.dp))
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 9.dp)
+    )
+}
+
+private val StatNameWidth = 170.dp
+private val StatColumnWidth = 46.dp
+
+/** One stat table. Each player row can take focus so the remote scrolls through long tables. */
+@Composable
+private fun StatTable(group: SportsStatGroup) {
+    Column(
+        modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(12.dp)).padding(vertical = 8.dp)
+    ) {
+        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Close",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .focusRequester(closeFocus)
-                    .border(2.dp, if (focused) Color.White else ElectricBlue, RoundedCornerShape(10.dp))
-                    .background(if (focused) ElectricBlue else Surface, RoundedCornerShape(10.dp))
-                    .onFocusChanged { focused = it.isFocused }
-                    .clickable(onClick = onDismiss)
-                    .padding(horizontal = 22.dp, vertical = 10.dp)
+                group.title?.uppercase() ?: "PLAYERS", color = ElectricBlue, fontSize = 13.sp,
+                fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = StatNameWidth, max = StatNameWidth),
+                maxLines = 1, overflow = TextOverflow.Ellipsis
             )
+            group.labels.forEach { label ->
+                Text(label, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.widthIn(min = StatColumnWidth, max = StatColumnWidth), maxLines = 1)
+            }
+        }
+        group.players.forEach { player -> PlayerStatRow(player, group.labels.size) }
+        if (group.totals.isNotEmpty()) {
+            Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                Text("Team", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.widthIn(min = StatNameWidth, max = StatNameWidth))
+                group.totals.forEach { value ->
+                    Text(value, color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.widthIn(min = StatColumnWidth, max = StatColumnWidth), maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerStatRow(player: SportsPlayerLine, columns: Int) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .background(if (focused) SurfaceFocused else Color.Transparent)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val label = buildString {
+            append(player.name)
+            player.position?.let { append("  ").append(it) }
+        }
+        Text(
+            label, color = Color.White, fontSize = 14.sp,
+            fontWeight = if (player.starter) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.widthIn(min = StatNameWidth, max = StatNameWidth),
+            maxLines = 1, overflow = TextOverflow.Ellipsis
+        )
+        player.stats.take(columns).forEach { value ->
+            Text(value, color = Color.White, fontSize = 14.sp,
+                modifier = Modifier.widthIn(min = StatColumnWidth, max = StatColumnWidth), maxLines = 1)
         }
     }
 }
