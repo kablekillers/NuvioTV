@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   candidate:
-    if: github.ref == 'refs/heads/feature/kk-sports-hub'
+    if: github.ref == 'refs/heads/feature/kk-sports-hub' || github.ref == 'refs/heads/feature/tv-improvements'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -71,7 +71,32 @@ jobs:
           if grep -q 'application-debuggable' "$RUNNER_TEMP/badging.txt"; then exit 1; fi
           mkdir -p candidate
           cp "$apk" candidate/Kable-Killers-TV-1.1.4-Signed-Test.apk
-          (cd candidate && sha256sum Kable-Killers-TV-1.1.4-Signed-Test.apk > SHA256SUMS.txt)
+          # Per-device APKs: the in-app updater (AbiSelector) picks the one matching the
+          # device, so updates download a fraction of the universal APK.
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            split=$(find app/build/outputs/apk/full/release -maxdepth 1 -name "*-${abi}-*.apk" -print -quit)
+            test -n "$split"
+            "$tools/apksigner" verify --print-certs "$split" | grep -qi 'certificate SHA-256 digest: 8e8c1f005ddb17b676289b27ba711873ae352975e59b0bb3dc314e3c69e1f467'
+            "$tools/aapt" dump badging "$split" | grep -q "name='com.kablekillers.tv'"
+            cp "$split" "candidate/Kable-Killers-TV-1.1.4-Signed-Test-${abi}.apk"
+          done
+          (cd candidate && sha256sum *.apk > SHA256SUMS.txt)
+      - name: APK size report
+        run: |
+          set -euo pipefail
+          apk=candidate/Kable-Killers-TV-1.1.4-Signed-Test.apk
+          {
+            echo "## APK sizes"
+            echo '```'
+            ls -l candidate/*.apk | awk '{printf "%7.1f MB  %s\n", $5/1048576, $9}'
+            echo
+            echo "Universal APK breakdown (compressed):"
+            unzip -lv "$apk" | awk '$8 ~ /^lib\// {split($8,p,"/"); c[p[2]]+=$3} $8 ~ /\.dex$/ {d+=$3} $8 ~ /^res\/|resources.arsc/ {r+=$3} $8 ~ /^assets\// {a+=$3} END {for (k in c) printf "  lib/%-12s %6.1f MB\n", k, c[k]/1048576; printf "  dex             %6.1f MB\n  res             %6.1f MB\n  assets          %6.1f MB\n", d/1048576, r/1048576, a/1048576}'
+            echo
+            echo "Largest entries:"
+            unzip -lv "$apk" | awk 'NR>3 && $3 ~ /^[0-9]+$/ {printf "%8.2f MB  %s\n", $3/1048576, $8}' | sort -rn | head -25
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: Kable-Killers-TV-1.1.4-Signed-Test-Candidate
