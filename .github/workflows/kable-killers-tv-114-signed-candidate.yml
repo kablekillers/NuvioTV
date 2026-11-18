@@ -6,6 +6,8 @@ on:
       - feature/kk-sports-hub
     paths:
       - .github/workflows/kable-killers-tv-114-signed-candidate.yml
+      - app/src/main/java/com/nuvio/tv/ui/screens/sports/**
+      - app/src/main/res/raw/sports_hub_intro.mp4
   workflow_dispatch:
 
 permissions:
