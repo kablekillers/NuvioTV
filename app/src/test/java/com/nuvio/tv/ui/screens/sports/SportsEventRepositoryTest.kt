@@ -71,4 +71,34 @@ class SportsEventRepositoryTest {
         assertEquals(30_000L, SportsEventRepository.refreshIntervalMillis(live))
         assertEquals(120_000L, SportsEventRepository.refreshIntervalMillis(null))
     }
+
+    private class BoxProvider : SportsEventProvider {
+        var calls = 0
+        override suspend fun events(league: SportsLeague) = emptyList<SportsEvent>()
+        override suspend fun boxScore(event: SportsEvent): SportsBoxScore? {
+            calls++
+            return SportsBoxScore(event.id, listOf(SportsTeamBox("A", "A", listOf(
+                SportsStatGroup(null, listOf("PTS"), listOf(SportsPlayerLine("P", stats = listOf("$calls"))))
+            ))))
+        }
+    }
+
+    private fun game(status: SportsEventStatus) =
+        SportsEvent("NBA:9", SportsLeague.NBA, "A at B", null, status, providerName = "Test")
+
+    @Test fun liveBoxScoresRefreshButFinalOnesStayCached() = runTest {
+        var now = 0L
+        val provider = BoxProvider()
+        val repo = SportsEventRepository(provider, clock = { now })
+        repo.boxScore(game(SportsEventStatus.LIVE))
+        now = 10_000
+        repo.boxScore(game(SportsEventStatus.LIVE))
+        assertEquals(1, provider.calls)
+        now = 45_000
+        repo.boxScore(game(SportsEventStatus.LIVE))
+        assertEquals(2, provider.calls)
+        now = 10_000_000
+        repo.boxScore(game(SportsEventStatus.FINAL))
+        assertEquals(2, provider.calls)
+    }
 }

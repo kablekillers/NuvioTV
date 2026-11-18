@@ -424,17 +424,33 @@ internal fun HomeViewModel.loadCatalogPipeline(
                 HomeViewModel.TAG,
                 "Loading home catalog addonId=${addon.id} addonName=${addon.name} type=${catalog.apiType} catalogId=${catalog.id} catalogName=${catalog.name} supportsSkip=$supportsSkip skipStep=$skipStep"
             )
-            catalogRepository.getCatalog(
-                addonBaseUrl = addon.baseUrl,
-                addonId = addon.id,
-                addonName = addon.displayName,
-                catalogId = catalog.id,
-                catalogName = catalog.name,
-                type = catalog.apiType,
-                skip = 0,
-                skipStep = skipStep,
-                supportsSkip = supportsSkip
-            ).collect { result ->
+            // First load shows the last on-device copy instantly, then swaps in fresh data.
+            // Refreshes go straight to the network so they merge into what is on screen.
+            val catalogFlow = if (isRefresh) {
+                catalogRepository.getCatalog(
+                    addonBaseUrl = addon.baseUrl,
+                    addonId = addon.id,
+                    addonName = addon.displayName,
+                    catalogId = catalog.id,
+                    catalogName = catalog.name,
+                    type = catalog.apiType,
+                    skip = 0,
+                    skipStep = skipStep,
+                    supportsSkip = supportsSkip
+                )
+            } else {
+                catalogRepository.getCatalogCachedFirst(
+                    addonBaseUrl = addon.baseUrl,
+                    addonId = addon.id,
+                    addonName = addon.displayName,
+                    catalogId = catalog.id,
+                    catalogName = catalog.name,
+                    type = catalog.apiType,
+                    skipStep = skipStep,
+                    supportsSkip = supportsSkip
+                )
+            }
+            catalogFlow.collect { result ->
                 if (generation != catalogLoadGeneration) return@collect
                 when (result) {
                     is NetworkResult.Success -> {

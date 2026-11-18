@@ -656,6 +656,9 @@ class PartyRepository @Inject constructor(
             displayName = profile?.name?.trim()?.takeIf { it.isNotEmpty() }?.take(40) ?: DEFAULT_NAME,
             avatarUrl = profile?.let { avatarRepository.shareableImageUrl(it) }?.takeIf { it.startsWith("https://") && it.length <= 512 },
             avatarColor = profile?.avatarColorHex?.takeIf { COLOR_PATTERN.matches(it) },
+            // Kable Killers: only the main profile exists in the shared cloud account.
+            // Household profiles are device-local, so their index is never sent to the server.
+            profileIndex = profile?.takeIf { it.isPrimary }?.id,
         )
     }
 

@@ -122,6 +122,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.core.player.PlayerWindowBackdrop
@@ -182,6 +183,20 @@ fun PlayerScreen(
     val partyAvailable by viewModel.party.available.collectAsState()
     val partyCanUse by viewModel.party.canUse.collectAsState()
     val partyProfile by viewModel.party.profile.collectAsState()
+    val partyPlayback by viewModel.party.playback.collectAsState()
+    // Short "Alex paused" style notices shown in the party pill, as in Nuvio TV.
+    var partyNotice by remember { mutableStateOf<com.nuvio.tv.core.party.PartyNotice?>(null) }
+    LaunchedEffect(Unit) {
+        viewModel.party.notices.collect { next ->
+            partyNotice = next
+        }
+    }
+    LaunchedEffect(partyNotice) {
+        if (partyNotice != null) {
+            delay(3000)
+            partyNotice = null
+        }
+    }
     val postPlayRecommendationState by viewModel.postPlayRecommendationUiState.collectAsState()
     val effectiveAutoplayEnabled by viewModel.effectiveAutoplayEnabled.collectAsState(initial = false)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1424,6 +1439,38 @@ fun PlayerScreen(
             StreamSourceIndicator(text = uiState.streamSourceIndicatorText)
         }
 
+        // Watch Party status pill: member avatars plus waiting / reconnecting / notices (Nuvio TV parity).
+        partyState.party?.let { party ->
+            val waitingNames = if (partyPlayback?.paused == true && partyPlayback?.waiting == true) {
+                com.nuvio.tv.core.party.PartySync.waitingMemberIds(party, emptySet())
+                    .filter { it != party.memberId }
+                    .mapNotNull { id -> party.member(id)?.displayName }
+            } else {
+                emptyList()
+            }
+            val noticeText = partyNotice?.let { notice -> partyNoticeText(notice) }
+            val partyPausedBehind = uiState.partyBehind && !uiState.isPlaying && !uiState.isBuffering
+            com.nuvio.tv.ui.screens.party.PartyStatusPill(
+                visible = (uiState.showControls || waitingNames.isNotEmpty() || !party.connected || noticeText != null || partyPausedBehind) &&
+                    !uiState.showPartyPanel && uiState.error == null,
+                members = party.members,
+                message = when {
+                    !party.connected -> stringResource(R.string.party_reconnecting)
+                    waitingNames.isNotEmpty() -> stringResource(R.string.party_waiting_for, waitingNames.joinToString())
+                    partyPlayback?.waiting == true -> stringResource(R.string.party_waiting)
+                    noticeText != null -> noticeText
+                    partyPausedBehind -> stringResource(R.string.party_paused_for_you)
+                    uiState.partyBehind -> uiState.partyBehindMs?.let {
+                        stringResource(R.string.party_behind, com.nuvio.tv.ui.screens.detail.formatPlaybackTime(it))
+                    }
+                    else -> null
+                },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 28.dp)
+            )
+        }
+
         AnimatedVisibility(
             visible = uiState.showPlayerEngineSwitchInfo && uiState.error == null,
             enter = fadeIn(animationSpec = tween(NuvioMotion.tokens.durations.fast)),
@@ -2461,26 +2508,6 @@ private fun PlayerControlsOverlay(
                         onFocused = onResetHideTimer
                     )
 
-                    if (onShowPartyPanel != null) {
-                        ControlButton(
-                            icon = Icons.AutoMirrored.Filled.List,
-                            contentDescription = stringResource(R.string.party_title),
-                            onClick = onShowPartyPanel,
-                            upFocusRequester = progressUpTarget,
-                            onDownKey = onHideControls,
-                            onFocused = onResetHideTimer
-                        )
-                    }
-
-                    ControlButton(
-                        icon = Icons.Default.SwapHoriz,
-                        contentDescription = stringResource(R.string.cd_switch_player_engine),
-                        onClick = onSwitchPlayerEngine,
-                        upFocusRequester = progressUpTarget,
-                        onDownKey = onHideControls,
-                        onFocused = onResetHideTimer
-                    )
-
                     if (hasEpisodeContext) {
                         ControlButton(
                             icon = Icons.AutoMirrored.Filled.List,
@@ -2490,6 +2517,19 @@ private fun PlayerControlsOverlay(
                             upFocusRequester = progressUpTarget,
                             onDownKey = onHideControls,
                             onFocused = onResetHideTimer
+                        )
+                    }
+
+                    // Watch Party: same people icon as Nuvio TV, highlighted while in a party.
+                    if (onShowPartyPanel != null) {
+                        ControlButton(
+                            icon = Icons.Rounded.Groups,
+                            contentDescription = stringResource(R.string.party_title),
+                            onClick = onShowPartyPanel,
+                            upFocusRequester = progressUpTarget,
+                            onDownKey = onHideControls,
+                            onFocused = onResetHideTimer,
+                            contentColor = if (partyActive) NuvioTheme.colors.Secondary else Color.White
                         )
                     }
 
@@ -2525,6 +2565,14 @@ private fun PlayerControlsOverlay(
                                 onClick = {
                                     onToggleAspectRatio()
                                 },
+                                upFocusRequester = progressUpTarget,
+                                onDownKey = onHideControls,
+                                onFocused = onResetHideTimer
+                            )
+                            ControlButton(
+                                icon = Icons.Default.SwapHoriz,
+                                contentDescription = stringResource(R.string.cd_switch_player_engine),
+                                onClick = onSwitchPlayerEngine,
                                 upFocusRequester = progressUpTarget,
                                 onDownKey = onHideControls,
                                 onFocused = onResetHideTimer
@@ -2683,7 +2731,8 @@ private fun ControlButton(
     upFocusRequester: FocusRequester? = null,
     enabled: Boolean = true,
     onDownKey: (() -> Unit)? = null,
-    onFocused: (() -> Unit)? = null
+    onFocused: (() -> Unit)? = null,
+    contentColor: Color = Color.White
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
@@ -2731,7 +2780,7 @@ private fun ControlButton(
         colors = IconButtonDefaults.colors(
             containerColor = Color.Transparent,
             focusedContainerColor = Color.White,
-            contentColor = Color.White,
+            contentColor = contentColor,
             focusedContentColor = Color.Black
         ),
         shape = IconButtonDefaults.shape(shape = CircleShape)
@@ -3807,6 +3856,19 @@ internal fun DialogButton(
         )
     }
 }
+
+@Composable
+private fun partyNoticeText(notice: com.nuvio.tv.core.party.PartyNotice): String = when (notice.action) {
+    com.nuvio.tv.core.party.PartyAction.Paused -> stringResource(R.string.party_action_paused, notice.name)
+    com.nuvio.tv.core.party.PartyAction.Resumed -> stringResource(R.string.party_action_resumed, notice.name)
+    com.nuvio.tv.core.party.PartyAction.Seeked ->
+        stringResource(R.string.party_action_seeked, notice.name, formatTime(notice.positionMs))
+    com.nuvio.tv.core.party.PartyAction.Speed ->
+        stringResource(R.string.party_action_speed, notice.name, formatPartySpeed(notice.rate))
+}
+
+private fun formatPartySpeed(rate: Float): String =
+    if (rate % 1f == 0f) "${rate.toInt()}x" else "${rate}x"
 
 private fun formatTime(millis: Long): String {
     if (millis <= 0) return "0:00"

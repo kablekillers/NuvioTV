@@ -43,8 +43,31 @@ class SportsEventRepository(
         return fresh
     }
 
+    private val boxScores = mutableMapOf<String, SportsBoxScore>()
+
+    /**
+     * Player stats for a game. Finished games are cached for the session; live games
+     * are re-fetched once the cached copy is older than [LIVE_BOX_SCORE_MAX_AGE_MILLIS].
+     */
+    suspend fun boxScore(event: SportsEvent, forceRefresh: Boolean = false): SportsBoxScore? {
+        if (!forceRefresh) {
+            mutex.withLock { boxScores[event.id] }?.let { cached ->
+                val age = clock() - cached.fetchedAtEpochMillis
+                if (event.status == SportsEventStatus.FINAL || age < LIVE_BOX_SCORE_MAX_AGE_MILLIS) return cached
+            }
+        }
+        val fresh = provider.boxScore(event)?.copy(fetchedAtEpochMillis = clock()) ?: return null
+        mutex.withLock {
+            if (boxScores.size >= MAX_CACHED_BOX_SCORES) boxScores.remove(boxScores.keys.first())
+            boxScores[event.id] = fresh
+        }
+        return fresh
+    }
+
     companion object {
         const val DEFAULT_MAX_AGE_MILLIS = 60_000L
+        const val LIVE_BOX_SCORE_MAX_AGE_MILLIS = 30_000L
+        private const val MAX_CACHED_BOX_SCORES = 40
 
         /** Refresh more often while games are live, slower otherwise. */
         fun refreshIntervalMillis(board: SportsScoreboard?): Long =

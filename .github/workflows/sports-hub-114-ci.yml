@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/kk-sports-hub
+      - feature/tv-improvements
   workflow_dispatch:
 
 permissions:

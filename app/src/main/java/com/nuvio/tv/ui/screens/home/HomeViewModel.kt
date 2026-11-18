@@ -96,7 +96,8 @@ class HomeViewModel @Inject constructor(
         private const val MAX_RECENT_PROGRESS_ITEMS = 300
         private const val MAX_NEXT_UP_LOOKUPS = 24
         private const val MAX_NEXT_UP_CONCURRENCY = 4
-        private const val MAX_CATALOG_LOAD_CONCURRENCY = 3
+        // Catalog fetches are network-bound; 6 lets the first screen of rows load together.
+        private const val MAX_CATALOG_LOAD_CONCURRENCY = 6
 
         /** How long a home catalog is left alone before a return to Home re-requests it. */
         private const val HOME_CATALOG_REFRESH_TTL_MS = 15L * 60L * 1000L

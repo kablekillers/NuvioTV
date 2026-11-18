@@ -52,6 +52,9 @@ data class SportsEvent(
         }
     }
 
+    /** The provider's own event id (without the league prefix). */
+    val providerEventId: String get() = id.substringAfter(':')
+
     val home: SportsCompetitor? get() = competitors.firstOrNull { it.isHome }
     val away: SportsCompetitor? get() = competitors.firstOrNull { !it.isHome }
 
@@ -71,6 +74,9 @@ data class SportsEvent(
 /** Providers must return only real, source-backed event data, never generated fixtures in production. */
 interface SportsEventProvider {
     suspend fun events(league: SportsLeague): List<SportsEvent>
+
+    /** Individual player stats for a game, or null when the provider has none (e.g. not started). */
+    suspend fun boxScore(event: SportsEvent): SportsBoxScore? = null
 }
 
 object SportsEventSections {

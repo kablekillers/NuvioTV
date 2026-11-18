@@ -17,6 +17,7 @@ import com.nuvio.tv.domain.repository.CatalogRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import java.net.URLEncoder
@@ -70,38 +71,15 @@ class CatalogRepositoryImpl @Inject constructor(
 
         when (val result = safeApiCall(context) { api.getCatalog(url) }) {
             is NetworkResult.Success -> {
-                val rawItemCount = result.data.metas.size
-                val posterPattern = layoutPreferenceDataStore.customPosterUrlPattern
-                    .let { flow -> flow.first() }
-                val enabledScreens = layoutPreferenceDataStore.customPosterEnabledScreens.first()
-
-                val items = result.data.metas
-                    .mapNotNull { it?.toDomainOrNull(type, addonBaseUrl) }
-                    .distinctBy { it.id }
-                    .withCustomPosterUrls(
-                        com.nuvio.tv.core.poster.patternForScreen(posterPattern, posterScreen, enabledScreens)
-                    )
+                val catalogRow = buildRow(
+                    dto = result.data, addonBaseUrl = addonBaseUrl, addonId = addonId, addonName = addonName,
+                    catalogId = catalogId, catalogName = catalogName, type = type, skip = skip,
+                    skipStep = skipStep, extraArgs = extraArgs, supportsSkip = supportsSkip,
+                    posterScreen = posterScreen
+                )
                 Log.d(
                     TAG,
-                    "Catalog fetch success addonId=$addonId type=$type catalogId=$catalogId items=${items.size}"
-                )
-
-                val catalogRow = CatalogRow(
-                    addonId = addonId,
-                    addonName = addonName,
-                    addonBaseUrl = addonBaseUrl,
-                    catalogId = catalogId,
-                    catalogName = catalogName,
-                    type = ContentType.fromString(type),
-                    rawType = type,
-                    items = items,
-                    isLoading = false,
-                    hasMore = supportsSkip && rawItemCount > 0,
-                    currentPage = if (skipStep > 0) skip / skipStep else 0,
-                    supportsSkip = supportsSkip,
-                    skipStep = skipStep,
-                    nextSkip = if (supportsSkip && rawItemCount > 0) skip + rawItemCount else skip,
-                    extraArgs = extraArgs
+                    "Catalog fetch success addonId=$addonId type=$type catalogId=$catalogId items=${catalogRow.items.size}"
                 )
                 emit(NetworkResult.Success(catalogRow))
             }
@@ -114,6 +92,97 @@ class CatalogRepositoryImpl @Inject constructor(
             }
             NetworkResult.Loading -> { /* Already emitted */ }
         }
+    }
+
+    override fun getCatalogCachedFirst(
+        addonBaseUrl: String,
+        addonId: String,
+        addonName: String,
+        catalogId: String,
+        catalogName: String,
+        type: String,
+        skipStep: Int,
+        supportsSkip: Boolean
+    ): Flow<NetworkResult<CatalogRow>> = flow {
+        val network = getCatalog(
+            addonBaseUrl = addonBaseUrl, addonId = addonId, addonName = addonName,
+            catalogId = catalogId, catalogName = catalogName, type = type,
+            skip = 0, skipStep = skipStep, supportsSkip = supportsSkip
+        )
+        if (ServerCatalog.isServerAddon(addonBaseUrl)) {
+            emitAll(network)
+            return@flow
+        }
+        emit(NetworkResult.Loading)
+        val cachedRow = try {
+            val response = api.getCachedCatalog(buildCatalogUrl(addonBaseUrl, type, catalogId, 0, emptyMap()))
+            response.body()?.takeIf { response.isSuccessful }?.let { dto ->
+                buildRow(
+                    dto = dto, addonBaseUrl = addonBaseUrl, addonId = addonId, addonName = addonName,
+                    catalogId = catalogId, catalogName = catalogName, type = type, skip = 0,
+                    skipStep = skipStep, extraArgs = emptyMap(), supportsSkip = supportsSkip,
+                    posterScreen = com.nuvio.tv.core.poster.CustomPosterScreen.HOME
+                ).takeIf { it.items.isNotEmpty() }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            null // No usable cached copy; fall through to the network.
+        }
+        if (cachedRow != null) {
+            Log.d(TAG, "Catalog cache hit addonId=$addonId type=$type catalogId=$catalogId items=${cachedRow.items.size}")
+            emit(NetworkResult.Success(cachedRow))
+        }
+        network.collect { result ->
+            when {
+                result is NetworkResult.Loading -> Unit
+                // Keep showing the cached row rather than replacing it with an error.
+                result is NetworkResult.Error && cachedRow != null -> Unit
+                else -> emit(result)
+            }
+        }
+    }
+
+    private suspend fun buildRow(
+        dto: com.nuvio.tv.data.remote.dto.CatalogResponseDto,
+        addonBaseUrl: String,
+        addonId: String,
+        addonName: String,
+        catalogId: String,
+        catalogName: String,
+        type: String,
+        skip: Int,
+        skipStep: Int,
+        extraArgs: Map<String, String>,
+        supportsSkip: Boolean,
+        posterScreen: com.nuvio.tv.core.poster.CustomPosterScreen
+    ): CatalogRow {
+        val rawItemCount = dto.metas.size
+        val posterPattern = layoutPreferenceDataStore.customPosterUrlPattern.first()
+        val enabledScreens = layoutPreferenceDataStore.customPosterEnabledScreens.first()
+        val items = dto.metas
+            .mapNotNull { it?.toDomainOrNull(type, addonBaseUrl) }
+            .distinctBy { it.id }
+            .withCustomPosterUrls(
+                com.nuvio.tv.core.poster.patternForScreen(posterPattern, posterScreen, enabledScreens)
+            )
+        return CatalogRow(
+            addonId = addonId,
+            addonName = addonName,
+            addonBaseUrl = addonBaseUrl,
+            catalogId = catalogId,
+            catalogName = catalogName,
+            type = ContentType.fromString(type),
+            rawType = type,
+            items = items,
+            isLoading = false,
+            hasMore = supportsSkip && rawItemCount > 0,
+            currentPage = if (skipStep > 0) skip / skipStep else 0,
+            supportsSkip = supportsSkip,
+            skipStep = skipStep,
+            nextSkip = if (supportsSkip && rawItemCount > 0) skip + rawItemCount else skip,
+            extraArgs = extraArgs
+        )
     }
 
     private fun buildCatalogUrl(
