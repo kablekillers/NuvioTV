@@ -10,7 +10,7 @@ import com.nuvio.tv.domain.model.Addon
  * This registry contains public manifest identifiers only. Personalized add-on
  * URLs and credentials are deliberately not embedded in the application.
  */
-internal object SportsAddonCatalogs {
+object SportsAddonCatalogs {
     const val SPORTS_STREAMS = "community.sports.streamed.premium"
     const val NUVIO_LIVE = "community.nuvio.live-sports"
     const val STREMVERSE = "com.stremverse.org"
