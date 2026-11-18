@@ -5,6 +5,7 @@ on:
     branches:
       - feature/kk-sports-hub
       - feature/tv-improvements
+      - feature/sports-hub-intro-icons
   workflow_dispatch:
 
 permissions:

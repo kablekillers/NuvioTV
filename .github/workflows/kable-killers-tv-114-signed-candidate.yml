@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   candidate:
-    if: github.ref == 'refs/heads/feature/kk-sports-hub' || github.ref == 'refs/heads/feature/tv-improvements'
+    if: github.ref == 'refs/heads/feature/kk-sports-hub' || github.ref == 'refs/heads/feature/tv-improvements' || github.ref == 'refs/heads/feature/sports-hub-intro-icons'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
