@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +68,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     var selectedEventId by remember { mutableStateOf<String?>(null) }
     val cardFocus = remember { mutableMapOf<String, FocusRequester>() }
     val lifecycleOwner = LocalLifecycleOwner.current
+    var showIntro by rememberSaveable { mutableStateOf(true) }
+    val tabFocus = remember { FocusRequester() }
 
     LaunchedEffect(selectedLeague, lifecycleOwner) {
         board = repository.cached(selectedLeague)
@@ -93,13 +96,14 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
 
     val events = board?.takeIf { it.league == selectedLeague }?.events.orEmpty()
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier.fillMaxSize().background(Background)
             .verticalScroll(rememberScrollState()).padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            SportsLogoCluster()
+            SportsHeaderBadge(accent = ElectricBlue, background = Surface)
             Text("KABLE KILLERS SPORTS", color = ElectricBlue, fontSize = 30.sp, fontWeight = FontWeight.Bold)
         }
         Text(statusLine(board, refreshFailed, selectedLeague), color = Muted, fontSize = 15.sp)
@@ -109,7 +113,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             SportsLeague.entries.forEach { league ->
-                LeagueTab(league, active = league == selectedLeague) {
+                LeagueTab(league, active = league == selectedLeague,
+                    modifier = if (league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
                     if (league != selectedLeague) selectedLeague = league
                 }
             }
@@ -149,6 +154,15 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         }
     }
 
+    if (showIntro) SportsHubIntro(onFinished = { showIntro = false })
+    }
+    LaunchedEffect(showIntro) {
+        if (!showIntro) {
+            delay(50)
+            runCatching { tabFocus.requestFocus() }
+        }
+    }
+
     val selected = selectedEventId?.let { id -> events.firstOrNull { it.id == id } }
     if (selectedEventId != null) {
         val closeDetails = {
@@ -169,51 +183,6 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
 }
 
 
-/**
- * ESPN league-logo assets are loaded through Coil and cached by the normal image pipeline.
- * Text fallback keeps the TV navigation usable if a logo URL is unavailable.
- */
-private fun leagueLogoUrl(league: SportsLeague): String = when (league) {
-    SportsLeague.NFL -> "https://a.espncdn.com/i/teamlogos/leagues/500/nfl.png"
-    SportsLeague.COLLEGE_FOOTBALL -> "https://a.espncdn.com/i/teamlogos/leagues/500/college-football.png"
-    SportsLeague.NBA -> "https://a.espncdn.com/i/teamlogos/leagues/500/nba.png"
-    SportsLeague.MLB -> "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png"
-    SportsLeague.NHL -> "https://a.espncdn.com/i/teamlogos/leagues/500/nhl.png"
-    SportsLeague.UFC -> "https://a.espncdn.com/i/teamlogos/leagues/500/ufc.png"
-}
-
-@Composable
-private fun LeagueLogo(league: SportsLeague, logoSize: androidx.compose.ui.unit.Dp) {
-    var failed by remember(league) { mutableStateOf(false) }
-    Box(modifier = Modifier.size(logoSize), contentAlignment = Alignment.Center) {
-        if (!failed) {
-            AsyncImage(
-                model = leagueLogoUrl(league),
-                contentDescription = "${league.label} logo",
-                contentScale = ContentScale.Fit,
-                onError = { failed = true },
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Text(league.label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-/** Compact six-league logo group replaces the lightning bolt in the title. */
-@Composable
-private fun SportsLogoCluster() {
-    Row(
-        modifier = Modifier.background(Surface, RoundedCornerShape(12.dp))
-            .border(1.dp, ElectricBlue, RoundedCornerShape(12.dp))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        SportsLeague.entries.forEach { league -> LeagueLogo(league, 32.dp) }
-    }
-}
-
 private fun statusLine(board: SportsScoreboard?, refreshFailed: Boolean, league: SportsLeague): String {
     val base = "Live scores and schedules • Data: ESPN"
     val fetched = board?.takeIf { it.league == league }?.fetchedAtEpochMillis ?: return base
@@ -223,10 +192,10 @@ private fun statusLine(board: SportsScoreboard?, refreshFailed: Boolean, league:
 }
 
 @Composable
-private fun LeagueTab(league: SportsLeague, active: Boolean, onSelect: () -> Unit) {
+private fun LeagueTab(league: SportsLeague, active: Boolean, modifier: Modifier = Modifier, onSelect: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
-        modifier = Modifier
+        modifier = modifier
             .border(
                 if (focused || active) 2.dp else 1.dp,
                 if (focused) Color.White else if (active) ElectricBlue else Color.DarkGray,
@@ -238,7 +207,8 @@ private fun LeagueTab(league: SportsLeague, active: Boolean, onSelect: () -> Uni
             .padding(horizontal = 14.dp, vertical = 13.dp)
     ) {
 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-            LeagueLogo(league, 38.dp)
+            SportIcon(league.glyph(), size = 24.dp,
+                color = if (focused || active) Color.White else ElectricBlue)
             Text(league.label, color = Color.White, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal)
         }
     }
