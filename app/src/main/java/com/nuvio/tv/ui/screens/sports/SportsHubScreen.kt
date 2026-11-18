@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -51,7 +52,7 @@ private val LiveRed = Color(0xFFFF4D5E)
 private val Muted = Color(0xFFB4C2D6)
 
 @Composable
-fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared) {
+fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel()) {
     var selectedLeague by remember { mutableStateOf(SportsLeague.NFL) }
     var board by remember { mutableStateOf<SportsScoreboard?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -143,6 +144,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         val closeDetails = {
             val id = selectedEventId
             selectedEventId = null
+            streamsViewModel.clear()
             id?.let { cardFocus[it] }?.let { runCatching { it.requestFocus() } }
             Unit
         }
@@ -150,7 +152,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             // Game dropped off the provider's scoreboard (e.g. league switched); just close.
             LaunchedEffect(Unit) { closeDetails() }
         } else {
-            GameDetailsDialog(selected, onDismiss = closeDetails)
+            LaunchedEffect(selected.id) { streamsViewModel.lookup(selected) }
+            GameDetailsDialog(selected, streamsViewModel.matches, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> closeDetails(); onOpenStream(match) }, onDismiss = closeDetails)
         }
     }
 }
@@ -255,7 +258,7 @@ private fun GameCard(event: SportsEvent, focusRequester: FocusRequester, onSelec
 }
 
 @Composable
-private fun GameDetailsDialog(event: SportsEvent, onDismiss: () -> Unit) {
+private fun GameDetailsDialog(event: SportsEvent, matches: List<SportsCatalogMatch>, loading: Boolean, error: String?, onOpenStream: (SportsCatalogMatch) -> Unit, onDismiss: () -> Unit) {
     // Dialog keeps remote focus inside the panel and closes on Back.
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val closeFocus = remember { FocusRequester() }
@@ -298,6 +301,27 @@ private fun GameDetailsDialog(event: SportsEvent, onDismiss: () -> Unit) {
             event.venue?.let { DetailRow("Venue", it) }
             DetailRow("Watch on", event.broadcasts.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "Not listed yet")
 
+            Text("WATCH GAME", color = ElectricBlue, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            when {
+                loading -> Text("Searching your installed sports add-ons…", color = Muted)
+                error != null -> Text(error, color = Muted)
+                matches.isEmpty() -> Text("No matching sources found in installed add-ons.", color = Muted)
+                else -> matches.take(12).forEach { match ->
+                    var sourceFocused by remember(match.streamId, match.addon.baseUrl) { mutableStateOf(false) }
+                    Text(
+                        "${match.addon.displayName} • ${match.title}",
+                        color = Color.White,
+                        maxLines = 2,
+                        modifier = Modifier.fillMaxWidth()
+                            .border(if (sourceFocused) 2.dp else 1.dp,
+                                if (sourceFocused) Color.White else ElectricBlue, RoundedCornerShape(10.dp))
+                            .background(if (sourceFocused) SurfaceFocused else Surface, RoundedCornerShape(10.dp))
+                            .onFocusChanged { sourceFocused = it.isFocused }
+                            .clickable { onOpenStream(match) }
+                            .padding(12.dp)
+                    )
+                }
+            }
             Spacer(Modifier.padding(top = 4.dp))
             var focused by remember { mutableStateOf(false) }
             Text(
