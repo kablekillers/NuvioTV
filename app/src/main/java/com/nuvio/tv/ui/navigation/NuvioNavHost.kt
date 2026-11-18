@@ -164,7 +164,19 @@ private fun PlaybackNavHost(
             )
         }
 
-        composable(Screen.SportsHub.route) { SportsHubScreen() }
+        composable(Screen.SportsHub.route) {
+            SportsHubScreen(onOpenStream = { match ->
+                navController.navigate(
+                    Screen.Stream.createRoute(
+                        videoId = match.streamId,
+                        contentType = match.contentType,
+                        title = match.title,
+                        manualSelection = true,
+                        returnToHomeOnBack = true
+                    )
+                )
+            })
+        }
 
         composable(Screen.Home.route) {
             fun createContinueWatchingRoute(
