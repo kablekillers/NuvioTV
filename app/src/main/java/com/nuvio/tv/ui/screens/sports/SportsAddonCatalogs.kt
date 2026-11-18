@@ -57,8 +57,10 @@ internal object SportsAddonCatalogs {
         if (!addon.enabled || id.isBlank()) return false
         return addon.resources.any { resource ->
             resource.name == "stream" &&
-                type in resource.types &&
-                (resource.idPrefixes.isNullOrEmpty() || resource.idPrefixes.any(id::startsWith))
+                (resource.types.isEmpty() || type in resource.types) &&
+                (resource.idPrefixes ?: addon.idPrefixes).let { prefixes ->
+                    prefixes.isEmpty() || prefixes.any(id::startsWith)
+                }
         }
     }
 }
