@@ -9,7 +9,7 @@ import java.util.Locale
  * An add-on catalog entry is the source of truth for the playable ID.
  * Never substitute an ESPN event ID into an add-on stream endpoint.
  */
-internal data class SportsCatalogMatch(
+data class SportsCatalogMatch(
     val addon: Addon,
     val catalogId: String,
     val contentType: String,
