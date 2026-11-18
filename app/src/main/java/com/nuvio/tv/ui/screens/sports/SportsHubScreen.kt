@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +21,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import coil3.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -93,7 +98,10 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             .verticalScroll(rememberScrollState()).padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp)
     ) {
-        Text("⚡ KABLE KILLERS SPORTS", color = ElectricBlue, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            SportsLogoCluster()
+            Text("KABLE KILLERS SPORTS", color = ElectricBlue, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        }
         Text(statusLine(board, refreshFailed, selectedLeague), color = Muted, fontSize = 15.sp)
 
         Row(
@@ -160,6 +168,52 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     }
 }
 
+
+/**
+ * ESPN league-logo assets are loaded through Coil and cached by the normal image pipeline.
+ * Text fallback keeps the TV navigation usable if a logo URL is unavailable.
+ */
+private fun leagueLogoUrl(league: SportsLeague): String = when (league) {
+    SportsLeague.NFL -> "https://a.espncdn.com/i/teamlogos/leagues/500/nfl.png"
+    SportsLeague.COLLEGE_FOOTBALL -> "https://a.espncdn.com/i/teamlogos/leagues/500/college-football.png"
+    SportsLeague.NBA -> "https://a.espncdn.com/i/teamlogos/leagues/500/nba.png"
+    SportsLeague.MLB -> "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png"
+    SportsLeague.NHL -> "https://a.espncdn.com/i/teamlogos/leagues/500/nhl.png"
+    SportsLeague.UFC -> "https://a.espncdn.com/i/teamlogos/leagues/500/ufc.png"
+}
+
+@Composable
+private fun LeagueLogo(league: SportsLeague, logoSize: androidx.compose.ui.unit.Dp) {
+    var failed by remember(league) { mutableStateOf(false) }
+    Box(modifier = Modifier.size(logoSize), contentAlignment = Alignment.Center) {
+        if (!failed) {
+            AsyncImage(
+                model = leagueLogoUrl(league),
+                contentDescription = "${league.label} logo",
+                contentScale = ContentScale.Fit,
+                onError = { failed = true },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Text(league.label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** Compact six-league logo group replaces the lightning bolt in the title. */
+@Composable
+private fun SportsLogoCluster() {
+    Row(
+        modifier = Modifier.background(Surface, RoundedCornerShape(12.dp))
+            .border(1.dp, ElectricBlue, RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SportsLeague.entries.forEach { league -> LeagueLogo(league, 32.dp) }
+    }
+}
+
 private fun statusLine(board: SportsScoreboard?, refreshFailed: Boolean, league: SportsLeague): String {
     val base = "Live scores and schedules • Data: ESPN"
     val fetched = board?.takeIf { it.league == league }?.fetchedAtEpochMillis ?: return base
@@ -183,7 +237,10 @@ private fun LeagueTab(league: SportsLeague, active: Boolean, onSelect: () -> Uni
             .clickable(onClick = onSelect)
             .padding(horizontal = 14.dp, vertical = 13.dp)
     ) {
-        Text(league.label, color = Color.White, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal)
+Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            LeagueLogo(league, 38.dp)
+            Text(league.label, color = Color.White, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal)
+        }
     }
 }
 
