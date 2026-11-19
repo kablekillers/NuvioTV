@@ -50,6 +50,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
@@ -237,7 +238,7 @@ data class DrawerItem(
 )
 
 private data class MainUiPrefs(
-    val theme: AppTheme = AppTheme.WHITE,
+    val theme: AppTheme = AppTheme.CINEMA_BLACK,
     val customThemeColors: CustomThemeColors = CustomThemeColors.Default,
     val memberAccess: MemberAccess = MemberAccess.None,
     val font: AppFont = AppFont.INTER,
@@ -515,7 +516,7 @@ open class MainActivity : ComponentActivity() {
                     experienceModeDataStore.mode,
                 ) { themeAndAccess, font, amoledMode, amoledSurfacesMode, experienceMode ->
                     MainUiPrefs(
-                        theme = themeAndAccess.first.theme ?: AppTheme.WHITE,
+                        theme = themeAndAccess.first.theme ?: AppTheme.CINEMA_BLACK,
                         customThemeColors = themeAndAccess.first.customColors,
                         memberAccess = themeAndAccess.second,
                         font = font,
@@ -658,7 +659,7 @@ open class MainActivity : ComponentActivity() {
                             .apply()
                     }
                     val activeTheme = mainUiPrefs.theme
-                    if (splashPreferencesReady && activeTheme != AppTheme.WHITE) {
+                    if (splashPreferencesReady && activeTheme != AppTheme.CINEMA_BLACK) {
                         splashPrefs.edit().putString("theme_$activeProfileId", activeTheme.name).apply()
                     } else if (splashPreferencesReady) {
                         splashPrefs.edit().remove("theme_$activeProfileId").apply()
@@ -677,7 +678,7 @@ open class MainActivity : ComponentActivity() {
                         ?: activeTheme.takeIf { splashPreferencesReady }
                         ?: splashPrefs.getString("theme_$activeProfileId", null)
                             ?.let { name -> AppTheme.entries.firstOrNull { it.name == name } }
-                        ?: AppTheme.WHITE
+                        ?: AppTheme.CINEMA_BLACK
                     SplashBackground(
                         profileColorHex = if (hasFocusedOverride) focusedSplashColor else (colorHex ?: fallbackColor),
                         backgroundUrl = resolvedBgUrl,
@@ -1030,6 +1031,7 @@ open class MainActivity : ComponentActivity() {
                         buildSet {
                             add(Screen.Home.route)
                             add(Screen.SportsHub.route)
+                            add(Screen.Calendar.route)
                             add(Screen.Search.route)
                             add(Screen.Library.route)
                             add(Screen.Settings.route)
@@ -1065,6 +1067,13 @@ open class MainActivity : ComponentActivity() {
                                     route = Screen.SportsHub.route,
                                     label = "Sports Hub",
                                     icon = Icons.Default.Explore
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Calendar.route,
+                                    label = "Calendar",
+                                    icon = Icons.Default.DateRange
                                 )
                             )
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {

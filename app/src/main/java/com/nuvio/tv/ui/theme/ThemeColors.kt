@@ -91,6 +91,27 @@ object ThemeColors {
         backgroundCard = NuvioPrimitives.neutral850
     )
 
+    /** Kable Killers default: near-black cinema backdrop with a polished gold accent. */
+    val CinemaBlack = ThemeColorPalette(
+        secondary = Color(0xFFE8B44A),
+        secondaryVariant = Color(0xFFB57A12),
+        onSecondary = Color(0xFF16110A),
+        onSecondaryVariant = Color(0xFF16110A),
+        accentGradient = listOf(Color(0xFFFFE08A), Color(0xFFE8B44A), Color(0xFFB57A12)),
+        focusRing = Color(0xFFFFD27A),
+        focusRingGradient = listOf(Color(0xFFFFE08A), Color(0xFFE8B44A), Color(0xFFFFF1A8), Color(0xFFB57A12)),
+        focusBackground = Color(0xFF2A1E0C),
+        background = Color(0xFF08080A),
+        backgroundElevated = Color(0xFF141317),
+        backgroundCard = Color(0xFF1B1A1E),
+        surface = Color(0xFF17161A),
+        surfaceVariant = Color(0xFF242228),
+        panel = Color(0xFF121115),
+        field = Color(0xFF1E1D22),
+        menu = Color(0xFF17161A),
+        modal = Color(0xFF121115)
+    )
+
     fun getColorPalette(
         theme: AppTheme,
         customColors: CustomThemeColors = CustomThemeColors.Default
@@ -109,6 +130,7 @@ object ThemeColors {
             AppTheme.AMBER -> Amber
             AppTheme.ROSE -> Rose
             AppTheme.WHITE -> White
+            AppTheme.CINEMA_BLACK -> CinemaBlack
         }
     }
 }

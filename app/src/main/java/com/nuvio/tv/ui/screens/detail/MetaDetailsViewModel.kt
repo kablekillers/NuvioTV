@@ -54,6 +54,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -105,6 +106,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val metaDetailsSessionState: MetaDetailsSessionState,
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
+    private val streamRepository: com.nuvio.tv.domain.repository.StreamRepository,
     val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -164,6 +166,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     init {
         posterOptions.bind(viewModelScope)
+        observeSourcePrefetch()
         observeMetaViewSettings()
         observeTrailerAutoplaySettings()
         observeTraktCommentsAvailability()
@@ -290,6 +293,44 @@ class MetaDetailsViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Once the viewer lingers on a title, start the shared source search for what Play would start,
+     * so the stream screen opens with results already arriving. The search session is kept by the
+     * repository's cache; this only kicks it off.
+     */
+    private fun observeSourcePrefetch() {
+        viewModelScope.launch {
+            _uiState
+                .map { state ->
+                    val meta = state.meta ?: return@map null
+                    if (isServerItem) return@map null
+                    val isSeries = meta.apiType == "series" || meta.apiType == "tv"
+                    if (isSeries) {
+                        val next = state.nextToWatch ?: return@map null
+                        val videoId = next.nextVideoId ?: return@map null
+                        SourcePrefetchTarget(meta.apiType, videoId, next.nextSeason, next.nextEpisode)
+                    } else {
+                        SourcePrefetchTarget(meta.apiType, meta.id, null, null)
+                    }
+                }
+                .distinctUntilChanged()
+                .collectLatest { target ->
+                    if (target == null) return@collectLatest
+                    delay(1_500L)
+                    runCatching {
+                        streamRepository.getStreamsFromAllAddons(
+                            type = target.type,
+                            videoId = target.videoId,
+                            season = target.season,
+                            episode = target.episode
+                        ).take(1).collect { }
+                    }
+                }
+        }
+    }
+
+    private data class SourcePrefetchTarget(val type: String, val videoId: String, val season: Int?, val episode: Int?)
 
     private fun updateNextToWatch(nextToWatch: NextToWatch) {
         _uiState.value.meta?.let { meta ->

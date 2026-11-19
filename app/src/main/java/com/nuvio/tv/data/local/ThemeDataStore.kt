@@ -29,6 +29,8 @@ class ThemeDataStore @Inject constructor(
         factory.get(profileId, FEATURE)
 
     private val themeKey = stringPreferencesKey("selected_theme")
+    /** Set once this profile picks a theme in a Cinema Black build; until then a saved White shows as Cinema Black. */
+    private val themeChosenByUserKey = booleanPreferencesKey("theme_chosen_by_user")
     private val customThemeColorsKey = stringPreferencesKey("custom_theme_colors")
     private val fontKey = stringPreferencesKey("selected_font")
     private val amoledModeKey = booleanPreferencesKey("amoled_mode")
@@ -38,7 +40,7 @@ class ThemeDataStore @Inject constructor(
     val themeSelection: Flow<ThemeSelection> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
             ThemeSelection(
-                theme = prefs[themeKey]?.let { name -> AppTheme.entries.firstOrNull { it.name == name } },
+                theme = storedTheme(prefs),
                 customColors = CustomThemeColors.decode(prefs[customThemeColorsKey])
             )
         }
@@ -81,6 +83,7 @@ class ThemeDataStore @Inject constructor(
     suspend fun setTheme(theme: AppTheme) {
         store().edit { prefs ->
             prefs[themeKey] = theme.name
+            prefs[themeChosenByUserKey] = true
         }
     }
 
@@ -88,6 +91,7 @@ class ThemeDataStore @Inject constructor(
         store().edit { prefs ->
             prefs[customThemeColorsKey] = colors.encode()
             prefs[themeKey] = AppTheme.CUSTOM.name
+            prefs[themeChosenByUserKey] = true
         }
     }
 
@@ -120,11 +124,17 @@ class ThemeDataStore @Inject constructor(
 
     suspend fun getThemeForProfile(profileId: Int): AppTheme? {
         val prefs = factory.get(profileId, FEATURE).data.first()
-        return prefs[themeKey]?.let { name -> AppTheme.entries.firstOrNull { it.name == name } }
+        return storedTheme(prefs)
     }
 
     fun observeThemeForProfile(profileId: Int): Flow<AppTheme?> =
         factory.get(profileId, FEATURE).data.map { prefs ->
-            prefs[themeKey]?.let { name -> AppTheme.entries.firstOrNull { it.name == name } }
+            storedTheme(prefs)
         }
+
+    /** White was the old default, so a saved White the profile never picked here shows as Cinema Black. */
+    private fun storedTheme(prefs: androidx.datastore.preferences.core.Preferences): AppTheme? {
+        val theme = prefs[themeKey]?.let { name -> AppTheme.entries.firstOrNull { it.name == name } }
+        return if (theme == AppTheme.WHITE && prefs[themeChosenByUserKey] != true) AppTheme.CINEMA_BLACK else theme
+    }
 }

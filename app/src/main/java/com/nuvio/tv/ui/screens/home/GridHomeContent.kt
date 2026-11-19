@@ -591,7 +591,7 @@ fun GridHomeContent(
             }
 
             // Emit Upcoming section if SPLIT_UPCOMING mode has upcoming items
-            if (uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty()) {
+            if (uiState.continueWatchingEnabled && uiState.comingUpItems.isNotEmpty()) {
                 item(
                     key = "upcoming_section",
                     span = { GridItemSpan(maxLineSpan) },
@@ -608,11 +608,11 @@ fun GridHomeContent(
                         modifier = Modifier.fillMaxWidth(),
                         fullWidth = gridWidth,
                         items = remember(
-                            uiState.upcomingItems,
+                            uiState.comingUpItems,
                             uiState.customPosterUrlPattern,
                             uiState.customPosterEnabledScreens,
                         ) {
-                            uiState.upcomingItems.withCustomPosterUrls(
+                            uiState.comingUpItems.withCustomPosterUrls(
                                 com.nuvio.tv.core.poster.patternForScreen(uiState.customPosterUrlPattern, com.nuvio.tv.core.poster.CustomPosterScreen.CONTINUE_WATCHING, uiState.customPosterEnabledScreens)
                             )
                         },

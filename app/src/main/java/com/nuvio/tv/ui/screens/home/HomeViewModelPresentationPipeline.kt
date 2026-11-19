@@ -296,7 +296,7 @@ internal fun HomeViewModel.observeModernHomePresentationPipeline() {
                     pattern = state.customPosterUrlPattern,
                     screens = state.customPosterEnabledScreens,
                     continueWatchingItems = state.continueWatchingItems,
-                    upcomingItems = state.upcomingItems,
+                    upcomingItems = state.comingUpItems,
                 )
             }
             .distinctUntilChanged()

@@ -186,6 +186,11 @@ private fun PlaybackNavHost(
             )
         }
 
+        composable(Screen.Calendar.route) {
+            com.nuvio.tv.ui.screens.calendar.CalendarScreen(onOpenShow = { ep ->
+                navController.navigate(Screen.Detail.createRoute(itemId = ep.showId, itemType = ep.showType))
+            })
+        }
         composable(Screen.SportsHub.route) {
             SportsHubScreen(onOpenStream = { match ->
                 navController.navigate(
@@ -265,6 +270,13 @@ private fun PlaybackNavHost(
                     )
                 },
                 onContinueWatchingClick = onContinueWatchingClick@{ item ->
+                    // An episode that hasn't aired yet has nothing to play: open the show instead.
+                    if (item is ContinueWatchingItem.NextUp && !item.info.hasAired) {
+                        navController.navigate(
+                            Screen.Detail.createRoute(itemId = item.info.contentId, itemType = item.info.contentType)
+                        )
+                        return@onContinueWatchingClick
+                    }
                     if (!playbackAvailability.canStream(item)) {
                         Toast.makeText(context, R.string.playback_unavailable_message, Toast.LENGTH_SHORT).show()
                         return@onContinueWatchingClick

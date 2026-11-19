@@ -708,7 +708,7 @@ fun ClassicHomeContent(
             }
         }
 
-        if (uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty()) {
+        if (uiState.continueWatchingEnabled && uiState.comingUpItems.isNotEmpty()) {
             item(key = "upcoming_section", contentType = "upcoming_section") {
                 LaunchedEffect(upcomingPendingScrollToStart.intValue) {
                     if (upcomingPendingScrollToStart.intValue > 0) {
@@ -719,11 +719,11 @@ fun ClassicHomeContent(
                 }
                 ContinueWatchingSection(
                     items = remember(
-                        uiState.upcomingItems,
+                        uiState.comingUpItems,
                         uiState.customPosterUrlPattern,
                         uiState.customPosterEnabledScreens,
                     ) {
-                        uiState.upcomingItems.withCustomPosterUrls(
+                        uiState.comingUpItems.withCustomPosterUrls(
                             com.nuvio.tv.core.poster.patternForScreen(uiState.customPosterUrlPattern, com.nuvio.tv.core.poster.CustomPosterScreen.CONTINUE_WATCHING, uiState.customPosterEnabledScreens)
                         )
                     },
@@ -776,7 +776,7 @@ fun ClassicHomeContent(
                         cwFocusedIndex.intValue = itemIndex
                         onFocusedRowKeyChanged(null)
                         if (uiState.classicFocusGradientEnabled) {
-                            focusedArtwork = uiState.upcomingItems.getOrNull(itemIndex)
+                            focusedArtwork = uiState.comingUpItems.getOrNull(itemIndex)
                                 ?.toClassicFocusArtwork(uiState.focusedPosterBackdropExpandEnabled)
                         }
                     },

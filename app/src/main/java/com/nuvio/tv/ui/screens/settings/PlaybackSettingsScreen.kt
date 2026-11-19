@@ -99,6 +99,8 @@ fun PlaybackSettingsContent(
             subtitle = stringResource(R.string.playback_subtitle)
         )
 
+        TvRecommendedSetupCard(settings = playerSettings, viewModel = viewModel)
+
         SettingsGroupCard(
             modifier = Modifier
                 .fillMaxWidth()

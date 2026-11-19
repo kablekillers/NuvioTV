@@ -370,6 +370,7 @@ class HomeViewModel @Inject constructor(
             loadDisabledHomeCatalogPreference()
             loadCustomCatalogTitles()
             observeLibraryState()
+            observeLibraryComingUp()
             observeTmdbSettings()
             observeMdbListSettings()
             observeBlurUnwatchedEpisodes()

@@ -160,6 +160,8 @@ internal fun ModernHeroMediaLayer(
         displayedBackdrop?.let { HeroBackdropState.update(it) }
     }
 
+    // Cinema Black: a slow camera drift over the backdrop.
+    val drift = com.nuvio.tv.ui.theme.rememberCinemaDrift(com.nuvio.tv.ui.theme.isCinemaBlackTheme)
     Box(modifier = modifier) {
         androidx.compose.animation.Crossfade(
             targetState = imageModel,
@@ -174,6 +176,13 @@ internal fun ModernHeroMediaLayer(
                     .graphicsLayer {
                         compositingStrategy = CompositingStrategy.Offscreen
                         alpha = 1f - transitionProgressState.value
+                        val d = drift.value
+                        if (d > 0f) {
+                            scaleX = 1f + 0.06f * d
+                            scaleY = 1f + 0.06f * d
+                            translationX = -size.width * 0.02f * d
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+                        }
                     },
                 contentScale = ContentScale.Crop,
                 alignment = Alignment.TopEnd
