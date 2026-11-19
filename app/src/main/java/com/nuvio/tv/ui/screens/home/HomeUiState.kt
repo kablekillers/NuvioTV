@@ -19,6 +19,8 @@ data class HomeUiState(
     val catalogRows: List<CatalogRow> = emptyList(),
     val continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
     val upcomingItems: List<ContinueWatchingItem> = emptyList(),
+    /** Next episodes of Library series, merged into the Upcoming row. */
+    val libraryComingUpItems: List<ContinueWatchingItem> = emptyList(),
     val isLoading: Boolean = true,
     val layoutPreferencesReady: Boolean = false,
     val error: String? = null,
@@ -224,3 +226,7 @@ sealed class HomeEvent {
 fun homeItemStatusKey(itemId: String, itemType: String): String {
     return "${itemType.lowercase()}|$itemId"
 }
+
+/** What the Upcoming row shows: Continue Watching's unaired episodes plus Library shows coming back. */
+val HomeUiState.comingUpItems: List<ContinueWatchingItem>
+    get() = mergeComingUp(continueWatchingItems, upcomingItems, libraryComingUpItems)
