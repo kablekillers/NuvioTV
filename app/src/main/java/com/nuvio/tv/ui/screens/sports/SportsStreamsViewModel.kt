@@ -16,6 +16,10 @@ class SportsStreamsViewModel @Inject constructor(
 ) : ViewModel() {
     var matches by androidx.compose.runtime.mutableStateOf<List<SportsCatalogMatch>>(emptyList())
         private set
+    var browse by androidx.compose.runtime.mutableStateOf<List<SportsCatalogMatch>>(emptyList())
+        private set
+    var diagnostics by androidx.compose.runtime.mutableStateOf("")
+        private set
     var loading by androidx.compose.runtime.mutableStateOf(false)
         private set
     var error by androidx.compose.runtime.mutableStateOf<String?>(null)
@@ -25,11 +29,16 @@ class SportsStreamsViewModel @Inject constructor(
     fun lookup(event: SportsEvent) {
         job?.cancel()
         matches = emptyList()
+        browse = emptyList()
+        diagnostics = ""
         error = null
         loading = true
         job = viewModelScope.launch {
             try {
-                matches = discovery.find(event, replays = event.kind == SportsContentKind.REPLAY)
+                val result = discovery.discover(event, replays = event.kind == SportsContentKind.REPLAY)
+                matches = result.matches
+                browse = result.browse
+                diagnostics = "Checked ${result.catalogsChecked} catalogs • ${result.catalogItems} entries • ${result.catalogErrors} errors"
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {
@@ -43,6 +52,8 @@ class SportsStreamsViewModel @Inject constructor(
     fun clear() {
         job?.cancel()
         matches = emptyList()
+        browse = emptyList()
+        diagnostics = ""
         loading = false
         error = null
     }
