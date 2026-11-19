@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -206,8 +207,15 @@ class ProfileSettingsSyncService @Inject constructor(
         "track_preference"
     )
 
+    @Volatile
+    private var skipNextSecondaryPushSignature: String? = null
+
+    private fun cloudProfilesEnabled(): Boolean =
+        KableKillersAccountPolicy.cloudProfilesEnabled(authManager.authState.value)
+
     init {
         observeLocalSettingsChangesAndSync()
+        observeCloudProfileSettingsChangesAndSync()
     }
 
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
@@ -223,7 +231,9 @@ class ProfileSettingsSyncService @Inject constructor(
         syncMutex.withLock {
             try {
                 val profileId = profileManager.activeProfileId.value
-                if (profileId != 1) return@withLock Result.success(Unit)
+                // Customer household profiles never upload settings. Cloud
+                // accounts keep each profile's own settings in the cloud.
+                if (profileId != 1 && !cloudProfilesEnabled()) return@withLock Result.success(Unit)
                 pushProfileToRemote(profileId)
                 Log.d(TAG, "Pushed profile settings blob for profile $profileId")
                 Result.success(Unit)
@@ -240,7 +250,9 @@ class ProfileSettingsSyncService @Inject constructor(
                 // Household profiles inherit Profile 1's remote settings.
                 // Never query the shared server using a device-local household ID.
                 val profileId = 1
-                val inheritedPluginSettingsApplied = pullInheritedPluginSettings(profileId)
+                val secondaryApplied = pullActiveCloudProfileSettings()
+                val inheritedPluginSettingsApplied =
+                    pullInheritedPluginSettings(profileId) || secondaryApplied
                 val blob = pullProfileFromRemote(profileId)
                 lastForegroundPullAtMs = SystemClock.elapsedRealtime()
                 if (blob == null) {
@@ -298,6 +310,17 @@ class ProfileSettingsSyncService @Inject constructor(
                         // Household profile IDs are local and reused across customer
                         // devices. Never fetch credentials for those IDs from cloud.
                         copyProviderCredentialsLocally(sourceProfileId, targetProfileId)
+                    }
+                    if (cloudProfilesEnabled()) {
+                        // Cloud accounts: store the new profile's copied settings
+                        // so other devices on this login get them too.
+                        try {
+                            pushProfileToRemote(targetProfileId)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Copied profile $targetProfileId locally; cloud upload will retry later", e)
+                        }
                     }
                     Log.d(TAG, "Copied profile setup from $sourceProfileId to $targetProfileId")
                     Result.success(Unit)
@@ -369,6 +392,20 @@ class ProfileSettingsSyncService @Inject constructor(
             // a remote pull is not immediately echoed back as a cloud push.
             skipNextPushSignature = buildSettingsSignature(1)
         }
+    }
+
+    // Cloud accounts only: refresh the active non-primary profile's own settings.
+    private suspend fun pullActiveCloudProfileSettings(): Boolean {
+        if (!cloudProfilesEnabled()) return false
+        val activeId = profileManager.activeProfileId.value
+        if (activeId == 1) return false
+        val features = pullProfileFromRemote(activeId)?.get("features") as? JsonObject ?: return false
+        val remoteSignature = buildSettingsSignature(features)
+        if (remoteSignature == buildSettingsSignature(activeId)) return false
+        importSettingsBlob(activeId, features)
+        skipNextSecondaryPushSignature = buildSettingsSignature(activeId)
+        Log.d(TAG, "Applied cloud settings for profile $activeId")
+        return true
     }
 
     private suspend fun pullInheritedPluginSettings(profileId: Int): Boolean {
@@ -539,6 +576,49 @@ class ProfileSettingsSyncService @Inject constructor(
                             pushProfileToRemote(1)
                         } catch (error: Exception) {
                             Log.e(TAG, "Failed to push primary profile settings", error)
+                        }
+                    }
+                }
+        }
+    }
+
+    // Cloud accounts only. Profile 1 is still watched by the observer above;
+    // this one uploads the active non-primary profile's own settings.
+    private fun observeCloudProfileSettingsChangesAndSync() {
+        scope.launch {
+            combine(profileManager.activeProfileId, authManager.authState) { profileId, authState ->
+                profileId.takeIf { it != 1 && KableKillersAccountPolicy.cloudProfilesEnabled(authState) }
+            }
+                .distinctUntilChanged()
+                .flatMapLatest { profileId ->
+                    if (profileId == null) {
+                        emptyFlow()
+                    } else {
+                        val featureFlows = syncedFeatures.map { feature ->
+                            profileDataStoreFactory.get(profileId, feature).data
+                                .map { prefs -> "$feature={${buildFeatureSignature(prefs, feature)}}" }
+                        }
+                        combine(featureFlows) { signatures ->
+                            profileId to signatures.joinToString(separator = "||")
+                        }
+                            .distinctUntilChanged()
+                            .drop(1)
+                    }
+                }
+                .debounce(SETTINGS_PUSH_DEBOUNCE_MS)
+                .collect { (profileId, signature) ->
+                    if (!authManager.isAuthenticated || !cloudProfilesEnabled()) return@collect
+                    if (applyingRemoteBlob) return@collect
+                    if (profileManager.activeProfileId.value != profileId) return@collect
+                    if (signature == skipNextSecondaryPushSignature) {
+                        skipNextSecondaryPushSignature = null
+                        return@collect
+                    }
+                    syncMutex.withLock {
+                        try {
+                            pushProfileToRemote(profileId)
+                        } catch (error: Exception) {
+                            Log.e(TAG, "Failed to push settings for profile $profileId", error)
                         }
                     }
                 }

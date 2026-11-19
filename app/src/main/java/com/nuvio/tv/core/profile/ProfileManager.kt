@@ -117,6 +117,9 @@ class ProfileManager @Inject constructor(
         credentialStores.forEach { store -> store.removeProfile(id) }
         deleteProfileDataAsync(id)
         profileDataStore.deleteProfile(id)
+        // Wait until the list reflects the delete so a cloud upload that
+        // follows never re-sends the removed profile.
+        profiles.first { entries -> entries.none { it.id == id } }
         return true
     }
 

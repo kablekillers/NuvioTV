@@ -1,5 +1,6 @@
 package com.nuvio.tv.core.sync
 
+import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
@@ -10,6 +11,7 @@ import com.nuvio.tv.data.remote.supabase.SupabaseProfile
 import com.nuvio.tv.data.remote.supabase.SupabaseProfilePinVerifyResult
 import com.nuvio.tv.domain.model.UserProfile
 import com.nuvio.tv.domain.model.AuthState
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jan.supabase.postgrest.Postgrest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -49,9 +51,17 @@ class ProfileSyncService @Inject constructor(
     private val postgrest: Postgrest,
     private val profileDataStore: ProfileDataStore,
     private val profileManager: ProfileManager,
-    private val syncClientIdentity: SyncClientIdentity
+    private val syncClientIdentity: SyncClientIdentity,
+    @ApplicationContext private val context: Context
 ) {
     private val pullMutex = Mutex()
+
+    private fun cloudProfilesEnabled(): Boolean =
+        KableKillersAccountPolicy.cloudProfilesEnabled(authManager.authState.value)
+
+    private val seedPrefs by lazy {
+        context.getSharedPreferences("kk_cloud_profiles", Context.MODE_PRIVATE)
+    }
     private var pullFreshness = ProfilePullFreshness()
     private var lastPulledProfiles = emptyList<UserProfile>()
 
@@ -64,13 +74,17 @@ class ProfileSyncService @Inject constructor(
         }
     }
 
-    // Household profiles are device-local. Never upload the shared account's
-    // profile list: every customer signs in using the same master account.
-    suspend fun pushToRemote(): Result<Unit> = Result.success(Unit)
+    // Shared customer account: household profiles are device-local, so the
+    // profile list is never uploaded. Any other account keeps its profiles in
+    // the cloud so every device signed in with it shows the same list.
+    suspend fun pushToRemote(): Result<Unit> =
+        if (cloudProfilesEnabled()) cloudPushToRemote() else Result.success(Unit)
 
-    private suspend fun legacyPushToRemoteDisabled(): Result<Unit> = withContext(Dispatchers.IO) {
+    private suspend fun cloudPushToRemote(
+        profilesOverride: List<UserProfile>? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val profiles = profileManager.profiles.value
+            val profiles = profilesOverride ?: profileManager.profiles.value
 
             val params = buildJsonObject {
                 put("p_client_max_profiles", ProfileManager.MAX_PROFILES)
@@ -103,10 +117,13 @@ class ProfileSyncService @Inject constructor(
         }
     }
 
+    suspend fun pullFromRemote(force: Boolean = false): Result<List<UserProfile>> =
+        if (cloudProfilesEnabled()) cloudPullFromRemote(force) else householdPullFromRemote()
+
     // All customers use the same account, but their household profiles must
     // remain local. Only refresh the master profile's display identity.
     // Never replace the local list with the server's profile list.
-    suspend fun pullFromRemote(force: Boolean = false): Result<List<UserProfile>> =
+    private suspend fun householdPullFromRemote(): Result<List<UserProfile>> =
         withContext(Dispatchers.IO) {
             pullMutex.withLock {
                 try {
@@ -138,7 +155,7 @@ class ProfileSyncService @Inject constructor(
             }
         }
 
-    private suspend fun legacyPullFromRemoteDisabled(force: Boolean = false): Result<List<UserProfile>> = withContext(Dispatchers.IO) {
+    private suspend fun cloudPullFromRemote(force: Boolean = false): Result<List<UserProfile>> = withContext(Dispatchers.IO) {
         pullMutex.withLock {
             val userId = (authManager.authState.value as? AuthState.FullAccount)?.userId
             val now = SystemClock.elapsedRealtime()
@@ -167,20 +184,41 @@ class ProfileSyncService @Inject constructor(
                     )
                 }
 
-                if (profiles.isNotEmpty()) {
-                    profileDataStore.replaceAllProfiles(profiles)
-                    Log.d(TAG, "Merged ${profiles.size} remote profiles into local store")
+                val seedKey = userId?.let { "seeded_$it" }
+                val needsSeed = seedKey != null && !seedPrefs.getBoolean(seedKey, false)
+                val resolved = if (needsSeed) {
+                    // First cloud sync for this login on this device. Profiles
+                    // made here while they were device-local were never
+                    // uploaded, so keep them instead of letting the cloud
+                    // list (often just Profile 1) wipe them out.
+                    val remoteIds = profiles.map { it.id }.toSet()
+                    val localOnly = profileManager.profiles.value.filter { it.id !in remoteIds }
+                    (profiles + localOnly).sortedBy { it.id }.take(ProfileManager.MAX_PROFILES)
+                } else {
+                    profiles
+                }
+
+                if (resolved.isNotEmpty()) {
+                    profileDataStore.replaceAllProfiles(resolved)
+                    Log.d(TAG, "Merged ${resolved.size} remote profiles into local store")
+                }
+                if (needsSeed) {
+                    if (resolved.size > profiles.size) {
+                        cloudPushToRemote(resolved).getOrThrow()
+                        Log.d(TAG, "Uploaded ${resolved.size - profiles.size} device profiles to the cloud")
+                    }
+                    seedPrefs.edit().putBoolean(seedKey!!, true).apply()
                 }
 
                 val currentUserId = (authManager.authState.value as? AuthState.FullAccount)?.userId
                 if (userId != null && currentUserId == userId) {
-                    lastPulledProfiles = profiles
+                    lastPulledProfiles = resolved
                     pullFreshness = ProfilePullFreshness(
                         userId = userId,
                         pulledAtMs = SystemClock.elapsedRealtime()
                     )
                 }
-                Result.success(profiles)
+                Result.success(resolved)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to pull profiles from remote", e)
                 Result.failure(e)
@@ -188,10 +226,12 @@ class ProfileSyncService @Inject constructor(
         }
     }
 
-    // Deleting a household profile must not delete another device's data.
-    suspend fun deleteProfileData(profileId: Int): Result<Unit> = Result.success(Unit)
+    // Deleting a customer household profile must not delete another device's
+    // data. Cloud accounts delete the profile's cloud data like normal Nuvio.
+    suspend fun deleteProfileData(profileId: Int): Result<Unit> =
+        if (cloudProfilesEnabled() && profileId != 1) cloudDeleteProfileData(profileId) else Result.success(Unit)
 
-    private suspend fun legacyDeleteProfileDataDisabled(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
+    private suspend fun cloudDeleteProfileData(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val params = buildJsonObject {
                 put("p_profile_id", profileId)

@@ -271,6 +271,7 @@ class ProfileSettingsPluginSyncTest {
         every { profileManager.activeProfile } answers { profiles.value.first { it.id == activeProfileId.value } }
         val authManager = mockk<AuthManager>(relaxed = true)
         every { authManager.isAuthenticated } returns authenticated
+        every { authManager.authState } returns MutableStateFlow(com.nuvio.tv.domain.model.AuthState.SignedOut)
         val identity = mockk<SyncClientIdentity>()
         every { identity.currentClientId() } returns "nuvio-tv-plugin-sync-test"
         val remote = mutableMapOf<Int, JsonObject>()
