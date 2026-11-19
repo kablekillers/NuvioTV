@@ -186,6 +186,11 @@ private fun PlaybackNavHost(
             )
         }
 
+        composable(Screen.Calendar.route) {
+            com.nuvio.tv.ui.screens.calendar.CalendarScreen(onOpenShow = { ep ->
+                navController.navigate(Screen.Detail.createRoute(itemId = ep.showId, itemType = ep.showType))
+            })
+        }
         composable(Screen.SportsHub.route) {
             SportsHubScreen(onOpenStream = { match ->
                 navController.navigate(
