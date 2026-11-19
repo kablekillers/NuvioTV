@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.components
 
+import com.nuvio.tv.ui.theme.cinemaFocusShine
+import com.nuvio.tv.ui.theme.isCinemaBlackTheme
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -398,6 +400,7 @@ fun ContentCard(
                         surface = CardDepthSurface.POSTERS,
                         style = cardDepthStyle
                     )
+                    .cinemaFocusShine(focused = isFocused, enabled = isCinemaBlackTheme)
             ) {
                 val isPlaceholderItem = imageUrl == PLACEHOLDER_IMAGE_URL
                 if (isPlaceholderItem) {
