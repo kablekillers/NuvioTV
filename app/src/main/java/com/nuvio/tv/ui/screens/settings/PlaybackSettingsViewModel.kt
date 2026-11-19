@@ -52,6 +52,11 @@ class PlaybackSettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val playerSettings: Flow<PlayerSettings> = playerSettingsDataStore.playerSettings
+
+    suspend fun applyRecommendedSetup(settings: PlayerSettings, caps: TvCapabilities) =
+        TvRecommendedSetup.apply(playerSettingsDataStore, settings, caps)
+
+    suspend fun undoRecommendedSetup() = TvRecommendedSetup.undo(playerSettingsDataStore)
     val transparentLetterbox: Flow<Boolean> = deviceLocalPlayerPreferences.transparentLetterbox
     val trailerSettings: Flow<TrailerSettings> = trailerSettingsDataStore.settings
     val torrentSettingsFlow: Flow<TorrentSettingsData> = torrentSettings.settings

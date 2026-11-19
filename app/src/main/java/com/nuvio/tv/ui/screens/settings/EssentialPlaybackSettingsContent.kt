@@ -55,6 +55,9 @@ fun EssentialPlaybackSettingsContent(
                     subtitle = stringResource(R.string.essential_playback_header_subtitle)
                 )
             }
+            item(key = "recommended_setup") {
+                TvRecommendedSetupCard(settings = settings, viewModel = viewModel)
+            }
             item(key = "playback_basics") {
                 SettingsGroupCard(modifier = Modifier.fillMaxWidth(), title = stringResource(R.string.essential_playback_basics)) {
                     SettingsActionRow(

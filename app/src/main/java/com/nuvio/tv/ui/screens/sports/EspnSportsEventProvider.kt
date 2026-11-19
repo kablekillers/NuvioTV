@@ -30,6 +30,11 @@ class EspnSportsEventProvider : SportsEventProvider {
         return parseBoxScore(payload, event.id)
     }
 
+    override suspend fun standings(league: SportsLeague): SportsStandings? {
+        if (league == SportsLeague.UFC) return null
+        return parseStandings(get("https://site.api.espn.com/apis/v2/sports/${pathFor(league)}/standings"), league)
+    }
+
     private suspend fun get(url: String): String = withContext(Dispatchers.IO) {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 8000
@@ -135,6 +140,49 @@ class EspnSportsEventProvider : SportsEventProvider {
                 venue = venue,
                 broadcasts = broadcasts
             )
+        }
+
+        /** Stats shown in a league table, in order; only those the league reports are used. */
+        private val standingsColumns = listOf(
+            "wins" to "W", "losses" to "L", "ties" to "T", "otLosses" to "OTL",
+            "winPercent" to "PCT", "points" to "PTS", "gamesBehind" to "GB", "streak" to "STRK",
+        )
+
+        /** Parses ESPN standings: conferences (or divisions) that hold ranked team entries. */
+        internal fun parseStandings(payload: String, league: SportsLeague): SportsStandings? {
+            val root = runCatching { json.parseToJsonElement(payload) }.getOrNull() as? JsonObject ?: return null
+            val groups = mutableListOf<SportsStandingsGroup>()
+            fun visit(node: JsonObject) {
+                val entries = node.obj("standings")?.arr("entries").orEmpty().mapNotNull { it as? JsonObject }
+                if (entries.isNotEmpty()) {
+                    val statsOf = entries.map { entry ->
+                        entry.arr("stats").orEmpty().mapNotNull { it as? JsonObject }
+                            .associate { (it.str("name") ?: it.str("type")).orEmpty() to (it.str("displayValue") ?: it.str("value")).orEmpty() }
+                    }
+                    val present = standingsColumns.filter { (key, _) -> statsOf.any { !it[key].isNullOrBlank() } }
+                    val rows = entries.mapIndexedNotNull { index, entry ->
+                        val team = entry.obj("team") ?: return@mapIndexedNotNull null
+                        val name = team.str("displayName") ?: team.str("shortDisplayName") ?: return@mapIndexedNotNull null
+                        val logo = team.arr("logos")?.firstOrNull()?.let { it as? JsonObject }?.str("href")
+                        SportsStandingsEntry(
+                            teamName = name,
+                            abbreviation = team.str("abbreviation"),
+                            logoUrl = logo?.takeIf { it.startsWith("https://") },
+                            values = present.map { (key, _) -> statsOf[index][key].orEmpty() },
+                        )
+                    }
+                    if (rows.isNotEmpty()) {
+                        groups += SportsStandingsGroup(
+                            name = node.str("name") ?: node.str("abbreviation") ?: league.label,
+                            columns = present.map { it.second },
+                            entries = rows,
+                        )
+                    }
+                }
+                node.arr("children").orEmpty().forEach { child -> (child as? JsonObject)?.let(::visit) }
+            }
+            visit(root)
+            return SportsStandings(league, groups).takeIf { groups.isNotEmpty() }
         }
 
         /** Parses `boxscore.players` from ESPN's game summary into per-team stat tables. */

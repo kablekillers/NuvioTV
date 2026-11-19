@@ -1623,6 +1623,10 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         PlayerEvent.OnShowSourcesPanel -> {
             showSourcesPanel()
         }
+        PlayerEvent.OnPickAnotherSourceAfterError -> {
+            _uiState.update { it.copy(error = null, showLoadingOverlay = false) }
+            showSourcesPanel()
+        }
         PlayerEvent.OnDismissSourcesPanel -> {
             dismissSourcesPanel()
         }

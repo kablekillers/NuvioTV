@@ -64,7 +64,22 @@ class SportsEventRepository(
         return fresh
     }
 
+    private val standingsCache = mutableMapOf<SportsLeague, SportsStandings>()
+
+    /** League tables change slowly; a copy up to 10 minutes old is reused. */
+    suspend fun standings(league: SportsLeague, forceRefresh: Boolean = false): SportsStandings? {
+        if (!forceRefresh) {
+            mutex.withLock { standingsCache[league] }?.let { cached ->
+                if (clock() - cached.fetchedAtEpochMillis < STANDINGS_MAX_AGE_MILLIS) return cached
+            }
+        }
+        val fresh = provider.standings(league)?.copy(fetchedAtEpochMillis = clock()) ?: return null
+        mutex.withLock { standingsCache[league] = fresh }
+        return fresh
+    }
+
     companion object {
+        const val STANDINGS_MAX_AGE_MILLIS = 10 * 60_000L
         const val DEFAULT_MAX_AGE_MILLIS = 60_000L
         const val LIVE_BOX_SCORE_MAX_AGE_MILLIS = 30_000L
         private const val MAX_CACHED_BOX_SCORES = 40

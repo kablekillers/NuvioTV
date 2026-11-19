@@ -77,7 +77,32 @@ interface SportsEventProvider {
 
     /** Individual player stats for a game, or null when the provider has none (e.g. not started). */
     suspend fun boxScore(event: SportsEvent): SportsBoxScore? = null
+
+    /** League tables, or null when the provider has none (e.g. UFC). */
+    suspend fun standings(league: SportsLeague): SportsStandings? = null
 }
+
+/** One row of a league table. [values] line up with [SportsStandingsGroup.columns]. */
+data class SportsStandingsEntry(
+    val teamName: String,
+    val abbreviation: String?,
+    val logoUrl: String?,
+    val values: List<String>,
+)
+
+data class SportsStandingsGroup(
+    val name: String,
+    val columns: List<String>,
+    val entries: List<SportsStandingsEntry>,
+)
+
+data class SportsStandings(
+    val league: SportsLeague,
+    val groups: List<SportsStandingsGroup>,
+    val fetchedAtEpochMillis: Long = 0L,
+)
+
+
 
 object SportsEventSections {
     fun live(events: List<SportsEvent>) = events.filter {
