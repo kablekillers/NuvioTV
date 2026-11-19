@@ -322,6 +322,7 @@ sealed class PlayerEvent {
     data class OnEpisodeAddonFilterSelected(val addonName: String?) : PlayerEvent()
     data class OnEpisodeStreamSelected(val stream: Stream) : PlayerEvent()
     data object OnShowSourcesPanel : PlayerEvent()
+    data object OnPickAnotherSourceAfterError : PlayerEvent()
     data object OnDismissSourcesPanel : PlayerEvent()
     data object OnShowPartyPanel : PlayerEvent()
     data object OnDismissPartyPanel : PlayerEvent()

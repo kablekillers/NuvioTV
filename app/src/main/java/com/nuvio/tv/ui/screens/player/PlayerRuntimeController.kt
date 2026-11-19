@@ -638,6 +638,9 @@ class PlayerRuntimeController(
     internal var hasRetriedCurrentStreamAfterMediaPeriodHolderCrash: Boolean = false
     internal var timeoutRecoveryAttempts: Int = 0
     internal var errorRetryCount: Int = 0
+    internal var sourceFallbackAttempts: Int = 0
+    internal val sourceFallbackTriedUrls: MutableSet<String> = mutableSetOf()
+    internal var sourceFallbackJob: Job? = null
     internal var consecutiveAutoPlayCount: Int = 0
     internal var errorRetryJob: Job? = null
     internal var stableProgressResetJob: Job? = null

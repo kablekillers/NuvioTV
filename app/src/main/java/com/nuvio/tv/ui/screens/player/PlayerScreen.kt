@@ -1179,6 +1179,7 @@ fun PlayerScreen(
                 reportId = uiState.playbackIssueReportId,
                 reportError = uiState.playbackIssueReportError,
                 onReport = { viewModel.onEvent(PlayerEvent.OnReportPlaybackIssue) },
+                onPickAnotherSource = { viewModel.onEvent(PlayerEvent.OnPickAnotherSourceAfterError) },
                 onBack = exitPlayerFromError
             )
         }
@@ -3461,8 +3462,10 @@ private fun ErrorOverlay(
     reportId: String?,
     reportError: String?,
     onReport: () -> Unit,
+    onPickAnotherSource: (() -> Unit)? = null,
     onBack: () -> Unit
 ) {
+    val cause = PlaybackErrorExplainer.classify(message)
     val exitFocusRequester = remember { FocusRequester() }
     val reportFocusRequester = remember { FocusRequester() }
     val mpvFocusRequester = remember { FocusRequester() }
@@ -3508,18 +3511,50 @@ private fun ErrorOverlay(
             verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
         ) {
             Text(
-                text = stringResource(R.string.player_error_title),
+                text = stringResource(
+                    when (cause) {
+                        PlaybackErrorCause.SOURCE -> R.string.player_error_cause_source_title
+                        PlaybackErrorCause.CONNECTION -> R.string.player_error_cause_connection_title
+                        PlaybackErrorCause.DEVICE -> R.string.player_error_cause_device_title
+                        PlaybackErrorCause.UNKNOWN -> R.string.player_error_title
+                    }
+                ),
                 style = MaterialTheme.typography.headlineMedium,
                 color = Color.White
             )
 
+            if (cause != PlaybackErrorCause.UNKNOWN) {
+                Text(
+                    text = stringResource(
+                        when (cause) {
+                            PlaybackErrorCause.SOURCE -> R.string.player_error_cause_source_body
+                            PlaybackErrorCause.CONNECTION -> R.string.player_error_cause_connection_body
+                            else -> R.string.player_error_cause_device_body
+                        }
+                    ),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White.copy(alpha = 0.88f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxl)
+                )
+            }
+
             Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.7f),
+                text = if (cause == PlaybackErrorCause.UNKNOWN) message else stringResource(R.string.player_error_details, message),
+                style = if (cause == PlaybackErrorCause.UNKNOWN) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = if (cause == PlaybackErrorCause.UNKNOWN) 0.7f else 0.45f),
                 textAlign = TextAlign.Center,
+                maxLines = 3,
                 modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxl)
             )
+
+            if (onPickAnotherSource != null && cause != PlaybackErrorCause.CONNECTION) {
+                PlayerOverlayButton(
+                    text = stringResource(R.string.player_error_pick_another_source),
+                    onClick = onPickAnotherSource,
+                    primary = false
+                )
+            }
 
             Spacer(modifier = Modifier.height(NuvioTheme.spacing.lg))
 
