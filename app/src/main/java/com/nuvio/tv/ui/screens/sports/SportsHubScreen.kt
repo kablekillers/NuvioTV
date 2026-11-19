@@ -177,7 +177,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             LaunchedEffect(Unit) { closeDetails() }
         } else {
             LaunchedEffect(selected.id) { streamsViewModel.lookup(selected) }
-            GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> closeDetails(); onOpenStream(match) }, onDismiss = closeDetails)
+            GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.browse, streamsViewModel.diagnostics, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> closeDetails(); onOpenStream(match) }, onDismiss = closeDetails)
         }
     }
 }
@@ -326,7 +326,7 @@ private fun GameCard(event: SportsEvent, focusRequester: FocusRequester, onSelec
 }
 
 @Composable
-private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventRepository, matches: List<SportsCatalogMatch>, loading: Boolean, error: String?, onOpenStream: (SportsCatalogMatch) -> Unit, onDismiss: () -> Unit) {
+private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventRepository, matches: List<SportsCatalogMatch>, browse: List<SportsCatalogMatch>, diagnostics: String, loading: Boolean, error: String?, onOpenStream: (SportsCatalogMatch) -> Unit, onDismiss: () -> Unit) {
     var boxScore by remember(event.id) { mutableStateOf<SportsBoxScore?>(null) }
     var statsLoading by remember(event.id) { mutableStateOf(event.status != SportsEventStatus.SCHEDULED) }
     var statsFailed by remember(event.id) { mutableStateOf(false) }
@@ -411,7 +411,18 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
             when {
                 loading -> InfoPanel("Searching installed sports add-ons…")
                 error != null -> InfoPanel(error)
-                matches.isEmpty() -> InfoPanel("No matching sources found in installed add-ons.")
+                matches.isEmpty() -> {
+                    InfoPanel("No exact game match found in installed add-ons.")
+                    if (diagnostics.isNotBlank()) Text(diagnostics, color = Muted, fontSize = 12.sp)
+                    if (browse.isNotEmpty()) {
+                        Text("BROWSE LEAGUE SOURCES — matchup not verified", color = ElectricBlue, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        browse.take(12).forEach { match ->
+                            PanelButton("${match.addon.displayName} • ${match.title}", active = false) {
+                                onOpenStream(match)
+                            }
+                        }
+                    }
+                }
                 else -> matches.take(12).forEach { match ->
                     PanelButton("${match.addon.displayName} • ${match.title}", active = false) {
                         onOpenStream(match)
