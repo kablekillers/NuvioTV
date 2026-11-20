@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - kable-killers-branding
-      - kk-cloudflare-backup
+      - kk-backup-1.1.7
       - nuvio-beta-2026-10-16-test
       - watch-party-integration-stage
   workflow_dispatch:

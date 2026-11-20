@@ -11,10 +11,10 @@ import kotlinx.serialization.Serializable
 
 /**
  * Where the Kable Killers backup Worker lives. Blank turns the backup off.
- * Set after the Worker is deployed (see cloudflare/kk-backup).
+ * Deployed from cloudflare/kk-backup.
  */
 object KableKillersBackupConfig {
-    const val BASE_URL: String = ""
+    const val BASE_URL: String = "https://kable-killers-backup.kablekillers6.workers.dev"
 }
 
 /** A saved copy of a login's Profile 1 setup, in the same shape Nuvio returns it. */
