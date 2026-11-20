@@ -40,7 +40,7 @@ class EspnSportsEventProvider : SportsEventProvider {
             connectTimeout = 8000
             readTimeout = 8000
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "KableKillersTV/1.1.4 (sports scoreboard)")
+            setRequestProperty("User-Agent", "KableKillersTV/1.1.5 (sports scoreboard)")
         }
         try {
             if (connection.responseCode !in 200..299) {
