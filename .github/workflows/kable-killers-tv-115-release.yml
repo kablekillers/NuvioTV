@@ -1,27 +1,19 @@
-name: Kable Killers TV 1.1.5 - Signed Release
+name: Sports Hub Add-ons Signed Candidate
 
 on:
-  # Pushing to the release branch publishes; manual runs publish only if asked.
   push:
     branches:
-      - release-1.1.5
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: Publish the GitHub release (the in-app updater and store pick it up)
-        type: boolean
-        default: false
+      - verify/sports-addon-signed
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: kable-killers-tv-final-release
+  group: kable-killers-tv-sports-addon-candidate
   cancel-in-progress: false
 
 jobs:
   release:
-    if: github.ref == 'refs/heads/release-1.1.5'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -95,25 +87,6 @@ jobs:
           path: candidate/*
           retention-days: 30
           if-no-files-found: error
-      - name: Publish release
-        if: github.event_name == 'push' || inputs.publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
-          New Cinema Black look with animations, now the default theme.
-
-          - Sports Hub: My Teams, league standings, follow buttons and an optional score delay.
-          - Playback: automatically tries the next source when one fails, and explains errors clearly with a "Pick another source" button.
-          - One-press recommended setup in Settings.
-          - New Calendar, and an Upcoming row on Home for shows in your Library.
-          - Profiles: customer profiles stay on each device; personal logins keep every profile in the cloud. Created profiles always match Profile 1.
-          NOTES
-          sed -i 's/^          //' "$RUNNER_TEMP/notes.md"
-          gh release create v1.1.5 candidate/*.apk candidate/SHA256SUMS.txt \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Kable Killers TV 1.1.5" --notes-file "$RUNNER_TEMP/notes.md" --latest
       - name: Remove signing material
         if: always()
         run: rm -f "$RUNNER_TEMP/kable-killers-tv.jks" local.properties
