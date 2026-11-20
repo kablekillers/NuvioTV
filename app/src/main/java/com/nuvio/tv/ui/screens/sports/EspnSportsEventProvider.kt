@@ -90,8 +90,8 @@ class EspnSportsEventProvider : SportsEventProvider {
 
         internal fun parseScoreboard(payload: String, league: SportsLeague): List<SportsEvent> {
             val root = runCatching { json.parseToJsonElement(payload) }.getOrNull() as? JsonObject
-                ?: error("Invalid sports scoreboard response")
-            val events = root.arr("events") ?: error("Missing events in sports scoreboard")
+                ?: return emptyList()
+            val events = root.arr("events") ?: return emptyList()
             return events.flatMap { element ->
                 val event = element as? JsonObject ?: return@flatMap emptyList()
                 when (league) {
