@@ -404,7 +404,12 @@ class HomeViewModel @Inject constructor(
                     cwLastBadgeEpisodeKeys = emptySet()
                     cwLastShowIdSiblings = emptyMap()
                     _uiState.update {
-                        it.copy(layoutPreferencesReady = false, continueWatchingItems = emptyList())
+                        it.copy(
+                            layoutPreferencesReady = false,
+                            continueWatchingItems = emptyList(),
+                            // Coming up is built from this profile's Library.
+                            libraryComingUpItems = emptyList()
+                        )
                     }
                     clearFocusState()
                     _gridFocusState.value = HomeScreenFocusState()

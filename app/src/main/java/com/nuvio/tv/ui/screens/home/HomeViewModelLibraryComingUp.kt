@@ -33,18 +33,22 @@ private const val COMING_UP_REFRESH_MS = 6 * 60 * 60 * 1000L
 @OptIn(FlowPreview::class)
 internal fun HomeViewModel.observeLibraryComingUp() {
     viewModelScope.launch {
+        // Keyed to the profile so a switch always rebuilds from that profile's Library.
         libraryRepository.libraryItems
             .map { items ->
-                items.filter { it.type.equals("series", true) || it.type.equals("tv", true) }
+                profileManager.activeProfileId.value to items
+                    .filter { it.type.equals("series", true) || it.type.equals("tv", true) }
                     .map { Triple(it.id, it.type, it.name) }
                     .distinct()
                     .take(COMING_UP_MAX_SHOWS)
             }
             .distinctUntilChanged()
             .debounce(2_000L)
-            .collectLatest { shows ->
+            .collectLatest { (profileId, shows) ->
                 while (true) {
                     val items = loadLibraryComingUp(shows)
+                    // Never show a list built for a profile that is no longer active.
+                    if (profileManager.activeProfileId.value != profileId) return@collectLatest
                     _uiState.update { if (it.libraryComingUpItems == items) it else it.copy(libraryComingUpItems = items) }
                     delay(COMING_UP_REFRESH_MS)
                 }
