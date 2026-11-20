@@ -24,7 +24,21 @@ class SportsHubIntroTest {
         assertEquals("sports_hub_intro", SPORTS_HUB_INTRO_RESOURCE)
     }
 
-    @Test fun everyLeagueHasItsOwnIcon() {
-        assertEquals(SportsLeague.entries.size, SportsLeague.entries.map { it.glyph() }.toSet().size)
+    @Test fun originalLeaguesKeepDistinctFallbackIcons() {
+        val original = listOf(
+            SportsLeague.NFL, SportsLeague.COLLEGE_FOOTBALL, SportsLeague.NBA,
+            SportsLeague.MLB, SportsLeague.NHL, SportsLeague.UFC,
+        )
+        assertEquals(original.size, original.map { it.glyph() }.toSet().size)
+    }
+
+    @Test fun expandedLeaguesUseTheirLeagueLogosAndSportFallbacks() {
+        assertTrue(SportsLeague.NCAA_MEN.logoPath.orEmpty().endsWith("NCAASports_MensBasketball.png"))
+        assertTrue(SportsLeague.NCAA_WOMEN.logoPath.orEmpty().endsWith("NCAASports_WomensBasketball.png"))
+        assertTrue(SportsLeague.PGA.logoPath.orEmpty().endsWith("pgatour.png"))
+        assertEquals(SportGlyph.BASKETBALL, SportsLeague.NCAA_WOMEN.glyph())
+        assertEquals(SportGlyph.GOLF, SportsLeague.PGA.glyph())
+        assertEquals(SportGlyph.TENNIS, SportsLeague.WTA.glyph())
+        assertEquals(SportGlyph.RACING, SportsLeague.FORMULA_1.glyph())
     }
 }
