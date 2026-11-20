@@ -226,6 +226,55 @@ class ProfileSyncService @Inject constructor(
         }
     }
 
+    /**
+     * Kable Killers backup restore. Cloud-profile logins get their whole profile
+     * list back (local-only profiles are kept, never deleted). The shared customer
+     * login keeps household profiles local, so only Profile 1's name and look are
+     * restored, the same as a normal pull.
+     */
+    suspend fun restoreProfilesFromBackup(
+        remote: List<SupabaseProfile>,
+        cloudProfiles: Boolean
+    ): Boolean = withContext(Dispatchers.IO) {
+        pullMutex.withLock {
+            val primary = remote.firstOrNull { it.profileIndex == 1 } ?: return@withLock false
+            if (!cloudProfiles) {
+                val current = profileManager.profiles.value.firstOrNull { it.id == 1 } ?: return@withLock false
+                if (primary.name.isBlank()) return@withLock false
+                profileDataStore.upsertProfile(
+                    current.copy(
+                        name = primary.name,
+                        avatarColorHex = primary.avatarColorHex,
+                        avatarId = primary.avatarId,
+                        avatarUrl = primary.avatarUrl,
+                        profileBackgroundId = primary.profileBackgroundId,
+                        profileBackgroundUrl = primary.profileBackgroundUrl
+                    )
+                )
+                return@withLock true
+            }
+            val restored = remote.map { entry ->
+                UserProfile(
+                    id = entry.profileIndex,
+                    name = entry.name,
+                    avatarColorHex = entry.avatarColorHex,
+                    usesPrimaryAddons = entry.usesPrimaryAddons,
+                    usesPrimaryPlugins = entry.usesPrimaryPlugins,
+                    avatarId = entry.avatarId,
+                    avatarUrl = entry.avatarUrl,
+                    profileBackgroundId = entry.profileBackgroundId,
+                    profileBackgroundUrl = entry.profileBackgroundUrl
+                )
+            }
+            val restoredIds = restored.map { it.id }.toSet()
+            val localOnly = profileManager.profiles.value.filter { it.id !in restoredIds }
+            val merged = (restored + localOnly).sortedBy { it.id }.take(ProfileManager.MAX_PROFILES)
+            profileDataStore.replaceAllProfiles(merged)
+            Log.d(TAG, "Restored ${restored.size} profiles from the Kable Killers backup")
+            true
+        }
+    }
+
     // Deleting a customer household profile must not delete another device's
     // data. Cloud accounts delete the profile's cloud data like normal Nuvio.
     suspend fun deleteProfileData(profileId: Int): Result<Unit> =

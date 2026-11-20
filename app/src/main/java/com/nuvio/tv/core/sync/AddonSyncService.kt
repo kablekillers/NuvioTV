@@ -131,6 +131,27 @@ class AddonSyncService @Inject constructor(
         }
     }
 
+    /**
+     * Kable Killers backup restore: applies saved Profile 1 add-on names and on/off
+     * states the same way a Nuvio pull does, and returns the add-on URLs in order.
+     */
+    suspend fun applyBackupAddonRows(rows: List<SupabaseAddon>): List<String> = withContext(Dispatchers.IO) {
+        val nameMap = mutableMapOf<String, String>()
+        val enabledMap = mutableMapOf<String, Boolean>()
+        rows.forEach { addon ->
+            val canonicalUrl = canonicalizeUrl(addon.url)
+            if (!addon.name.isNullOrBlank()) {
+                nameMap[canonicalUrl] = addon.name
+            }
+            enabledMap[canonicalUrl] = addon.enabled
+        }
+        if (rows.isNotEmpty()) {
+            addonPreferences.applyPrimaryAddonNamesFromRemote(nameMap)
+            addonPreferences.applyPrimaryAddonEnabledStatesFromRemote(enabledMap)
+        }
+        rows.sortedBy { it.sortOrder }.map { it.url }
+    }
+
     private fun canonicalizeUrl(url: String): String {
         val trimmed = url.trim().trimEnd('/')
         val queryStart = trimmed.indexOf('?')

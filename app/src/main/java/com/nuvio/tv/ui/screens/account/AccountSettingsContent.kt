@@ -54,6 +54,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.AuthState
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
@@ -73,6 +74,7 @@ fun AccountSettingsContent(
         return
     }
 
+    val backupViewModel: KableKillersBackupViewModel = hiltViewModel()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = NuvioTheme.spacing.sm),
@@ -117,6 +119,9 @@ fun AccountSettingsContent(
                         }
                     )
                 }
+                item(key = "kk_backup_signed_out") {
+                    KableKillersBackupSection(signedIn = false, viewModel = backupViewModel)
+                }
             }
 
             is AuthState.FullAccount -> Unit
@@ -133,6 +138,7 @@ private fun SignedInAccountSettingsContent(
 ) {
     val listState = rememberLazyListState()
     var showSignOutConfirmation by remember { mutableStateOf(false) }
+    val backupViewModel: KableKillersBackupViewModel = hiltViewModel()
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -159,6 +165,9 @@ private fun SignedInAccountSettingsContent(
                 item(key = "account_sync_overview") { SyncOverviewCard(overview) }
             } else if (uiState.isSyncOverviewLoading) {
                 item(key = "account_sync_overview_loading") { SyncOverviewLoadingCard() }
+            }
+            item(key = "kk_backup_signed_in") {
+                KableKillersBackupSection(signedIn = true, viewModel = backupViewModel)
             }
         }
 
@@ -368,7 +377,7 @@ private fun SyncOverviewLoadingCard() {
 }
 
 @Composable
-private fun SettingsActionButton(
+internal fun SettingsActionButton(
     icon: ImageVector,
     title: String,
     subtitle: String,

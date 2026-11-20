@@ -3394,4 +3394,27 @@
     <string name="advanced_cache_clearing">Clearing…</string>
     <string name="advanced_cache_cleared">Cache cleared</string>
     <string name="advanced_cache_clear_failed">Some files could not be cleared. Try again.</string>
+    <!-- Kable Killers backup (Cloudflare) -->
+    <string name="kk_backup_title">Kable Killers backup</string>
+    <string name="kk_backup_status_signed_in">Profile 1 (add-ons, plugins, rows and settings) is copied to the Kable Killers backup whenever this TV syncs. Last copy: %1$s.</string>
+    <string name="kk_backup_status_signed_in_none">Profile 1 (add-ons, plugins, rows and settings) will be copied to the Kable Killers backup the next time this TV syncs.</string>
+    <string name="kk_backup_status_connected">Connected to the backup for %1$s.</string>
+    <string name="kk_backup_status_connected_restored">Connected to the backup for %1$s. Last restored %2$s.</string>
+    <string name="kk_backup_status_signed_out">If Nuvio sign-in isn\'t working, you can still set this TV up from the Kable Killers backup with the restore PIN.</string>
+    <string name="kk_backup_working">Working…</string>
+    <string name="kk_backup_done">Backed up.</string>
+    <string name="kk_backup_restored">Restored %1$d add-ons, %2$d plugins, %3$d Home rows and %4$d collections.</string>
+    <string name="kk_backup_now_title">Back up now</string>
+    <string name="kk_backup_now_subtitle">Copy Profile 1 from Nuvio to the backup right away</string>
+    <string name="kk_backup_restore_title">Restore Profile 1 from backup</string>
+    <string name="kk_backup_restore_subtitle">Use if Nuvio is down or this TV lost its add-ons and rows</string>
+    <string name="kk_backup_restore_confirm_title">Restore Profile 1?</string>
+    <string name="kk_backup_restore_confirm_subtitle">Profile 1\'s add-ons, plugins, collections, Home rows and settings will be replaced with the saved copy. Continue Watching and your library are not changed.</string>
+    <string name="kk_backup_restore_confirm_action">Restore</string>
+    <string name="kk_backup_pin_title">Set up from backup</string>
+    <string name="kk_backup_pin_subtitle">Use the Kable Killers login email and restore PIN</string>
+    <string name="kk_backup_pin_dialog_subtitle">Enter the Kable Killers login email and the restore PIN. Profile 1 will be filled in from the backup.</string>
+    <string name="kk_backup_pin_email_hint">Login email</string>
+    <string name="kk_backup_pin_hint">Restore PIN</string>
+    <string name="kk_backup_pin_action">Set up</string>
 </resources>
