@@ -62,4 +62,23 @@ class KableKillersAccountPolicyTest {
         assertFalse(KableKillersAccountPolicy.isCustomerAccount(owner))
         assertFalse(KableKillersAccountPolicy.isCustomerAccount(AuthState.SignedOut))
     }
+
+    @Test
+    fun customerHouseholdProfilesUseDevicePins() {
+        val enforced = KableKillersAccountPolicy.enforcedPinLocks(
+            customer,
+            cloudLocks = mapOf(1 to true, 2 to true),
+            cloudLocksConfirmed = true,
+            householdLocks = mapOf(3 to true, 1 to false)
+        )
+        // Cloud PIN on 2 ignored, device PIN on 3 kept, device map can't unlock Profile 1.
+        assertEquals(mapOf(1 to true, 3 to true), enforced)
+    }
+
+    @Test
+    fun devicePinsOnlyForCustomerHouseholdProfiles() {
+        assertTrue(KableKillersAccountPolicy.usesDevicePin(customer, 2))
+        assertFalse(KableKillersAccountPolicy.usesDevicePin(customer, 1))
+        assertFalse(KableKillersAccountPolicy.usesDevicePin(owner, 2))
+    }
 }

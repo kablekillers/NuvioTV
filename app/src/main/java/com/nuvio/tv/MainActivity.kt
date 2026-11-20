@@ -301,6 +301,9 @@ open class MainActivity : ComponentActivity() {
     lateinit var profileLockStateDataStore: com.nuvio.tv.data.local.ProfileLockStateDataStore
 
     @Inject
+    lateinit var householdPinStore: com.nuvio.tv.data.local.HouseholdPinStore
+
+    @Inject
     lateinit var deviceSessionRegistration: DeviceSessionRegistration
 
     @Inject
@@ -443,11 +446,16 @@ open class MainActivity : ComponentActivity() {
             // locked on the shared customer login until the cloud confirms it.
             val cachedPinStates by profileLockStateDataStore.pinEnabled.collectAsState(initial = emptyMap())
             val pinStatesConfirmed by profileLockStateDataStore.confirmed.collectAsState(initial = false)
-            val profilePinStates = remember(authState, cachedPinStates, pinStatesConfirmed) {
+            // null until the device PINs have loaded; until then every household
+            // profile counts as locked so a parent's lock is never skipped at startup.
+            val householdPinStates by householdPinStore.lockedProfiles
+                .collectAsState(initial = null as Map<Int, Boolean>?)
+            val profilePinStates = remember(authState, cachedPinStates, pinStatesConfirmed, householdPinStates, profiles) {
                 com.nuvio.tv.core.sync.KableKillersAccountPolicy.enforcedPinLocks(
                     authState,
                     cachedPinStates,
-                    pinStatesConfirmed
+                    pinStatesConfirmed,
+                    householdPinStates ?: profiles.associate { it.id to true }
                 )
             }
 

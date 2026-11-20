@@ -24,7 +24,8 @@ class ProfileManager @Inject constructor(
     private val profileDataStore: ProfileDataStore,
     private val factory: ProfileDataStoreFactory,
     private val credentialStores: Set<@JvmSuppressWildcards ProfileScopedCredentialStore>,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val householdPinStore: com.nuvio.tv.data.local.HouseholdPinStore
 ) {
     companion object {
         const val MAX_PROFILES = 6
@@ -105,6 +106,8 @@ class ProfileManager @Inject constructor(
             usesPrimaryPlugins = true,
             avatarId = avatarId
         )
+        // A reused profile number must never inherit a deleted profile's device PIN.
+        householdPinStore.clearPin(nextId)
         factory.markProfileCreated(nextId)
         profileDataStore.upsertProfile(profile)
         profiles.first { entries -> entries.any { it.id == nextId } }
@@ -115,6 +118,7 @@ class ProfileManager @Inject constructor(
         if (id == 1) return false
         if (profiles.value.none { it.id == id }) return false
         credentialStores.forEach { store -> store.removeProfile(id) }
+        householdPinStore.clearPin(id)
         deleteProfileDataAsync(id)
         profileDataStore.deleteProfile(id)
         // Wait until the list reflects the delete so a cloud upload that

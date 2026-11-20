@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -54,7 +55,8 @@ class ProfileSelectionViewModel @Inject constructor(
     memberAccessRepository: MemberAccessRepository,
     private val profileLockStateDataStore: ProfileLockStateDataStore,
     private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore,
-    private val authManager: AuthManager
+    private val authManager: AuthManager,
+    private val householdPinStore: com.nuvio.tv.data.local.HouseholdPinStore
 ) : ViewModel() {
     val activeProfileId: StateFlow<Int> = profileManager.activeProfileId
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
@@ -96,9 +98,10 @@ class ProfileSelectionViewModel @Inject constructor(
     val profilePinEnabled: StateFlow<Map<Int, Boolean>> = combine(
         profileLockStateDataStore.pinEnabled,
         profileLockStateDataStore.confirmed,
+        householdPinStore.lockedProfiles,
         authManager.authState
-    ) { locks, confirmed, authState ->
-        KableKillersAccountPolicy.enforcedPinLocks(authState, locks, confirmed)
+    ) { locks, confirmed, householdLocks, authState ->
+        KableKillersAccountPolicy.enforcedPinLocks(authState, locks, confirmed, householdLocks)
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -306,6 +309,7 @@ class ProfileSelectionViewModel @Inject constructor(
     fun deleteProfile(id: Int) {
         viewModelScope.launch {
             profileManager.deleteProfile(id)
+            householdPinStore.clearPin(id)
             profileSyncService.deleteProfileData(id)
             profileSyncService.pushToRemote()
             refreshProfilePinStates()
@@ -345,6 +349,12 @@ class ProfileSelectionViewModel @Inject constructor(
         if (_isPinOperationInProgress.value) return
         viewModelScope.launch {
             _isPinOperationInProgress.value = true
+            if (usesDevicePin(profileId)) {
+                val result = setDevicePin(profileId, pin, currentPin)
+                _isPinOperationInProgress.value = false
+                onComplete(result)
+                return@launch
+            }
             val result = profileSyncService.setProfilePin(profileId, pin, currentPin)
             // Server reporting CurrentPinRequired means a PIN exists remotely —
             // reconcile local cache so we never forget it again.
@@ -360,6 +370,13 @@ class ProfileSelectionViewModel @Inject constructor(
         if (_isPinOperationInProgress.value) return
         viewModelScope.launch {
             _isPinOperationInProgress.value = true
+            if (usesDevicePin(profileId)) {
+                val allowed = currentPin != null && verifyDevicePinOrOwner(profileId, currentPin).unlocked
+                if (allowed) householdPinStore.clearPin(profileId)
+                _isPinOperationInProgress.value = false
+                onComplete(allowed)
+                return@launch
+            }
             val success = profileSyncService.clearProfilePin(profileId, currentPin).isSuccess
             if (success) {
                 profileLockStateDataStore.setPinEnabled(profileId, false)
@@ -373,9 +390,52 @@ class ProfileSelectionViewModel @Inject constructor(
         if (_isPinOperationInProgress.value) return
         viewModelScope.launch {
             _isPinOperationInProgress.value = true
-            val result = profileSyncService.verifyProfilePin(profileId, pin)
+            val result = if (usesDevicePin(profileId)) {
+                Result.success(verifyDevicePinOrOwner(profileId, pin))
+            } else {
+                profileSyncService.verifyProfilePin(profileId, pin)
+            }
             _isPinOperationInProgress.value = false
             onComplete(result)
         }
+    }
+
+    // ---- Household (customer) profile PINs: saved on this device only ----
+
+    private fun usesDevicePin(profileId: Int): Boolean =
+        KableKillersAccountPolicy.usesDevicePin(authManager.authState.value, profileId)
+
+    private suspend fun setDevicePin(profileId: Int, pin: String, currentPin: String?): SetProfilePinResult {
+        return try {
+            if (householdPinStore.hasPin(profileId)) {
+                if (currentPin == null) return SetProfilePinResult.CurrentPinRequired
+                if (!verifyDevicePinOrOwner(profileId, currentPin).unlocked) {
+                    return SetProfilePinResult.Failure(IllegalArgumentException("Current PIN is incorrect"))
+                }
+            }
+            householdPinStore.setPin(profileId, pin)
+            SetProfilePinResult.Success
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.e("ProfileSelectionVM", "Failed to save device PIN", error)
+            SetProfilePinResult.Failure(error)
+        }
+    }
+
+    /**
+     * Checks a household profile's own PIN. If that fails, the owner's Profile 1
+     * PIN also unlocks it, so a parent who forgets their PIN can get help.
+     * The override is only tried when Profile 1 really has a PIN.
+     */
+    private suspend fun verifyDevicePinOrOwner(profileId: Int, pin: String): SupabaseProfilePinVerifyResult {
+        val local = householdPinStore.verify(profileId, pin)
+        if (local.unlocked) return SupabaseProfilePinVerifyResult(unlocked = true)
+        val primaryHasPin = profileLockStateDataStore.pinEnabled.first()[KableKillersAccountPolicy.PRIMARY_PROFILE_ID] == true
+        if (primaryHasPin) {
+            val owner = profileSyncService.verifyProfilePin(KableKillersAccountPolicy.PRIMARY_PROFILE_ID, pin).getOrNull()
+            if (owner?.unlocked == true) return SupabaseProfilePinVerifyResult(unlocked = true)
+        }
+        return SupabaseProfilePinVerifyResult(unlocked = false, retryAfterSeconds = local.retryAfterSeconds)
     }
 }

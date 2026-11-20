@@ -33,19 +33,26 @@ object KableKillersAccountPolicy {
      * The PIN locks the app should actually enforce.
      *
      * On the shared customer login:
-     * - Only Profile 1 can be PIN-locked. Household profiles live on one device
-     *   but PINs are stored in the cloud by profile number, so a PIN on one
-     *   customer's "Profile 2" would lock every other customer's Profile 2.
-     * - Profile 1 counts as locked until this device has confirmed its PIN
-     *   state with the cloud (fail closed: no network never means no PIN).
+     * - Profile 1 uses the cloud PIN, and counts as locked until this device has
+     *   confirmed its PIN state with the cloud (fail closed: no network never
+     *   means no PIN).
+     * - Household profiles ignore cloud PINs and use PINs saved on this device
+     *   ([householdLocks]). The cloud stores PINs by profile number for the whole
+     *   login, so a cloud PIN on one customer's "Profile 2" would lock every
+     *   customer's Profile 2; a device PIN locks only this TV.
      */
     fun enforcedPinLocks(
         authState: AuthState,
         cloudLocks: Map<Int, Boolean>,
-        cloudLocksConfirmed: Boolean
+        cloudLocksConfirmed: Boolean,
+        householdLocks: Map<Int, Boolean> = emptyMap()
     ): Map<Int, Boolean> {
         if (!isCustomerAccount(authState)) return cloudLocks
         val primaryLocked = cloudLocks[PRIMARY_PROFILE_ID] == true || !cloudLocksConfirmed
-        return mapOf(PRIMARY_PROFILE_ID to primaryLocked)
+        return householdLocks.filterKeys { it != PRIMARY_PROFILE_ID } + (PRIMARY_PROFILE_ID to primaryLocked)
     }
+
+    /** PINs for this profile are saved on the device instead of the cloud. */
+    fun usesDevicePin(authState: AuthState, profileId: Int): Boolean =
+        profileId != PRIMARY_PROFILE_ID && isCustomerAccount(authState)
 }

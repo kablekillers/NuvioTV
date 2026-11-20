@@ -22,6 +22,7 @@ class AccountLocalDataResetService @Inject constructor(
     private val profileDataStoreFactory: ProfileDataStoreFactory,
     private val profileDataStore: ProfileDataStore,
     private val profileLockStateDataStore: ProfileLockStateDataStore,
+    private val householdPinStore: com.nuvio.tv.data.local.HouseholdPinStore,
     private val credentialStores: Set<@JvmSuppressWildcards ProfileScopedCredentialStore>,
     private val androidTvChannelManager: AndroidTvChannelManager
 ) {
@@ -34,6 +35,8 @@ class AccountLocalDataResetService @Inject constructor(
             .onFailure { Log.w(ACCOUNT_RESET_TAG, "Failed to clear profile metadata", it) }
         runCatching { profileLockStateDataStore.clearAll() }
             .onFailure { Log.w(ACCOUNT_RESET_TAG, "Failed to clear profile lock states", it) }
+        runCatching { householdPinStore.clearAll() }
+            .onFailure { Log.w(ACCOUNT_RESET_TAG, "Failed to clear household PINs", it) }
         runCatching { credentialStores.forEach(ProfileScopedCredentialStore::clearAllProfiles) }
             .onFailure { Log.w(ACCOUNT_RESET_TAG, "Failed to clear profile credentials", it) }
         runCatching { clearAccountFiles() }

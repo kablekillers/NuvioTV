@@ -716,34 +716,32 @@ fun ProfileSelectionScreen(
                     }
                 }
 
-                // Customer TVs: only Profile 1 can have a PIN. PINs are stored in
-                // the cloud by profile number, so a PIN on one customer's household
-                // profile would lock the same-numbered profile on every other TV.
-                if (!isCustomerAccount || profile.isPrimary) {
-                    Button(
-                        onClick = {
-                            longPressedProfile = null
-                            pinOverlayError = null
-                            pinOverlayState = if (profilePinEnabled[profile.id] == true) {
-                                ProfilePinOverlayState.VerifyCurrentForChange(profile)
-                            } else {
-                                ProfilePinOverlayState.Set(profile)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.colors(
-                            containerColor = NuvioTheme.colors.BackgroundCard,
-                            contentColor = NuvioTheme.colors.TextPrimary
-                        )
-                    ) {
-                        Text(
-                            if (profilePinEnabled[profile.id] == true) {
-                                stringResource(R.string.profile_pin_change)
-                            } else {
-                                stringResource(R.string.profile_pin_set)
-                            }
-                        )
-                    }
+                // Customer TVs: PINs on household profiles are saved on this TV
+                // only (see KableKillersAccountPolicy), so parents can lock their
+                // own profile without affecting any other customer.
+                Button(
+                    onClick = {
+                        longPressedProfile = null
+                        pinOverlayError = null
+                        pinOverlayState = if (profilePinEnabled[profile.id] == true) {
+                            ProfilePinOverlayState.VerifyCurrentForChange(profile)
+                        } else {
+                            ProfilePinOverlayState.Set(profile)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(
+                        if (profilePinEnabled[profile.id] == true) {
+                            stringResource(R.string.profile_pin_change)
+                        } else {
+                            stringResource(R.string.profile_pin_set)
+                        }
+                    )
                 }
 
                 if (profilePinEnabled[profile.id] == true) {
