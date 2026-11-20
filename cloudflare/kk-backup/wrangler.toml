@@ -1,0 +1,25 @@
+# Kable Killers backup Worker.
+# The deploy workflow (.github/workflows/kk-backup-deploy.yml) creates the D1
+# database on first run and fills in database_id automatically.
+name = "kable-killers-backup"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kable-killers-backup"
+database_id = "FILLED_IN_BY_DEPLOY_WORKFLOW"
+
+[vars]
+ALLOWED_ACCOUNTS = "kablekillers6@gmail.com,millertime42085@gmail.com"
+# Nuvio's public app connection, the same values the TV and Mobile release builds use.
+SUPABASE_URL = "https://api.nuvio.tv"
+SUPABASE_ANON_KEY = "sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN"
+
+[observability]
+enabled = true
+
+# Secrets (set by the deploy workflow, never committed):
+#   ADMIN_PASSWORD                  - owner page password
+#   RESTORE_PIN                      - PIN for setting up a new device while Nuvio is down

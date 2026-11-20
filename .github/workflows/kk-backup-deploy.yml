@@ -1,0 +1,127 @@
+name: Kable Killers Backup - Deploy to Cloudflare
+
+# Tests and deploys the backup Worker in cloudflare/kk-backup.
+# Needs these repository secrets (Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_API_TOKEN      Cloudflare API token ("Edit Cloudflare Workers" template + D1 Edit)
+#   CLOUDFLARE_ACCOUNT_ID     Cloudflare account ID (dashboard sidebar > Account details)
+#   KK_BACKUP_ADMIN_PASSWORD  password for the owner page (/admin), 8+ characters
+#   KK_BACKUP_RESTORE_PIN     PIN for setting up a new device while Nuvio is down, 6+ digits
+# This repository is public: nothing secret is ever printed.
+
+on:
+  push:
+    branches:
+      - kk-cloudflare-backup
+    paths:
+      - "cloudflare/kk-backup/**"
+      - ".github/workflows/kk-backup-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kk-backup-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: cloudflare/kk-backup
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ADMIN_PASSWORD: ${{ secrets.KK_BACKUP_ADMIN_PASSWORD }}
+      RESTORE_PIN: ${{ secrets.KK_BACKUP_RESTORE_PIN }}
+      WRANGLER: npx --yes wrangler@4
+      DB_NAME: kable-killers-backup
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run backup tests
+        run: npm test
+
+      - name: Check Cloudflare secrets
+        id: secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set yet, so the backup was tested but not deployed."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or find the D1 database
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          find_id() { $WRANGLER d1 list --json | node -e '
+            let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+              const db=JSON.parse(s).find(d=>d.name===process.argv[1]);
+              process.stdout.write(db?(db.uuid||db.id||""):"")})' "$DB_NAME"; }
+          DB_ID="$(find_id)"
+          if [ -z "$DB_ID" ]; then
+            echo "Creating D1 database $DB_NAME"
+            $WRANGLER d1 create "$DB_NAME" > /dev/null
+            DB_ID="$(find_id)"
+          fi
+          test -n "$DB_ID"
+          sed -i "s/FILLED_IN_BY_DEPLOY_WORKFLOW/$DB_ID/" wrangler.toml
+          grep -q "$DB_ID" wrangler.toml
+          echo "Using D1 database $DB_NAME"
+
+      - name: Apply database schema
+        if: steps.secrets.outputs.ready == 'true'
+        run: $WRANGLER d1 execute "$DB_NAME" --remote --file schema.sql --yes
+
+      - name: Deploy Worker
+        if: steps.secrets.outputs.ready == 'true'
+        id: deploy
+        run: |
+          set -euo pipefail
+          $WRANGLER deploy 2>&1 | tee deploy.log
+          URL="$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Set owner password and restore PIN
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          umask 077
+          node -e '
+            const out = {};
+            if ((process.env.ADMIN_PASSWORD || "").length >= 8) out.ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+            if (/^\d{6,}$/.test(process.env.RESTORE_PIN || "")) out.RESTORE_PIN = process.env.RESTORE_PIN;
+            require("fs").writeFileSync("secrets.json", JSON.stringify(out));
+            if (!out.ADMIN_PASSWORD) console.log("::warning::KK_BACKUP_ADMIN_PASSWORD missing or shorter than 8 characters: owner page stays off.");
+            if (!out.RESTORE_PIN) console.log("::warning::KK_BACKUP_RESTORE_PIN missing or not 6+ digits: restore-PIN sign-in stays off.");
+          '
+          if [ "$(cat secrets.json)" != "{}" ]; then $WRANGLER secret bulk secrets.json; fi
+          rm -f secrets.json
+
+      - name: Check the live Worker
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          test -n "$URL"
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS "$URL/health" | grep -q '"status":"ok"'; then break; fi
+            sleep 5
+          done
+          curl -fsS "$URL/health"
+          echo
+          {
+            echo "### Kable Killers backup is live"
+            echo ""
+            echo "- Worker: $URL"
+            echo "- Owner page: $URL/admin"
+          } >> "$GITHUB_STEP_SUMMARY"
