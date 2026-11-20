@@ -1,6 +1,10 @@
 name: Kable Killers TV 1.1.5 - Signed Release
 
 on:
+  # Pushing to the release branch publishes; manual runs publish only if asked.
+  push:
+    branches:
+      - release-1.1.5
   workflow_dispatch:
     inputs:
       publish:
@@ -92,7 +96,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
       - name: Publish release
-        if: inputs.publish
+        if: github.event_name == 'push' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
