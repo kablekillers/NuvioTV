@@ -36,15 +36,16 @@ class SportsAddonDiscovery @Inject constructor(
         var catalogErrors = 0
         for (addon in addons) {
             for (route in SportsAddonCatalogs.routes(addon, event.league, replays)) {
-                val descriptor = addon.catalogs.firstOrNull { it.id == route.id } ?: continue
-                // Required genre is present on StremVerse replays; use All to
-                // avoid silently requesting an invalid bare catalog URL.
-                val genre = descriptor.extra.firstOrNull { it.name == "genre" && it.isRequired }
-                val extra = if (genre != null && "All" in genre.options.orEmpty())
-                    mapOf("genre" to "All") else emptyMap()
-                // Nuvio replay catalogs require skip even on page zero.
-                val skipRequired = descriptor.extra.any { it.name == "skip" && it.isRequired }
-                val args = if (skipRequired) extra + ("skip" to "0") else extra
+                val descriptor = addon.catalogs.firstOrNull { it.id == route.id && it.apiType == route.type } ?: continue
+                val required = descriptor.extra.filter { it.isRequired }
+                if (required.any { it.name != "genre" && it.name != "skip" }) continue
+                val genre = required.firstOrNull { it.name == "genre" }
+                val genreValue = genre?.options?.firstOrNull { it.equals("all", ignoreCase = true) }
+                if (genre != null && genreValue == null) continue
+                val args = buildMap {
+                    genreValue?.let { put("genre", it) }
+                    if (required.any { it.name == "skip" }) put("skip", "0")
+                }
                 try {
                     catalogsChecked++
                     val response = catalogRepository.getCatalog(

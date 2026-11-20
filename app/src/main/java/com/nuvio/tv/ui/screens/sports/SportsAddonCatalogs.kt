@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.sports
 
 import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.CatalogDescriptor
 
 /**
  * Manifest-derived sports catalog routing. Never construct stream IDs from ESPN IDs:
@@ -46,11 +47,32 @@ object SportsAddonCatalogs {
             )
             STREMVERSE -> if (replays) listOf("stremverse_replays")
                 else listOf("stremverse_xtra_events", "stremverse_live_events")
-            else -> emptyList()
+            else -> null
         }
-        // Respect the user's actual installed manifest: don't query absent catalogs.
-        return addon.catalogs.filter { it.id in candidates && it.apiType in setOf("tv", "sport") }
-            .map { CatalogRoute(it.id, it.apiType, if (replays) "replay" else "event") }
+        val catalogs = if (candidates != null) {
+            addon.catalogs.filter { it.id in candidates && it.apiType in setOf("tv", "sport") }
+        } else {
+            additionalCatalogs(addon, replays)
+        }
+        return catalogs.map { CatalogRoute(it.id, it.apiType, if (replays) "replay" else "event") }
+    }
+
+    private val additionalProviders = listOf("nebula", "pencari", "penguplay", "tennis")
+    private val eventTypes = setOf("sport", "sports", "tv", "channel", "livetv", "live-tv", "live_tv")
+    private val replayCatalog = Regex(
+        """(?:^|[^a-z])(?:replays?|highlights?|recaps?)(?:[^a-z]|$)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun additionalCatalogs(addon: Addon, replays: Boolean): List<CatalogDescriptor> {
+        val identity = (addon.id + " " + addon.name).lowercase().filter(Char::isLetterOrDigit)
+        if (additionalProviders.none { it in identity }) return emptyList()
+
+        return addon.catalogs.filter { catalog ->
+            catalog.apiType in eventTypes &&
+                replayCatalog.containsMatchIn("${catalog.id} ${catalog.name}") == replays &&
+                addon.resources.any { it.name == "stream" && (it.types.isEmpty() || catalog.apiType in it.types) }
+        }
     }
 
     fun supportsStream(addon: Addon, type: String, id: String): Boolean {
