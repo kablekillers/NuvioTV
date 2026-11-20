@@ -54,12 +54,14 @@ object SportsAddonCatalogs {
             addon.catalogs.filter { it.id in candidates && it.apiType in setOf("tv", "sport") }
         } else {
             browseCatalogs(addon).filter { catalog ->
-                replayCatalog.containsMatchIn("${catalog.id} ${catalog.name}") == replays
+                catalog.apiType !in onDemandTypes &&
+                    replayCatalog.containsMatchIn("${catalog.id} ${catalog.name}") == replays
             }
         }
         return catalogs.map { CatalogRoute(it.id, it.apiType, if (replays) "replay" else "event") }
     }
 
+    private val onDemandTypes = setOf("movie", "series")
     private val sportsTypes = setOf("sport", "sports")
     private val sportsCatalog = Regex(
         """(?:^|[^a-z])(?:sports?|tennis|basketball|baseball|hockey|football|mma|ufc|nfl|nba|mlb|nhl|ncaa|atp|wta)(?:[^a-z]|$)""",
@@ -79,10 +81,13 @@ object SportsAddonCatalogs {
         return addon.catalogs.filter { catalog ->
             val type = catalog.apiType
             val sportsRow = sportsCatalog.containsMatchIn("${catalog.id} ${catalog.name}")
+            val pencariSportsOnDemand = type in onDemandTypes &&
+                "pencari" in provider && preferredGenre(catalog) != null
             val liveTv = type in setOf("tv", "channel", "livetv", "live-tv", "live_tv")
             canFetch(catalog) &&
                 addon.resources.any { it.name == "stream" && (it.types.isEmpty() || type in it.types) } &&
-                (type in sportsTypes || sportsRow || liveTv && (hasSportsProvider || preferredGenre(catalog) != null))
+                (type in sportsTypes || sportsRow || pencariSportsOnDemand ||
+                    liveTv && (hasSportsProvider || preferredGenre(catalog) != null))
         }
     }
 

@@ -367,7 +367,12 @@ private fun SportsCatalogBrowser(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             providerCatalogs.forEach { entry ->
-                PanelButton(entry.catalog.name, active = entry == source) { selected = entry }
+                val label = when (entry.catalog.apiType) {
+                    "movie" -> "${entry.catalog.name} · Movies"
+                    "series" -> "${entry.catalog.name} · Series"
+                    else -> entry.catalog.name
+                }
+                PanelButton(label, active = entry == source) { selected = entry }
             }
         }
     }
