@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.sports
 
 import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.CatalogDescriptor
 
 /**
  * Manifest-derived sports catalog routing. Never construct stream IDs from ESPN IDs:
@@ -46,11 +47,65 @@ object SportsAddonCatalogs {
             )
             STREMVERSE -> if (replays) listOf("stremverse_replays")
                 else listOf("stremverse_xtra_events", "stremverse_live_events")
-            else -> emptyList()
+            else -> null
         }
         // Respect the user's actual installed manifest: don't query absent catalogs.
-        return addon.catalogs.filter { it.id in candidates && it.apiType in setOf("tv", "sport") }
-            .map { CatalogRoute(it.id, it.apiType, if (replays) "replay" else "event") }
+        val catalogs = if (candidates != null) {
+            addon.catalogs.filter { it.id in candidates && it.apiType in setOf("tv", "sport") }
+        } else {
+            browseCatalogs(addon).filter { catalog ->
+                replayCatalog.containsMatchIn("${catalog.id} ${catalog.name}") == replays
+            }
+        }
+        return catalogs.map { CatalogRoute(it.id, it.apiType, if (replays) "replay" else "event") }
+    }
+
+    private val sportsTypes = setOf("sport", "sports")
+    private val sportsCatalog = Regex(
+        """(?:^|[^a-z])(?:sports?|tennis|basketball|baseball|hockey|football|mma|ufc|nfl|nba|mlb|nhl|ncaa|atp|wta)(?:[^a-z]|$)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val replayCatalog = Regex(
+        """(?:^|[^a-z])(?:replays?|highlights?|recaps?)(?:[^a-z]|$)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val sportsProviders = listOf("nebula", "pencari", "penguplay", "tennis")
+
+    fun browseCatalogs(addon: Addon): List<CatalogDescriptor> {
+        if (!addon.enabled) return emptyList()
+        val provider = (addon.id + " " + addon.name).lowercase().filter(Char::isLetterOrDigit)
+        val hasSportsProvider = addon.id in setOf(SPORTS_STREAMS, NUVIO_LIVE, STREMVERSE) ||
+            sportsProviders.any { it in provider }
+        return addon.catalogs.filter { catalog ->
+            val type = catalog.apiType
+            val sportsRow = sportsCatalog.containsMatchIn("${catalog.id} ${catalog.name}")
+            val liveTv = type in setOf("tv", "channel", "livetv", "live-tv", "live_tv")
+            canFetch(catalog) &&
+                addon.resources.any { it.name == "stream" && (it.types.isEmpty() || type in it.types) } &&
+                (type in sportsTypes || sportsRow || liveTv && (hasSportsProvider || preferredGenre(catalog) != null))
+        }
+    }
+
+    fun genre(catalog: CatalogDescriptor): String? {
+        val genre = catalog.extra.firstOrNull { it.name == "genre" } ?: return null
+        return preferredGenre(catalog) ?: if (genre.isRequired) {
+            genre.options.orEmpty().firstOrNull { it.equals("all", ignoreCase = true) }
+                ?: genre.defaultValue?.takeIf { it.isNotBlank() }
+                ?: genre.options.orEmpty().firstOrNull()
+        } else null
+    }
+
+    private fun preferredGenre(catalog: CatalogDescriptor): String? =
+        catalog.extra.firstOrNull { it.name == "genre" }?.options.orEmpty().firstOrNull {
+            it.trim().lowercase() in setOf("sports", "sport", "sports channels", "live sports")
+        }
+
+    private fun canFetch(catalog: CatalogDescriptor): Boolean = catalog.extra.none { extra ->
+        extra.isRequired && when (extra.name) {
+            "skip" -> false
+            "genre" -> genre(catalog) == null
+            else -> true
+        }
     }
 
     fun supportsStream(addon: Addon, type: String, id: String): Boolean {

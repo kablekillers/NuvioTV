@@ -92,7 +92,7 @@ private val LiveText = Color(0xFFFF7B86)
 private val Muted = Color(0xFF9E998F)
 private val Soft = Color(0xFFCFC9BE)
 
-private enum class HubView(val label: String) { ALL("All games"), MY_TEAMS("My Teams"), STANDINGS("Standings") }
+private enum class HubView(val label: String) { ALL("All games"), MY_TEAMS("My Teams"), STANDINGS("Standings"), ADDONS("Add-ons") }
 
 @Composable
 fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel()) {
@@ -210,7 +210,11 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 HubView.entries.forEach { v ->
                     PanelButton(v.label, active = view == v) { view = v }
                 }
@@ -225,6 +229,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             }
 
             when {
+                view == HubView.ADDONS -> SportsCatalogBrowser(streamsViewModel, onOpenStream)
                 view == HubView.STANDINGS -> when {
                     !standingsLoaded -> InfoPanel("Loading ${selectedLeague.label} standings…")
                     standings == null -> InfoPanel("Standings aren't available for ${selectedLeague.label}.")
@@ -308,6 +313,73 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         } else {
             LaunchedEffect(selected.id) { streamsViewModel.lookup(selected) }
             GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.browse, streamsViewModel.diagnostics, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> closeDetails(); onOpenStream(match) }, onDismiss = closeDetails)
+        }
+    }
+}
+
+@Composable
+private fun SportsCatalogBrowser(
+    viewModel: SportsStreamsViewModel,
+    onOpenStream: (SportsCatalogMatch) -> Unit,
+) {
+    val sources by viewModel.catalogSources.collectAsStateWithLifecycle(initialValue = null)
+    val available = sources ?: run {
+        InfoPanel("Loading sports add-ons…")
+        return
+    }
+    if (available.isEmpty()) {
+        InfoPanel("Enable an add-on with a sports catalog in Add-ons settings.")
+        return
+    }
+
+    var selected by remember { mutableStateOf<SportsAddonDiscovery.CatalogSource?>(null) }
+    val source = selected?.takeIf { it in available } ?: available.first()
+    val providers = available.groupBy { it.addon.baseUrl }
+    val providerCatalogs = providers.getValue(source.addon.baseUrl)
+    var entries by remember(source) { mutableStateOf<List<SportsCatalogMatch>?>(null) }
+    var error by remember(source) { mutableStateOf(false) }
+    var retry by remember(source) { mutableStateOf(0) }
+    LaunchedEffect(source, retry) {
+        error = false
+        try {
+            entries = viewModel.browse(source)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            error = true
+        }
+    }
+
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        providers.values.forEach { catalogs ->
+            val first = catalogs.first()
+            PanelButton(first.addon.displayName, active = catalogs == providerCatalogs) {
+                if (catalogs != providerCatalogs) selected = first
+            }
+        }
+    }
+    if (providerCatalogs.size > 1) {
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            providerCatalogs.forEach { entry ->
+                PanelButton(entry.catalog.name, active = entry == source) { selected = entry }
+            }
+        }
+    }
+    when {
+        error -> {
+            InfoPanel("Could not load ${source.catalog.name}.")
+            PanelButton("Retry", active = false) { retry++ }
+        }
+        entries == null -> InfoPanel("Loading ${source.catalog.name}…")
+        entries.orEmpty().isEmpty() -> InfoPanel("No entries available in ${source.catalog.name}.")
+        else -> entries.orEmpty().forEach { entry ->
+            SourceRow(entry, verified = true) { onOpenStream(entry) }
         }
     }
 }
