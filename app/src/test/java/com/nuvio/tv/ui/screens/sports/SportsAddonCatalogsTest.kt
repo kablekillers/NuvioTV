@@ -34,6 +34,18 @@ class SportsAddonCatalogsTest {
         assertEquals("Sports Channels", SportsAddonCatalogs.genre(live))
     }
 
+    @Test
+    fun pencariSportGenreIsBrowsableOutsideGameDetails() {
+        val popular = catalog("top", "movie", "Popular").copy(
+            extra = listOf(CatalogExtra("genre", options = listOf("Action", "Sport")))
+        )
+        val addon = addon("org.pencarimovie.addon.server", "PencariMovie", popular)
+
+        assertEquals(listOf(popular), SportsAddonCatalogs.browseCatalogs(addon))
+        assertEquals("Sport", SportsAddonCatalogs.genre(popular))
+        assertTrue(SportsAddonCatalogs.routes(addon, SportsLeague.NBA).isEmpty())
+    }
+
     private fun catalog(id: String, type: String, name: String = id) =
         CatalogDescriptor(type = ContentType.fromString(type), rawType = type, id = id, name = name)
 

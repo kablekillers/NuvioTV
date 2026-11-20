@@ -193,7 +193,9 @@ private fun PlaybackNavHost(
         }
         composable(Screen.SportsHub.route) {
             SportsHubScreen(onOpenStream = { match ->
-                navController.navigate(
+                val route = if (match.contentType.equals("series", ignoreCase = true)) {
+                    Screen.Detail.createRoute(match.streamId, match.contentType, match.addon.baseUrl)
+                } else {
                     Screen.Stream.createRoute(
                         videoId = match.streamId,
                         contentType = match.contentType,
@@ -201,7 +203,8 @@ private fun PlaybackNavHost(
                         manualSelection = true,
                         returnToHomeOnBack = true
                     )
-                )
+                }
+                navController.navigate(route)
             })
         }
 
