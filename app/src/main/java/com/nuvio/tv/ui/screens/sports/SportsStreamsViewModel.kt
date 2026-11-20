@@ -8,21 +8,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 @HiltViewModel
 class SportsStreamsViewModel @Inject constructor(
     private val discovery: SportsAddonDiscovery
 ) : ViewModel() {
-    internal val catalogSources = discovery.sources.map { addons ->
-        addons.flatMap { addon ->
-            SportsAddonCatalogs.browseCatalogs(addon).map { SportsAddonDiscovery.CatalogSource(addon, it) }
-        }
-    }
-
-    internal suspend fun browse(source: SportsAddonDiscovery.CatalogSource) = discovery.browse(source)
-
     var matches by androidx.compose.runtime.mutableStateOf<List<SportsCatalogMatch>>(emptyList())
         private set
     var browse by androidx.compose.runtime.mutableStateOf<List<SportsCatalogMatch>>(emptyList())
