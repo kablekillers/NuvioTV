@@ -18,7 +18,6 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -26,7 +25,8 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import org.junit.After
-import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import retrofit2.Response
@@ -61,12 +61,17 @@ class HomeEnrichmentRepositoryBoundaryTest {
 
     @Test
     fun `a real repository transport failure is retried and then resolves`() = runBlocking {
-        val metaCalls = AtomicInteger()
+        val failedRequests = AtomicInteger()
+        val successfulRequests = AtomicInteger()
         val reachable = AtomicBoolean(false)
         val api = mockk<AddonApi>()
         coEvery { api.getMeta(any()) } coAnswers {
-            metaCalls.incrementAndGet()
-            if (!reachable.get()) throw IOException("offline")
+            val requestsTarget = firstArg<String>().contains(itemId)
+            if (!reachable.get()) {
+                if (requestsTarget) failedRequests.incrementAndGet()
+                throw IOException("offline")
+            }
+            if (requestsTarget) successfulRequests.incrementAndGet()
             Response.success(
                 MetaResponseDto(meta = MetaDto(id = itemId, type = "series", name = "Test Meta"))
             )
@@ -74,33 +79,22 @@ class HomeEnrichmentRepositoryBoundaryTest {
         val viewModel = newViewModel(realRepository(api))
         viewModel.seedCatalog(item(itemId))
 
-        viewModel.onItemFocusPipeline(item(itemId))
-        awaitAtLeast(metaCalls, 1)
+        focusAndSettle(viewModel, item(itemId))
+        assertTrue("the first lookup should reach the transport", failedRequests.get() > 0)
+        assertFalse("a transport failure should leave the item eligible for retry",
+            itemId in viewModel.prefetchedExternalMetaIds)
 
         reachable.set(true)
         focusAndSettle(viewModel, item(otherId))
         focusAndSettle(viewModel, item(itemId))
 
-        // The failed lookup came back as a codeless Error, so the item was never marked prefetched
-        // and the focus gate let it through again.
-        awaitAtLeast(metaCalls, 2)
-        assertEquals(
-            "the resolved item should now be cached",
-            true,
-            itemId in viewModel.prefetchedExternalMetaIds
-        )
+        assertTrue("refocusing the item should retry the transport", successfulRequests.get() > 0)
+        assertTrue("the resolved item should now be cached", itemId in viewModel.prefetchedExternalMetaIds)
     }
 
     private suspend fun focusAndSettle(viewModel: HomeViewModel, item: MetaPreview) {
         viewModel.onItemFocusPipeline(item)
-        delay(HomeViewModel.EXTERNAL_META_PREFETCH_FOCUS_DEBOUNCE_MS + 400)
-    }
-
-    private suspend fun awaitAtLeast(counter: AtomicInteger, expected: Int) {
-        val reached = runCatching {
-            withTimeout(5_000) { while (counter.get() < expected) delay(25) }
-        }.isSuccess
-        assertEquals("expected at least $expected meta requests", true, reached)
+        withTimeout(5_000) { checkNotNull(viewModel.tmdbEnrichFocusJob).join() }
     }
 
     private fun realRepository(api: AddonApi): MetaRepositoryImpl {
