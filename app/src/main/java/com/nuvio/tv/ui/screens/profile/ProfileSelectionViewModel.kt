@@ -3,7 +3,9 @@ package com.nuvio.tv.ui.screens.profile
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.sync.KableKillersAccountPolicy
 import com.nuvio.tv.core.sync.ProfileSettingsSyncService
 import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.core.sync.SetProfilePinResult
@@ -51,7 +53,8 @@ class ProfileSelectionViewModel @Inject constructor(
     private val profileBackgroundRepository: ProfileBackgroundRepository,
     memberAccessRepository: MemberAccessRepository,
     private val profileLockStateDataStore: ProfileLockStateDataStore,
-    private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore
+    private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore,
+    private val authManager: AuthManager
 ) : ViewModel() {
     val activeProfileId: StateFlow<Int> = profileManager.activeProfileId
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
@@ -87,8 +90,25 @@ class ProfileSelectionViewModel @Inject constructor(
     private val _isCopyingSettings = MutableStateFlow(false)
     val isCopyingSettings: StateFlow<Boolean> = _isCopyingSettings.asStateFlow()
 
-    val profilePinEnabled: StateFlow<Map<Int, Boolean>> = profileLockStateDataStore.pinEnabled
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    // The locks the screen enforces. On the shared customer login this keeps
+    // Profile 1 locked until the cloud confirms its PIN state, and ignores
+    // PINs on household profiles (see KableKillersAccountPolicy).
+    val profilePinEnabled: StateFlow<Map<Int, Boolean>> = combine(
+        profileLockStateDataStore.pinEnabled,
+        profileLockStateDataStore.confirmed,
+        authManager.authState
+    ) { locks, confirmed, authState ->
+        KableKillersAccountPolicy.enforcedPinLocks(authState, locks, confirmed)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        KableKillersAccountPolicy.enforcedPinLocks(authManager.authState.value, emptyMap(), false)
+    )
+
+    /** Signed in with the shared customer login (kablekillers6). */
+    val isCustomerAccount: StateFlow<Boolean> = authManager.authState
+        .map { KableKillersAccountPolicy.isCustomerAccount(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, KableKillersAccountPolicy.isCustomerAccount(authManager.authState.value))
 
     private val _isPinOperationInProgress = MutableStateFlow(false)
     val isPinOperationInProgress: StateFlow<Boolean> = _isPinOperationInProgress.asStateFlow()
@@ -252,6 +272,11 @@ class ProfileSelectionViewModel @Inject constructor(
         onComplete: (Result<Unit>) -> Unit
     ) {
         if (_isCopyingSettings.value) return
+        if (targetProfileId == KableKillersAccountPolicy.PRIMARY_PROFILE_ID) {
+            // Profile 1 is the master every other profile mirrors; never overwrite it.
+            onComplete(Result.failure(IllegalArgumentException("Profile 1 cannot be overwritten")))
+            return
+        }
         viewModelScope.launch {
             _isCopyingSettings.value = true
             val result = try {

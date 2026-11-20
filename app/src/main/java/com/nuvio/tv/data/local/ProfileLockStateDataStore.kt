@@ -3,6 +3,7 @@ package com.nuvio.tv.data.local
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -23,14 +24,27 @@ class ProfileLockStateDataStore @Inject constructor(
 ) {
     private val dataStore = context.profileLockStateDataStore
     private val pinEnabledMapKey = stringPreferencesKey("pin_enabled_map")
+    private val confirmedKey = booleanPreferencesKey("pin_states_confirmed")
 
     val pinEnabled: Flow<Map<Int, Boolean>> = dataStore.data.map { prefs ->
         decode(prefs[pinEnabledMapKey])
     }
 
+    /**
+     * True once this device has received the account's PIN states from the
+     * cloud at least once. Until then Kable Killers treats Profile 1 on the
+     * shared customer login as locked, so a fresh device can never slip into
+     * Profile 1 before the lock state arrives (or when the network is down).
+     * Cleared with the rest of the account data on sign-out.
+     */
+    val confirmed: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[confirmedKey] == true
+    }
+
     suspend fun replaceAll(states: Map<Int, Boolean>) {
         dataStore.edit { prefs ->
             prefs[pinEnabledMapKey] = encode(states)
+            prefs[confirmedKey] = true
         }
     }
 

@@ -298,6 +298,9 @@ open class MainActivity : ComponentActivity() {
     lateinit var authManager: AuthManager
 
     @Inject
+    lateinit var profileLockStateDataStore: com.nuvio.tv.data.local.ProfileLockStateDataStore
+
+    @Inject
     lateinit var deviceSessionRegistration: DeviceSessionRegistration
 
     @Inject
@@ -435,15 +438,23 @@ open class MainActivity : ComponentActivity() {
             val activeProfile = remember(activeProfileId, profiles) {
                 profiles.firstOrNull { it.id == activeProfileId }
             }
-            var profilePinStates by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
+            // PIN states are kept on the device so a failed refresh never
+            // unlocks a profile (fail closed). The account policy keeps Profile 1
+            // locked on the shared customer login until the cloud confirms it.
+            val cachedPinStates by profileLockStateDataStore.pinEnabled.collectAsState(initial = emptyMap())
+            val pinStatesConfirmed by profileLockStateDataStore.confirmed.collectAsState(initial = false)
+            val profilePinStates = remember(authState, cachedPinStates, pinStatesConfirmed) {
+                com.nuvio.tv.core.sync.KableKillersAccountPolicy.enforcedPinLocks(
+                    authState,
+                    cachedPinStates,
+                    pinStatesConfirmed
+                )
+            }
 
             LaunchedEffect(authState, profiles) {
                 if (authState is AuthState.FullAccount) {
                     profileSyncService.pullProfileLockStates()
-                        .onSuccess { profilePinStates = it }
-                        .onFailure { profilePinStates = emptyMap() }
-                } else {
-                    profilePinStates = emptyMap()
+                        .onSuccess { profileLockStateDataStore.replaceAll(it) }
                 }
             }
 

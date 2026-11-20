@@ -183,6 +183,8 @@ private sealed interface ProfilePinOverlayState {
     data class VerifyCurrentForChange(override val profile: UserProfile) : ProfilePinOverlayState
     data class VerifyCurrentForRemove(override val profile: UserProfile) : ProfilePinOverlayState
     data class VerifyCurrentForDelete(override val profile: UserProfile) : ProfilePinOverlayState
+    /** A locked profile's options (edit, copy, PIN, delete) open only after its PIN. */
+    data class VerifyForOptions(override val profile: UserProfile) : ProfilePinOverlayState
 }
 
 private enum class ProfilePinEntryStage {
@@ -217,6 +219,7 @@ fun ProfileSelectionScreen(
     val isCopyingSettings by viewModel.isCopyingSettings.collectAsState()
     val profilePinEnabled by viewModel.profilePinEnabled.collectAsState()
     val isPinOperationInProgress by viewModel.isPinOperationInProgress.collectAsState()
+    val isCustomerAccount by viewModel.isCustomerAccount.collectAsState()
     val avatarImageUrlsById = remember(avatarCatalog, profiles) {
         buildMap {
             avatarCatalog.forEach { avatar -> put(avatar.id, avatar.imageUrl) }
@@ -245,6 +248,18 @@ fun ProfileSelectionScreen(
     var settingsCopyError by remember { mutableStateOf<String?>(null) }
     var pinOverlayState by remember { mutableStateOf<ProfilePinOverlayState?>(null) }
     var pinOverlayError by remember { mutableStateOf<String?>(null) }
+
+    // Kable Killers: nothing about a PIN-locked profile (edit, copy settings,
+    // PIN changes, delete) is reachable without its PIN. This keeps Profile 1,
+    // which every customer device mirrors, safe from changes on a customer TV.
+    val openProfileOptions: (UserProfile) -> Unit = { profile ->
+        if (profilePinEnabled[profile.id] == true) {
+            pinOverlayError = null
+            pinOverlayState = ProfilePinOverlayState.VerifyForOptions(profile)
+        } else {
+            longPressedProfile = profile
+        }
+    }
     var profileActionMessage by remember { mutableStateOf<String?>(null) }
     val onProfileFocusedChange = remember(onProfileFocusChanged, onProfileThemeFocused) {
         { profile: UserProfile? ->
@@ -401,7 +416,7 @@ fun ProfileSelectionScreen(
                     onProfileSelected = { profile ->
                         if (isManagementMode) {
                             suppressOptionsDialogFirstKeyUp = false
-                            longPressedProfile = profile
+                            openProfileOptions(profile)
                         } else {
                             if (profilePinEnabled[profile.id] == true) {
                                 pinOverlayError = null
@@ -413,7 +428,7 @@ fun ProfileSelectionScreen(
                     },
                     onProfileLongPress = { profile ->
                         suppressOptionsDialogFirstKeyUp = true
-                        longPressedProfile = profile
+                        openProfileOptions(profile)
                     },
                     onAddProfileClick = { showCreateProfile = true }
                 )
@@ -507,6 +522,26 @@ fun ProfileSelectionScreen(
                                         profileActionMessage = context.getString(R.string.profile_pin_lock_removed_for_profile, activePinOverlay.profile.name)
                                     } else {
                                         pinOverlayError = context.getString(R.string.profile_pin_incorrect)
+                                    }
+                                }
+                            }
+
+                            is ProfilePinOverlayState.VerifyForOptions -> {
+                                viewModel.verifyProfilePin(activePinOverlay.profile.id, pin) { result ->
+                                    result.onSuccess { verify ->
+                                        if (verify.unlocked) {
+                                            pinOverlayError = null
+                                            pinOverlayState = null
+                                            longPressedProfile = activePinOverlay.profile
+                                        } else {
+                                            pinOverlayError = if (verify.retryAfterSeconds > 0) {
+                                                context.getString(R.string.profile_pin_locked, verify.retryAfterSeconds)
+                                            } else {
+                                                context.getString(R.string.profile_pin_incorrect)
+                                            }
+                                        }
+                                    }.onFailure {
+                                        pinOverlayError = context.getString(R.string.profile_pin_verify_error)
                                     }
                                 }
                             }
@@ -661,7 +696,10 @@ fun ProfileSelectionScreen(
                     Text(stringResource(R.string.profile_edit_label))
                 }
 
-                if (profiles.size > 1) {
+                // Nothing is ever copied onto Profile 1 (every profile mirrors it),
+                // and customer TVs get no copy tool at all: new profiles already
+                // inherit Profile 1 automatically.
+                if (profiles.size > 1 && !profile.isPrimary && !isCustomerAccount) {
                     Button(
                         onClick = {
                             longPressedProfile = null
@@ -678,29 +716,34 @@ fun ProfileSelectionScreen(
                     }
                 }
 
-                Button(
-                    onClick = {
-                        longPressedProfile = null
-                        pinOverlayError = null
-                        pinOverlayState = if (profilePinEnabled[profile.id] == true) {
-                            ProfilePinOverlayState.VerifyCurrentForChange(profile)
-                        } else {
-                            ProfilePinOverlayState.Set(profile)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.colors(
-                        containerColor = NuvioTheme.colors.BackgroundCard,
-                        contentColor = NuvioTheme.colors.TextPrimary
-                    )
-                ) {
-                    Text(
-                        if (profilePinEnabled[profile.id] == true) {
-                            stringResource(R.string.profile_pin_change)
-                        } else {
-                            stringResource(R.string.profile_pin_set)
-                        }
-                    )
+                // Customer TVs: only Profile 1 can have a PIN. PINs are stored in
+                // the cloud by profile number, so a PIN on one customer's household
+                // profile would lock the same-numbered profile on every other TV.
+                if (!isCustomerAccount || profile.isPrimary) {
+                    Button(
+                        onClick = {
+                            longPressedProfile = null
+                            pinOverlayError = null
+                            pinOverlayState = if (profilePinEnabled[profile.id] == true) {
+                                ProfilePinOverlayState.VerifyCurrentForChange(profile)
+                            } else {
+                                ProfilePinOverlayState.Set(profile)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.colors(
+                            containerColor = NuvioTheme.colors.BackgroundCard,
+                            contentColor = NuvioTheme.colors.TextPrimary
+                        )
+                    ) {
+                        Text(
+                            if (profilePinEnabled[profile.id] == true) {
+                                stringResource(R.string.profile_pin_change)
+                            } else {
+                                stringResource(R.string.profile_pin_set)
+                            }
+                        )
+                    }
                 }
 
                 if (profilePinEnabled[profile.id] == true) {
@@ -2226,6 +2269,7 @@ private fun ProfilePinOverlay(
     ) {
         val headingText = when {
             state is ProfilePinOverlayState.Unlock -> stringResource(R.string.profile_pin_overlay_unlock_heading, state.profile.name)
+            state is ProfilePinOverlayState.VerifyForOptions -> stringResource(R.string.profile_pin_overlay_unlock_heading, state.profile.name)
             state is ProfilePinOverlayState.VerifyCurrentForChange -> stringResource(R.string.profile_pin_overlay_change_verify_heading, state.profile.name)
             state is ProfilePinOverlayState.VerifyCurrentForRemove -> stringResource(R.string.profile_pin_overlay_remove_verify_heading, state.profile.name)
             state is ProfilePinOverlayState.VerifyCurrentForDelete -> stringResource(R.string.profile_pin_overlay_delete_verify_heading, state.profile.name)
@@ -2237,6 +2281,7 @@ private fun ProfilePinOverlay(
             isWorking && isSingleEntryMode -> stringResource(R.string.profile_pin_verifying)
             isWorking -> stringResource(R.string.action_saving)
             state is ProfilePinOverlayState.Unlock -> stringResource(R.string.profile_pin_overlay_unlock_support)
+            state is ProfilePinOverlayState.VerifyForOptions -> stringResource(R.string.profile_pin_overlay_unlock_support)
             state is ProfilePinOverlayState.VerifyCurrentForChange -> stringResource(R.string.profile_pin_overlay_change_verify_support)
             state is ProfilePinOverlayState.VerifyCurrentForRemove -> stringResource(R.string.profile_pin_overlay_remove_verify_support)
             state is ProfilePinOverlayState.VerifyCurrentForDelete -> stringResource(R.string.profile_pin_overlay_delete_verify_support)
@@ -2296,6 +2341,7 @@ private fun ProfilePinOverlay(
             )
 
             if (state is ProfilePinOverlayState.Unlock ||
+                state is ProfilePinOverlayState.VerifyForOptions ||
                 state is ProfilePinOverlayState.VerifyCurrentForChange ||
                 state is ProfilePinOverlayState.VerifyCurrentForRemove ||
                 state is ProfilePinOverlayState.VerifyCurrentForDelete
