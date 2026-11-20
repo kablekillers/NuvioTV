@@ -60,14 +60,14 @@ class SportsEventRepository(
     private val boxScores = mutableMapOf<String, SportsBoxScore>()
 
     /**
-     * A recent copy keeps returning to a game fast, while still allowing a final
-     * box score to replace statistics fetched before the game ended.
+     * Player stats for a game. Finished games are cached for the session; live games
+     * are re-fetched once the cached copy is older than [LIVE_BOX_SCORE_MAX_AGE_MILLIS].
      */
     suspend fun boxScore(event: SportsEvent, forceRefresh: Boolean = false): SportsBoxScore? {
         if (!forceRefresh) {
             mutex.withLock { boxScores[event.id] }?.let { cached ->
                 val age = clock() - cached.fetchedAtEpochMillis
-                if (age < LIVE_BOX_SCORE_MAX_AGE_MILLIS) return cached
+                if (event.status == SportsEventStatus.FINAL || age < LIVE_BOX_SCORE_MAX_AGE_MILLIS) return cached
             }
         }
         val fresh = provider.boxScore(event)?.copy(fetchedAtEpochMillis = clock()) ?: return null
