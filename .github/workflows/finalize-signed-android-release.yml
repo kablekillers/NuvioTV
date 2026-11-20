@@ -1,0 +1,84 @@
+name: Publish Kable Killers TV 1.1.6 from signed build
+
+on:
+  push:
+    branches:
+      - publish-1.1.6-android
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-kable-killers-tv-1.1.6
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Wait for the signed build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/44680343824" --jq .head_sha)" = "22160a916f2a165c2b0b9069e120347010fa1b03"
+          for attempt in $(seq 1 110); do
+            status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/44680343824" --jq .status)
+            if [ "$status" = completed ]; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/44680343824/artifacts" |
+                jq -e --arg name 'Kable-Killers-TV-1.1.6-Signed-Release' 'any(.artifacts[]; .name == $name and (.expired | not))'
+              exit 0
+            fi
+            sleep 25
+          done
+          echo "::error::Build artifact was not ready in time"
+          exit 1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Kable-Killers-TV-1.1.6-Signed-Release
+          path: release-assets
+          github-token: ${{ github.token }}
+          run-id: 44680343824
+
+      - name: Verify and publish the signed APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=v1.1.6
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          test -n "$build_tools"
+          apks=(release-assets/*.apk)
+          test "${#apks[@]}" -eq 5
+          (cd release-assets && sha256sum -c SHA256SUMS.txt)
+          signer_digest() {
+            "$build_tools/apksigner" verify --print-certs "$1" |
+              awk -F': ' 'tolower($0) ~ /certificate sha-256 digest:/ {print tolower($NF)}' |
+              sort -u
+          }
+          reference=8e8c1f005ddb17b676289b27ba711873ae352975e59b0bb3dc314e3c69e1f467
+          for apk in "${apks[@]}"; do
+            cert=$(signer_digest "$apk")
+            test "$cert" = "$reference" || { echo "::error::Unexpected signing certificate for $apk"; exit 1; }
+            "$build_tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/final-badging.txt"
+            grep -Fq "name='com.kablekillers.tv'" "$RUNNER_TEMP/final-badging.txt" || { echo "::error::Wrong package in $apk"; exit 1; }
+            grep -Fq "versionCode='1076'" "$RUNNER_TEMP/final-badging.txt" || { echo "::error::Wrong version code in $apk"; exit 1; }
+            grep -Fq "versionName='1.1.6'" "$RUNNER_TEMP/final-badging.txt" || { echo "::error::Wrong version name in $apk"; exit 1; }
+            if grep -q '^application-debuggable' "$RUNNER_TEMP/final-badging.txt"; then exit 1; fi
+          done
+          gh release create "$tag" "${apks[@]}" release-assets/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "22160a916f2a165c2b0b9069e120347010fa1b03" --draft \
+            --title "Kable Killers TV 1.1.6" \
+            --notes "Sports Hub can find matching game and replay sources from installed Nebula, Pencari, PenguPlay, and Tennis add-ons through the existing game details and stream picker."
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -er --arg tag "$tag" --arg target "22160a916f2a165c2b0b9069e120347010fa1b03" --argjson count 6 '
+              .[] | select(.tag_name == $tag and .target_commitish == $target and .draft and (.prerelease | not))
+              | select((.assets | length) == $count and all(.assets[]; .state == "uploaded" and .size > 0)) | .id')
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F draft=false -f make_latest=true \
+            --jq '.html_url'
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" |
+            jq -e --arg tag "$tag" '.tag_name == $tag and (.draft | not) and (.prerelease | not)'
