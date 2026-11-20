@@ -92,11 +92,13 @@ private val LiveText = Color(0xFFFF7B86)
 private val Muted = Color(0xFF9E998F)
 private val Soft = Color(0xFFCFC9BE)
 
-private enum class HubView(val label: String) { ALL("All games"), MY_TEAMS("My Teams"), STANDINGS("Standings") }
+private enum class HubView(val label: String) {
+    ALL("All games"), STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams")
+}
 
 @Composable
 fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel()) {
-    var selectedLeague by remember { mutableStateOf(SportsLeague.NFL) }
+    var selectedLeague by rememberSaveable { mutableStateOf(SportsLeague.NFL) }
     var board by remember { mutableStateOf<SportsScoreboard?>(null) }
     var loading by remember { mutableStateOf(true) }
     var refreshFailed by remember { mutableStateOf(false) }
@@ -157,6 +159,26 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     val events = shownBoard?.events.orEmpty()
     val liveGames = SportsEventSections.live(events)
 
+    val catalogOnly = selectedLeague.scoreboardPath == null
+    val replays = view == HubView.REPLAYS || view == HubView.HIGHLIGHTS
+    val browseCatalog = replays || catalogOnly && view == HubView.ALL
+    var catalogMatches by remember(selectedLeague, browseCatalog, replays) {
+        mutableStateOf<List<SportsCatalogMatch>?>(null)
+    }
+    LaunchedEffect(selectedLeague, browseCatalog, replays, events) {
+        if (!browseCatalog) return@LaunchedEffect
+        try {
+            val schedule = if (replays && SportsRecordingClassifier.appliesTo(selectedLeague)) {
+                (events + repository.recentResults(selectedLeague)).distinctBy { it.id }
+            } else events
+            catalogMatches = streamsViewModel.browseLeague(selectedLeague, schedule, replays)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            catalogMatches = emptyList()
+        }
+    }
+
     var myTeamGames by remember { mutableStateOf<List<SportsEvent>?>(null) }
     LaunchedEffect(view, prefs.favoriteTeams) {
         if (view != HubView.MY_TEAMS) return@LaunchedEffect
@@ -205,14 +227,26 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 SportsLeague.entries.forEach { league ->
                     LeagueTab(league, active = league == selectedLeague,
                         modifier = if (league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
-                        if (league != selectedLeague) selectedLeague = league
+                        if (league != selectedLeague) {
+                            if (view == HubView.STANDINGS && (!league.usesTeamStats || league.scoreboardPath == null)) {
+                                view = HubView.ALL
+                            }
+                            selectedLeague = league
+                        }
                     }
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 HubView.entries.forEach { v ->
-                    PanelButton(v.label, active = view == v) { view = v }
+                    if (v != HubView.STANDINGS || selectedLeague.usesTeamStats) {
+                        val label = if (v == HubView.ALL && catalogOnly) "Events" else v.label
+                        PanelButton(label, active = view == v) { view = v }
+                    }
                 }
                 Spacer(Modifier.width(18.dp))
                 PanelButton(
@@ -225,6 +259,26 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             }
 
             when {
+                browseCatalog -> {
+                    val kind = when (view) {
+                        HubView.REPLAYS -> SportsContentKind.REPLAY
+                        HubView.HIGHLIGHTS -> SportsContentKind.HIGHLIGHT
+                        else -> SportsContentKind.EVENT
+                    }
+                    val rows = catalogMatches?.filter { it.kind == kind }
+                    when {
+                        rows == null -> InfoPanel("Checking installed add-ons…")
+                        rows.isEmpty() -> {
+                            val label = if (replays) view.label.lowercase() else "events"
+                            InfoPanel("No ${selectedLeague.label} $label from installed add-ons.")
+                        }
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            rows.forEach { match ->
+                                SourceRow(match, verified = true) { onOpenStream(match) }
+                            }
+                        }
+                    }
+                }
                 view == HubView.STANDINGS -> when {
                     !standingsLoaded -> InfoPanel("Loading ${selectedLeague.label} standings…")
                     standings == null -> InfoPanel("Standings aren't available for ${selectedLeague.label}.")
@@ -252,9 +306,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                     val sections = listOf(
                         "LIVE NOW" to liveGames.drop(if (featured != null) 1 else 0),
                         "UPCOMING" to SportsEventSections.upcoming(events),
-                        "FINAL" to SportsEventSections.final(events),
-                        "REPLAYS" to SportsEventSections.replays(events),
-                        "HIGHLIGHTS" to SportsEventSections.highlights(events)
+                        "FINAL" to SportsEventSections.final(events)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                         if (featured != null) {
@@ -387,13 +439,10 @@ private fun Modifier.focusGrow(focused: Boolean, to: Float): Modifier = composed
     }
 }
 
-private fun leagueLogoUrl(league: SportsLeague): String = when (league) {
-    SportsLeague.NFL -> "https://a.espncdn.com/i/teamlogos/leagues/500/nfl.png"
-    SportsLeague.COLLEGE_FOOTBALL -> "https://a.espncdn.com/i/teamlogos/leagues/500/college-football.png"
-    SportsLeague.NBA -> "https://a.espncdn.com/i/teamlogos/leagues/500/nba.png"
-    SportsLeague.MLB -> "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png"
-    SportsLeague.NHL -> "https://a.espncdn.com/i/teamlogos/leagues/500/nhl.png"
-    SportsLeague.UFC -> "https://a.espncdn.com/i/teamlogos/leagues/500/ufc.png"
+private fun leagueLogoUrl(league: SportsLeague): String? = when (league) {
+    SportsLeague.ATP -> "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3f/ATP_Tour_logo.svg/330px-ATP_Tour_logo.svg.png"
+    SportsLeague.WTA -> "https://www.wtatennis.com/resources/v7.55.15/i/elements/wta-publisher-logo.png"
+    else -> league.logoPath?.let { "https://a.espncdn.com/$it" }
 }
 
 private fun teamLogoUrl(league: SportsLeague, abbreviation: String?): String? {
@@ -411,22 +460,26 @@ private fun teamLogoUrl(league: SportsLeague, abbreviation: String?): String? {
 @Composable
 private fun LeagueLogo(league: SportsLeague, logoSize: Dp) {
     var failed by remember(league) { mutableStateOf(false) }
+    val url = leagueLogoUrl(league)
     Box(modifier = Modifier.size(logoSize), contentAlignment = Alignment.Center) {
-        if (failed) {
+        if (url == null || failed) {
             SportIcon(league.glyph(), size = logoSize, color = CinemaGold.Base)
         } else {
             AsyncImage(
-                model = leagueLogoUrl(league),
+                model = url,
                 contentDescription = "${league.label} logo",
                 contentScale = ContentScale.Fit,
                 onError = { failed = true },
-                modifier = Modifier.fillMaxSize()
+                modifier = if (league == SportsLeague.ATP || league == SportsLeague.WTA) {
+                    Modifier.fillMaxSize().background(Color(0xFFF5EFE9), CircleShape).padding(2.dp)
+                } else Modifier.fillMaxSize(),
             )
         }
     }
 }
 
 private fun statusLine(board: SportsScoreboard?, refreshFailed: Boolean, league: SportsLeague): String {
+    if (league.scoreboardPath == null) return "Installed sports add-ons"
     val base = "Live scores and schedules • Data: ESPN"
     val fetched = board?.takeIf { it.league == league }?.fetchedAtEpochMillis ?: return base
     val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(fetched))
@@ -458,7 +511,7 @@ private fun LeagueTab(league: SportsLeague, active: Boolean, modifier: Modifier 
             Modifier.size(46.dp).cinemaSpinRing(active).padding(4.dp).clip(CircleShape).background(Color(0xFF141317)),
             contentAlignment = Alignment.Center
         ) { LeagueLogo(league, 28.dp) }
-        Text(league.label, color = textColor, fontSize = 15.sp, fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold)
+        Text(league.shortLabel, color = textColor, fontSize = 15.sp, fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold)
     }
 }
 
@@ -529,7 +582,7 @@ private fun TeamBadge(team: SportsCompetitor, league: SportsLeague, glow: Color,
         contentAlignment = Alignment.Center
     ) {
         var failed by remember(team.name) { mutableStateOf(false) }
-        val logo = teamLogoUrl(league, team.abbreviation)
+        val logo = team.logoUrl ?: teamLogoUrl(league, team.abbreviation)
         if (logo == null || failed) {
             Text(team.shortLabel.take(4), color = Color.White, fontSize = (size.value * 0.24f).sp, fontWeight = FontWeight.ExtraBold)
         } else {
@@ -679,7 +732,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
 
     // Load player stats; keep them updating while the game is live.
     LaunchedEffect(event.id, event.status) {
-        if (event.status == SportsEventStatus.SCHEDULED || event.league == SportsLeague.UFC) {
+        if (event.status == SportsEventStatus.SCHEDULED || !event.league.usesTeamStats) {
             statsLoading = false
             return@LaunchedEffect
         }
@@ -762,7 +815,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                         }
                         val team = boxScore?.teams?.getOrNull(selectedTeam)
                         when {
-                            event.league == SportsLeague.UFC -> InfoPanel("Fight stats aren't available for UFC cards.")
+                            !event.league.usesTeamStats -> InfoPanel("Individual stats aren't available for this event.")
                             event.status == SportsEventStatus.SCHEDULED -> InfoPanel("Player stats appear once the game starts.")
                             team != null -> team.groups.forEach { group -> StatTable(group) }
                             statsLoading -> InfoPanel("Loading player stats…")

@@ -2,23 +2,27 @@ package com.nuvio.tv.ui.screens.sports
 
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.CatalogRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
-/**
- * Fetches real catalog entries from the user's enabled, installed sports add-ons.
- * This is discovery only: the returned ID is later passed to the existing stream
- * screen, which resolves streams through the normal add-on/player pipeline.
- */
+/** Resolves catalog IDs from enabled add-ons for the existing stream picker. */
 class SportsAddonDiscovery @Inject constructor(
     private val addonRepository: AddonRepository,
     private val catalogRepository: CatalogRepository
 ) {
-    suspend fun find(event: SportsEvent, replays: Boolean = false): List<SportsCatalogMatch> = discover(event, replays).matches
-
     data class DiscoveryResult(
         val matches: List<SportsCatalogMatch>,
         val browse: List<SportsCatalogMatch>,
@@ -27,63 +31,106 @@ class SportsAddonDiscovery @Inject constructor(
         val catalogErrors: Int
     )
 
-    suspend fun discover(event: SportsEvent, replays: Boolean = false): DiscoveryResult {
+    private data class CatalogMatches(
+        val matches: List<SportsCatalogMatch> = emptyList(),
+        val browse: List<SportsCatalogMatch> = emptyList(),
+        val itemCount: Int = 0,
+        val failed: Boolean = false,
+    )
+
+    suspend fun discover(event: SportsEvent, replays: Boolean = false): DiscoveryResult =
+        discover(event.league, listOf(event), replays, browsingLeague = false)
+
+    suspend fun discoverLeague(league: SportsLeague, events: List<SportsEvent>, replays: Boolean): List<SportsCatalogMatch> =
+        discover(league, events, replays, browsingLeague = true).matches
+
+    private suspend fun discover(
+        league: SportsLeague,
+        events: List<SportsEvent>,
+        replays: Boolean,
+        browsingLeague: Boolean,
+    ): DiscoveryResult = withContext(Dispatchers.Default) {
         val addons = addonRepository.getInstalledAddons().first().filter { it.enabled }
-        val found = mutableListOf<SportsCatalogMatch>()
-        val browse = mutableListOf<SportsCatalogMatch>()
-        var catalogsChecked = 0
-        var catalogItems = 0
-        var catalogErrors = 0
-        for (addon in addons) {
-            for (route in SportsAddonCatalogs.routes(addon, event.league, replays)) {
-                val descriptor = addon.catalogs.firstOrNull { it.id == route.id && it.apiType == route.type } ?: continue
-                val required = descriptor.extra.filter { it.isRequired }
-                if (required.any { it.name != "genre" && it.name != "skip" }) continue
-                val genre = required.firstOrNull { it.name == "genre" }
-                val genreValue = genre?.options?.firstOrNull { it.equals("all", ignoreCase = true) }
-                if (genre != null && genreValue == null) continue
-                val args = buildMap {
-                    genreValue?.let { put("genre", it) }
-                    if (required.any { it.name == "skip" }) put("skip", "0")
-                }
-                try {
-                    catalogsChecked++
-                    val response = catalogRepository.getCatalog(
-                        addonBaseUrl = addon.baseUrl,
-                        addonId = addon.id,
-                        addonName = addon.displayName,
-                        catalogId = route.id,
-                        catalogName = descriptor.name,
-                        type = route.type,
-                        extraArgs = args
-                    ).first { it !is NetworkResult.Loading }
-                    if (response is NetworkResult.Success) {
-                        catalogItems += response.data.items.size
-                        response.data.items.forEach { item ->
-                            if (!SportsAddonCatalogs.supportsStream(addon, item.apiType, item.id)) return@forEach
-                            val score = SportsEventMatcher.score(event, item.name)
-                            val candidate = SportsCatalogMatch(addon, route.id, item.apiType, item.id, item.name, score)
-                            if (score > 0) found += candidate
-                            else if (route.id.contains("basketball", ignoreCase = true) && event.league == SportsLeague.NBA ||
-                                route.id.contains("baseball", ignoreCase = true) && event.league == SportsLeague.MLB ||
-                                route.id.contains("hockey", ignoreCase = true) && event.league == SportsLeague.NHL ||
-                                route.id.contains("football", ignoreCase = true) && event.league in listOf(SportsLeague.NFL, SportsLeague.COLLEGE_FOOTBALL) ||
-                                (route.id.contains("fight", ignoreCase = true) || route.id.contains("mma", ignoreCase = true)) && event.league == SportsLeague.UFC) {
-                                browse += candidate
-                            }
-                        }
-                    } else catalogErrors++
-                } catch (cancel: CancellationException) {
-                    throw cancel
-                } catch (_: Exception) {
-                    catalogErrors++ // One unavailable provider must not block the other add-ons.
+        val matcher = SportsEventMatcher.Prepared(events)
+        val limit = Semaphore(4)
+        val requests = addons.flatMap { addon ->
+            SportsAddonCatalogs.routes(addon, league, replays).mapNotNull { route ->
+                val catalog = addon.catalogs.firstOrNull { it.id == route.id && it.apiType == route.type }
+                    ?: return@mapNotNull null
+                val args = catalogArgs(catalog) ?: return@mapNotNull null
+                async {
+                    limit.withPermit { inspectCatalog(addon, catalog, args, league, matcher, replays, browsingLeague) }
                 }
             }
         }
-        return DiscoveryResult(
-            found.distinctBy { Triple(it.addon.baseUrl, it.contentType, it.streamId) }.sortedByDescending { it.score },
-            browse.distinctBy { Triple(it.addon.baseUrl, it.contentType, it.streamId) }.take(20),
-            catalogsChecked, catalogItems, catalogErrors
+        val pages = requests.awaitAll()
+        val matches = pages.flatMap { it.matches }.sortedByDescending { it.score }.distinctBy { it.identity() }
+        DiscoveryResult(
+            matches = if (browsingLeague) matches.groupBy { it.kind }.values.flatMap { it.take(40) } else matches,
+            browse = pages.flatMap { it.browse }.distinctBy { it.identity() }.take(20),
+            catalogsChecked = pages.size,
+            catalogItems = pages.sumOf { it.itemCount },
+            catalogErrors = pages.count { it.failed },
         )
     }
+
+    private suspend fun inspectCatalog(
+        addon: Addon,
+        catalog: CatalogDescriptor,
+        args: Map<String, String>,
+        league: SportsLeague,
+        matcher: SportsEventMatcher.Prepared,
+        replays: Boolean,
+        browsingLeague: Boolean,
+    ): CatalogMatches = coroutineScope {
+        try {
+            val response = withTimeoutOrNull(10_000) {
+                catalogRepository.getCatalog(
+                    addonBaseUrl = addon.baseUrl,
+                    addonId = addon.id,
+                    addonName = addon.displayName,
+                    catalogId = catalog.id,
+                    catalogName = catalog.name,
+                    type = catalog.apiType,
+                    extraArgs = args,
+                ).first { it !is NetworkResult.Loading }
+            }
+            if (response !is NetworkResult.Success) return@coroutineScope CatalogMatches(failed = true)
+            val scoped = SportsAddonCatalogs.isScopedCatalog(catalog, league)
+            val useRecordingMetadata = replays && SportsRecordingClassifier.appliesTo(league)
+            val found = mutableListOf<SportsCatalogMatch>()
+            val browse = mutableListOf<SportsCatalogMatch>()
+            for (item in response.data.items) {
+                ensureActive()
+                if (!SportsAddonCatalogs.supportsStream(addon, item.apiType, item.id)) continue
+                val score = matcher.score(item.name)
+                if (useRecordingMetadata && !SportsRecordingClassifier.accepts(addon.id, catalog, item, league, score)) continue
+                val kind = if (replays) SportsRecordingClassifier.kind(addon.id, catalog, item) else SportsContentKind.EVENT
+                val candidate = SportsCatalogMatch(addon, catalog.id, item.apiType, item.id, item.name, score, kind)
+                when {
+                    score > 0 || browsingLeague && (useRecordingMetadata || scoped) -> found += candidate
+                    !browsingLeague && scoped -> browse += candidate
+                }
+            }
+            CatalogMatches(found, browse, response.data.items.size)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            CatalogMatches(failed = true)
+        }
+    }
+
+    private fun catalogArgs(catalog: CatalogDescriptor): Map<String, String>? {
+        val required = catalog.extra.filter { it.isRequired }
+        if (required.any { it.name != "genre" && it.name != "skip" }) return null
+        val genre = required.firstOrNull { it.name == "genre" }
+        val genreValue = genre?.options?.firstOrNull { it.equals("all", ignoreCase = true) }
+        if (genre != null && genreValue == null) return null
+        return buildMap {
+            genreValue?.let { put("genre", it) }
+            if (required.any { it.name == "skip" }) put("skip", "0")
+        }
+    }
+
+    private fun SportsCatalogMatch.identity() = Triple(addon.baseUrl, contentType, streamId)
 }

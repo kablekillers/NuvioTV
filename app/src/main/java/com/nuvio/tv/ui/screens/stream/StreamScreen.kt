@@ -98,6 +98,7 @@ import com.nuvio.tv.ui.components.StreamBadgeChips
 import com.nuvio.tv.ui.components.StreamsSkeletonList
 import com.nuvio.tv.ui.screens.player.LoadingOverlay
 import com.nuvio.tv.ui.screens.player.AddonFilterChips
+import com.nuvio.tv.ui.screens.sports.SportsRecordingClassifier
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.ui.navigation.sourceSelectionRestoreTarget
 import androidx.compose.runtime.DisposableEffect
@@ -1228,8 +1229,14 @@ private fun StreamCard(
     val context = LocalContext.current
     val density = LocalDensity.current
     val unknownStreamLabel = stringResource(R.string.stream_unknown)
-    val streamName = remember(stream, unknownStreamLabel) { stream.getDisplayNameOrNull() ?: unknownStreamLabel }
     val streamDescription = remember(stream) { stream.getDisplayDescription() }
+    val streamName = remember(stream, unknownStreamLabel) {
+        SportsRecordingClassifier.streamLabel(
+            stream.sourceAddonId,
+            stream.getDisplayNameOrNull() ?: unknownStreamLabel,
+            streamDescription,
+        )
+    }
     val hasBadges = stream.badges.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints?.videoSize != null) || reserveBadgeSpace
     val cardShape = RoundedCornerShape(NuvioTheme.radii.md)
     val hasGradientFocusRing = NuvioTheme.palette.focusRingGradient.size > 1

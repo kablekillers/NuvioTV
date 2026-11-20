@@ -26,6 +26,9 @@ class SportsStreamsViewModel @Inject constructor(
         private set
     private var job: Job? = null
 
+    suspend fun browseLeague(league: SportsLeague, events: List<SportsEvent>, replays: Boolean): List<SportsCatalogMatch> =
+        discovery.discoverLeague(league, events, replays)
+
     fun lookup(event: SportsEvent) {
         job?.cancel()
         matches = emptyList()
@@ -35,7 +38,9 @@ class SportsStreamsViewModel @Inject constructor(
         loading = true
         job = viewModelScope.launch {
             try {
-                val result = discovery.discover(event, replays = event.kind == SportsContentKind.REPLAY)
+                val isFinal = event.status == SportsEventStatus.FINAL || event.kind == SportsContentKind.REPLAY
+                val recordings = if (isFinal) discovery.discover(event, replays = true) else null
+                val result = recordings?.takeIf { it.matches.isNotEmpty() } ?: discovery.discover(event)
                 matches = result.matches
                 browse = result.browse
                 diagnostics = "Checked ${result.catalogsChecked} catalogs • ${result.catalogItems} entries • ${result.catalogErrors} errors"

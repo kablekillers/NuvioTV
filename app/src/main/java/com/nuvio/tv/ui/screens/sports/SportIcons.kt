@@ -29,15 +29,23 @@ import androidx.compose.ui.unit.dp
  * Original Kable Killers sport icons (not league trademarks), drawn in code so they
  * stay sharp at any size and tint with the electric-blue theme.
  */
-enum class SportGlyph { FOOTBALL, COLLEGE_FOOTBALL, BASKETBALL, BASEBALL, HOCKEY, MMA }
+enum class SportGlyph { FOOTBALL, COLLEGE_FOOTBALL, BASKETBALL, BASEBALL, HOCKEY, MMA, TENNIS, GOLF, RACING, SOCCER, TARGET, OTHER }
 
 fun SportsLeague.glyph(): SportGlyph = when (this) {
     SportsLeague.NFL -> SportGlyph.FOOTBALL
     SportsLeague.COLLEGE_FOOTBALL -> SportGlyph.COLLEGE_FOOTBALL
-    SportsLeague.NBA -> SportGlyph.BASKETBALL
+    SportsLeague.NBA, SportsLeague.NCAA_MEN, SportsLeague.NCAA_WOMEN, SportsLeague.WNBA -> SportGlyph.BASKETBALL
     SportsLeague.MLB -> SportGlyph.BASEBALL
     SportsLeague.NHL -> SportGlyph.HOCKEY
-    SportsLeague.UFC -> SportGlyph.MMA
+    SportsLeague.UFC, SportsLeague.COMBAT -> SportGlyph.MMA
+    SportsLeague.ATP, SportsLeague.WTA -> SportGlyph.TENNIS
+    SportsLeague.PGA, SportsLeague.LPGA -> SportGlyph.GOLF
+    SportsLeague.FORMULA_1, SportsLeague.NASCAR, SportsLeague.INDYCAR, SportsLeague.MOTORSPORT -> SportGlyph.RACING
+    SportsLeague.RUGBY, SportsLeague.AFL -> SportGlyph.FOOTBALL
+    SportsLeague.CRICKET, SportsLeague.BILLIARDS -> SportGlyph.BASEBALL
+    SportsLeague.SOCCER -> SportGlyph.SOCCER
+    SportsLeague.DARTS -> SportGlyph.TARGET
+    SportsLeague.OTHER -> SportGlyph.OTHER
 }
 
 @Composable
@@ -51,6 +59,30 @@ fun SportIcon(glyph: SportGlyph, modifier: Modifier = Modifier, size: Dp = 26.dp
             SportGlyph.BASEBALL -> drawBaseball(color, stroke)
             SportGlyph.HOCKEY -> drawHockey(color, stroke)
             SportGlyph.MMA -> drawGlove(color, stroke)
+            SportGlyph.TENNIS -> {
+                val racquet = ballRect(0.52f, 0.62f)
+                drawOval(color, racquet.topLeft - Offset(0f, this.size.height * 0.14f), racquet.size, style = stroke)
+                drawLine(color, Offset(center.x, this.size.height * 0.67f), Offset(center.x, this.size.height * 0.94f), stroke.width)
+            }
+            SportGlyph.GOLF -> {
+                drawLine(color, Offset(center.x, this.size.height * 0.86f), Offset(center.x, this.size.height * 0.14f), stroke.width)
+                drawLine(color, Offset(center.x, this.size.height * 0.14f), Offset(this.size.width * 0.84f, this.size.height * 0.31f), stroke.width)
+                drawLine(color, Offset(this.size.width * 0.84f, this.size.height * 0.31f), Offset(center.x, this.size.height * 0.49f), stroke.width)
+                drawOval(color, Offset(this.size.width * 0.23f, this.size.height * 0.79f), Size(this.size.width * 0.54f, this.size.height * 0.16f), style = stroke)
+            }
+            SportGlyph.RACING -> {
+                val cell = this.size.minDimension * 0.20f
+                drawLine(color, Offset(cell, cell * 0.6f), Offset(cell, cell * 4.7f), stroke.width)
+                for (row in 0..2) for (column in 0..2) {
+                    if ((row + column) % 2 == 0) {
+                        drawRect(color, Offset((column + 1) * cell, (row + 1) * cell), Size(cell, cell))
+                    }
+                }
+            }
+            SportGlyph.SOCCER, SportGlyph.TARGET, SportGlyph.OTHER -> {
+                drawCircle(color, radius = this.size.minDimension * 0.42f, style = stroke)
+                drawCircle(color, radius = this.size.minDimension * 0.19f, style = stroke)
+            }
         }
     }
 }

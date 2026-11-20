@@ -13,6 +13,7 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
  */
 object SportsAddonCatalogs {
     const val SPORTS_STREAMS = "community.sports.streamed.premium"
+    private const val FREE_SPORTS_STREAMS = "community.sports.fly"
     const val NUVIO_LIVE = "community.nuvio.live-sports"
     const val STREMVERSE = "com.stremverse.org"
 
@@ -20,6 +21,15 @@ object SportsAddonCatalogs {
 
     fun routes(addon: Addon, league: SportsLeague, replays: Boolean = false): List<CatalogRoute> {
         if (!addon.enabled) return emptyList()
+        val catalogs = if (league !in originalLeagues || addon.id == FREE_SPORTS_STREAMS) {
+            expandedRoutes(addon, league, replays)
+        } else {
+            originalRoutes(addon, league, replays)
+        }
+        return catalogs.map { CatalogRoute(it.id, it.apiType, if (replays) "replay" else "event") }
+    }
+
+    private fun originalRoutes(addon: Addon, league: SportsLeague, replays: Boolean): List<CatalogDescriptor> {
         val candidates = when (addon.id) {
             SPORTS_STREAMS -> if (replays) listOf("sports_recaps") else listOfNotNull(
                 when (league) {
@@ -28,6 +38,7 @@ object SportsAddonCatalogs {
                     SportsLeague.MLB -> "sports_baseball"
                     SportsLeague.NHL -> "sports_hockey"
                     SportsLeague.UFC -> "sports_fight"
+                    else -> null
                 }, "sports_live", "sports_today"
             )
             NUVIO_LIVE -> if (replays) when (league) {
@@ -36,6 +47,7 @@ object SportsAddonCatalogs {
                 SportsLeague.MLB -> listOf("nuvio_sports_replays_baseball")
                 SportsLeague.NHL -> listOf("nuvio_sports_replays_hockey")
                 SportsLeague.UFC -> listOf("nuvio_sports_replays")
+                else -> emptyList()
             } else listOfNotNull(
                 when (league) {
                     SportsLeague.NFL, SportsLeague.COLLEGE_FOOTBALL -> "nuvio_sports_american_football"
@@ -43,18 +55,55 @@ object SportsAddonCatalogs {
                     SportsLeague.MLB -> "nuvio_sports_baseball"
                     SportsLeague.NHL -> "nuvio_sports_hockey"
                     SportsLeague.UFC -> "nuvio_sports_mma"
+                    else -> null
                 }, "nuvio_sports_live", "nuvio_sports_upcoming"
             )
             STREMVERSE -> if (replays) listOf("stremverse_replays")
                 else listOf("stremverse_xtra_events", "stremverse_live_events")
             else -> null
         }
-        val catalogs = if (candidates != null) {
+        return if (candidates != null) {
             addon.catalogs.filter { it.id in candidates && it.apiType in setOf("tv", "sport") }
         } else {
             additionalCatalogs(addon, replays)
         }
-        return catalogs.map { CatalogRoute(it.id, it.apiType, if (replays) "replay" else "event") }
+    }
+
+    private val originalLeagues = setOf(
+        SportsLeague.NFL, SportsLeague.COLLEGE_FOOTBALL, SportsLeague.NBA,
+        SportsLeague.MLB, SportsLeague.NHL, SportsLeague.UFC,
+    )
+
+    private val expandedProviders = setOf(SPORTS_STREAMS, FREE_SPORTS_STREAMS, NUVIO_LIVE, STREMVERSE)
+    private val generalCatalogs = setOf(
+        "sports_live", "sports_today", "sports_recaps",
+        "nuvio_sports_live", "nuvio_sports_today", "nuvio_sports_upcoming", "nuvio_sports_replays",
+        "stremverse_xtra_events", "stremverse_live_events", "stremverse_replays",
+    )
+
+    private fun expandedRoutes(addon: Addon, league: SportsLeague, replays: Boolean): List<CatalogDescriptor> {
+        if (addon.id !in expandedProviders) {
+            return additionalCatalogs(addon, replays).filter {
+                league.scoreboardPath != null || isScopedCatalog(it, league)
+            }
+        }
+        return addon.catalogs.filter { catalog ->
+            catalog.apiType in eventTypes &&
+                replayCatalog.containsMatchIn("${catalog.id} ${catalog.name}") == replays &&
+                (isScopedCatalog(catalog, league) || league.scoreboardPath != null && catalog.id in generalCatalogs)
+        }
+    }
+
+    internal fun isScopedCatalog(catalog: CatalogDescriptor, league: SportsLeague): Boolean {
+        val sport = catalog.id.lowercase().replace('-', '_')
+            .removePrefix("nuvio_").removePrefix("sports_").removePrefix("replays_")
+        return sport == league.catalogSport || when (league.catalogSport) {
+            "motor_sports" -> sport in setOf("motorsport", "motorsports", "motor_sport")
+            "fight" -> sport in setOf("mma", "boxing", "mma_boxing")
+            "football" -> sport == "soccer"
+            "other" -> sport in setOf("others", "other_sports")
+            else -> false
+        }
     }
 
     private val additionalProviders = listOf("nebula", "pencari", "penguplay", "tennis")

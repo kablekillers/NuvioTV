@@ -43,17 +43,31 @@ class SportsEventRepository(
         return fresh
     }
 
+    private val recentResultsCache = mutableMapOf<SportsLeague, SportsScoreboard>()
+
+    suspend fun recentResults(league: SportsLeague): List<SportsEvent> {
+        val now = clock()
+        mutex.withLock {
+            recentResultsCache[league]?.takeIf { now - it.fetchedAtEpochMillis < STANDINGS_MAX_AGE_MILLIS }
+        }?.let { return it.events }
+        val events = provider.recentResults(league, now)
+        if (events.isNotEmpty()) {
+            mutex.withLock { recentResultsCache[league] = SportsScoreboard(league, events, clock()) }
+        }
+        return events
+    }
+
     private val boxScores = mutableMapOf<String, SportsBoxScore>()
 
     /**
-     * Player stats for a game. Finished games are cached for the session; live games
-     * are re-fetched once the cached copy is older than [LIVE_BOX_SCORE_MAX_AGE_MILLIS].
+     * A recent copy keeps returning to a game fast, while still allowing a final
+     * box score to replace statistics fetched before the game ended.
      */
     suspend fun boxScore(event: SportsEvent, forceRefresh: Boolean = false): SportsBoxScore? {
         if (!forceRefresh) {
             mutex.withLock { boxScores[event.id] }?.let { cached ->
                 val age = clock() - cached.fetchedAtEpochMillis
-                if (event.status == SportsEventStatus.FINAL || age < LIVE_BOX_SCORE_MAX_AGE_MILLIS) return cached
+                if (age < LIVE_BOX_SCORE_MAX_AGE_MILLIS) return cached
             }
         }
         val fresh = provider.boxScore(event)?.copy(fetchedAtEpochMillis = clock()) ?: return null
@@ -79,8 +93,8 @@ class SportsEventRepository(
     }
 
     companion object {
-        const val STANDINGS_MAX_AGE_MILLIS = 10 * 60_000L
         const val DEFAULT_MAX_AGE_MILLIS = 60_000L
+        const val STANDINGS_MAX_AGE_MILLIS = 10 * 60_000L
         const val LIVE_BOX_SCORE_MAX_AGE_MILLIS = 30_000L
         private const val MAX_CACHED_BOX_SCORES = 40
 

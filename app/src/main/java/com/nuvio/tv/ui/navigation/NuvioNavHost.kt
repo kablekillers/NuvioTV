@@ -198,8 +198,7 @@ private fun PlaybackNavHost(
                         videoId = match.streamId,
                         contentType = match.contentType,
                         title = match.title,
-                        manualSelection = true,
-                        returnToHomeOnBack = true
+                        manualSelection = true
                     )
                 )
             })

@@ -1,9 +1,47 @@
 package com.nuvio.tv.ui.screens.sports
 
 /** Provider-independent sports metadata. Stream availability is never inferred from event status. */
-enum class SportsLeague(val label: String) {
-    NFL("NFL"), COLLEGE_FOOTBALL("College Football"), NBA("NBA"),
-    MLB("MLB"), NHL("NHL"), UFC("UFC")
+enum class SportsLeague(
+    val label: String,
+    val scoreboardPath: String?,
+    internal val catalogSport: String,
+    internal val shortLabel: String = label,
+    internal val logoPath: String? = null,
+    internal val usesTeamStats: Boolean = true,
+) {
+    NFL("NFL", "football/nfl", "american_football", logoPath = "i/teamlogos/leagues/500/nfl.png"),
+    COLLEGE_FOOTBALL("College Football", "football/college-football", "american_football",
+        shortLabel = "College", logoPath = "redesign/assets/img/icons/NCAASports_Football.png"),
+    NBA("NBA", "basketball/nba", "basketball", logoPath = "i/teamlogos/leagues/500/nba.png"),
+    MLB("MLB", "baseball/mlb", "baseball", logoPath = "i/teamlogos/leagues/500/mlb.png"),
+    NHL("NHL", "hockey/nhl", "hockey", logoPath = "i/teamlogos/leagues/500/nhl.png"),
+    UFC("UFC", "mma/ufc", "fight", logoPath = "i/teamlogos/leagues/500/ufc.png", usesTeamStats = false),
+    NCAA_MEN("NCAA Men's Basketball", "basketball/mens-college-basketball", "basketball",
+        "NCAA Men", "redesign/assets/img/icons/NCAASports_MensBasketball.png"),
+    NCAA_WOMEN("NCAA Women's Basketball", "basketball/womens-college-basketball", "basketball",
+        "NCAA Women", "redesign/assets/img/icons/NCAASports_WomensBasketball.png"),
+    WNBA("WNBA", "basketball/wnba", "basketball", logoPath = "i/teamlogos/leagues/500-dark/wnba.png"),
+    ATP("ATP Tennis", "tennis/atp", "tennis", "ATP", usesTeamStats = false),
+    WTA("WTA Tennis", "tennis/wta", "tennis", "WTA", usesTeamStats = false),
+    PGA("PGA Tour", "golf/pga", "golf", "PGA", "i/teamlogos/leagues/500-dark/pgatour.png", false),
+    LPGA("LPGA", "golf/lpga", "golf", logoPath = "i/teamlogos/leagues/500-dark/lpga.png", usesTeamStats = false),
+    FORMULA_1("Formula 1", "racing/f1", "motor_sports", "F1", "i/teamlogos/leagues/500/f1.png", false),
+    NASCAR("NASCAR Cup Series", "racing/nascar-premier", "motor_sports",
+        "NASCAR", "redesign/assets/img/icons/ESPN-icon-NASCAR.png", false),
+    INDYCAR("IndyCar", "racing/irl", "motor_sports",
+        logoPath = "i/espn/teamlogos/500/indycar_series.png", usesTeamStats = false),
+    MOTORSPORT("Motorsports", null, "motor_sports", "Motorsports", usesTeamStats = false),
+    COMBAT("Boxing & MMA", null, "fight", "Boxing & MMA", usesTeamStats = false),
+    SOCCER("Soccer", null, "football", usesTeamStats = false),
+    RUGBY("Rugby", null, "rugby", usesTeamStats = false),
+    AFL("AFL", null, "afl", usesTeamStats = false),
+    CRICKET("Cricket", null, "cricket", usesTeamStats = false),
+    DARTS("Darts", null, "darts", usesTeamStats = false),
+    BILLIARDS("Billiards", null, "billiards", usesTeamStats = false),
+    OTHER("Other Sports", null, "other", usesTeamStats = false),
+    ;
+
+    internal val isCollegeBasketball: Boolean get() = this == NCAA_MEN || this == NCAA_WOMEN
 }
 
 enum class SportsEventStatus { SCHEDULED, LIVE, FINAL, POSTPONED, UNKNOWN }
@@ -16,7 +54,8 @@ data class SportsCompetitor(
     val score: String? = null,
     val record: String? = null,
     val isHome: Boolean = false,
-    val isWinner: Boolean = false
+    val isWinner: Boolean = false,
+    val logoUrl: String? = null,
 ) {
     init {
         require(name.isNotBlank())
@@ -41,7 +80,9 @@ data class SportsEvent(
     val competitors: List<SportsCompetitor> = emptyList(),
     val venue: String? = null,
     /** TV networks / services the provider lists as carrying the event. */
-    val broadcasts: List<String> = emptyList()
+    val broadcasts: List<String> = emptyList(),
+    val catalogMatchTitle: String? = null,
+    val racingSession: String? = null,
 ) {
     init {
         require(id.isNotBlank())
@@ -75,6 +116,8 @@ data class SportsEvent(
 interface SportsEventProvider {
     suspend fun events(league: SportsLeague): List<SportsEvent>
 
+    suspend fun recentResults(league: SportsLeague, nowEpochMillis: Long): List<SportsEvent> = emptyList()
+
     /** Individual player stats for a game, or null when the provider has none (e.g. not started). */
     suspend fun boxScore(event: SportsEvent): SportsBoxScore? = null
 
@@ -101,8 +144,6 @@ data class SportsStandings(
     val groups: List<SportsStandingsGroup>,
     val fetchedAtEpochMillis: Long = 0L,
 )
-
-
 
 object SportsEventSections {
     fun live(events: List<SportsEvent>) = events.filter {

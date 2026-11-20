@@ -53,6 +53,21 @@ class SportsAddonCatalogsTest {
         )
     }
 
+    @Test
+    fun newSportsKeepSpecificCatalogsAndUseGeneralCatalogsOnlyWithSchedules() {
+        val addon = addon(
+            "community.sports.fly", "Sports Streams",
+            catalog("sports_live", "sport"), catalog("sports_basketball", "sport"),
+            catalog("sports_tennis", "sport"), catalog("sports_golf", "sport"),
+            catalog("sports_motor_sports", "sport"), catalog("sports_darts", "sport"),
+        )
+        assertEquals(listOf("sports_live", "sports_basketball"), SportsAddonCatalogs.routes(addon, SportsLeague.NCAA_WOMEN).map { it.id })
+        assertEquals(listOf("sports_live", "sports_tennis"), SportsAddonCatalogs.routes(addon, SportsLeague.WTA).map { it.id })
+        assertEquals(listOf("sports_live", "sports_golf"), SportsAddonCatalogs.routes(addon, SportsLeague.PGA).map { it.id })
+        assertEquals(listOf("sports_motor_sports"), SportsAddonCatalogs.routes(addon, SportsLeague.MOTORSPORT).map { it.id })
+        assertEquals(listOf("sports_darts"), SportsAddonCatalogs.routes(addon, SportsLeague.DARTS).map { it.id })
+    }
+
     private fun catalog(id: String, type: String, name: String = id) =
         CatalogDescriptor(type = ContentType.fromString(type), rawType = type, id = id, name = name)
 
