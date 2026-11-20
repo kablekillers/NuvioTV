@@ -279,6 +279,21 @@ class ProfileSettingsSyncService @Inject constructor(
         }
     }
 
+    /**
+     * Kable Killers backup restore: applies a Profile 1 settings blob saved outside
+     * Nuvio, exactly like a Nuvio pull would. Returns true if anything changed.
+     */
+    suspend fun restoreProfileOneFromBackup(blob: JsonObject): Boolean = withContext(Dispatchers.IO) {
+        syncMutex.withLock {
+            val featuresJson = blob["features"]?.jsonObject ?: return@withLock false
+            val remoteSignature = buildSettingsSignature(featuresJson)
+            if (remoteSignature == buildSettingsSignature(1)) return@withLock false
+            applySettingsBlob(1, featuresJson, remoteSignature)
+            Log.d(TAG, "Applied Profile 1 settings from the Kable Killers backup")
+            true
+        }
+    }
+
     suspend fun copyProfileSetup(
         sourceProfileId: Int,
         targetProfileId: Int,

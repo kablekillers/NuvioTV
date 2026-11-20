@@ -3,6 +3,7 @@ package com.nuvio.tv.core.sync
 import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.backup.KableKillersBackupService
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.StartupSyncPreferences
@@ -67,7 +68,8 @@ class StartupSyncService @Inject constructor(
     private val watchProgressPreferences: WatchProgressPreferences,
     private val profileManager: ProfileManager,
     private val startupSyncPreferences: StartupSyncPreferences,
-    private val cwEnrichmentCache: com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
+    private val cwEnrichmentCache: com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache,
+    private val kableKillersBackup: dagger.Lazy<KableKillersBackupService>
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var startupPullJob: Job? = null
@@ -87,6 +89,7 @@ class StartupSyncService @Inject constructor(
     private var pendingResyncIncludesProfileSettings: Boolean = false
 
     init {
+        scope.launch { kableKillersBackup.get().onAppStart() }
         scope.launch {
             authManager.authState.collect { state ->
                 when (state) {
@@ -297,6 +300,7 @@ class StartupSyncService @Inject constructor(
                     key = key,
                     pulledAtMs = SystemClock.elapsedRealtime()
                 )
+                kableKillersBackup.get().onNuvioSyncSucceeded()
             }
             Log.d(TAG, "Activity sync completed profile=$profileId reason=$reason succeeded=$succeeded")
         }
@@ -401,6 +405,12 @@ class StartupSyncService @Inject constructor(
                 if (attempt < maxAttempts) {
                     delay(3000)
                 }
+            }
+            // Keep the Kable Killers backup in step with Nuvio, or fall back to it.
+            if (syncCompleted) {
+                kableKillersBackup.get().onNuvioSyncSucceeded()
+            } else {
+                kableKillersBackup.get().onNuvioSyncFailed()
             }
             
             val resyncKey = pendingResyncKey
