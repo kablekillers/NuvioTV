@@ -13,7 +13,9 @@ class ThemeBrandingTest {
             AppTheme.JADE to R.drawable.app_logo_wordmark_jade,
             AppTheme.ROSE_GOLD to R.drawable.app_logo_wordmark_rose_gold,
             AppTheme.ARCTIC_BLUE to R.drawable.app_logo_wordmark_arctic_blue,
-            AppTheme.GRAPHITE to R.drawable.app_logo_wordmark_graphite
+            AppTheme.GRAPHITE to R.drawable.app_logo_wordmark_graphite,
+            // Cinema Black (gold accent) uses the gold wordmark.
+            AppTheme.CINEMA_BLACK to R.drawable.app_logo_wordmark_gold
         )
 
         expectedWordmarks.forEach { (theme, wordmark) ->
@@ -28,7 +30,8 @@ class ThemeBrandingTest {
             AppTheme.JADE,
             AppTheme.ROSE_GOLD,
             AppTheme.ARCTIC_BLUE,
-            AppTheme.GRAPHITE
+            AppTheme.GRAPHITE,
+            AppTheme.CINEMA_BLACK
         )
 
         AppTheme.entries.filterNot(supporterThemes::contains).forEach { theme ->
