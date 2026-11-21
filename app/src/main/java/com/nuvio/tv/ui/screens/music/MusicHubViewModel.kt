@@ -14,12 +14,19 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import javax.inject.Inject
 
 enum class MusicCategory(val label: String) {
     SONGS("Songs & Artists"),
     ALBUMS("Albums & Concerts"),
-    RADIO("Live Radio")
+    RADIO("Live Radio"),
+    YOUTUBE("YouTube Videos")
 }
 
 data class MusicResult(
@@ -27,7 +34,8 @@ data class MusicResult(
     val title: String,
     val poster: String?,
     val category: MusicCategory,
-    val addonBaseUrl: String
+    val addonBaseUrl: String,
+    val youtubeChannel: String? = null
 )
 
 @HiltViewModel
@@ -56,10 +64,20 @@ class MusicHubViewModel @Inject constructor(
                     message = "Install and enable Kable Killers Music in Add-ons to use Music Hub."
                     return@launch
                 }
+                if (category == MusicCategory.YOUTUBE) {
+                    if (query.isBlank()) {
+                        message = "Search for a song or artist to find official YouTube videos."
+                        return@launch
+                    }
+                    results = searchOfficialYouTube(installed.baseUrl, query)
+                    if (results.isEmpty()) message = "No embeddable YouTube music videos found."
+                    return@launch
+                }
                 val ids = when (category) {
                     MusicCategory.SONGS -> listOf("kablekillers_music_search", "kk_audius", "kk_commons")
                     MusicCategory.ALBUMS -> listOf("kk_audius_albums", "kk_archive")
                     MusicCategory.RADIO -> listOf("kk_radio")
+                    MusicCategory.YOUTUBE -> emptyList()
                 }
                 val collected = mutableListOf<MusicResult>()
                 var failed = 0
@@ -101,5 +119,36 @@ class MusicHubViewModel @Inject constructor(
                 loading = false
             }
         }
+    }
+}
+
+/** Official YouTube Data API lookup is proxied by the Kable Killers Music addon. */
+private suspend fun searchOfficialYouTube(baseUrl: String, query: String): List<MusicResult> = withContext(Dispatchers.IO) {
+    val url = URL(baseUrl.trimEnd('/') + "/api/music/youtube/search?q=" +
+        URLEncoder.encode(query.trim().take(160), "UTF-8"))
+    val connection = url.openConnection() as HttpURLConnection
+    try {
+        connection.connectTimeout = 12000
+        connection.readTimeout = 16000
+        if (connection.responseCode !in 200..299) return@withContext emptyList()
+        val root = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        val array = root.optJSONArray("results") ?: return@withContext emptyList()
+        buildList {
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val id = item.optString("videoId")
+                if (!Regex("^[a-zA-Z0-9_-]{11}$").matches(id)) continue
+                add(MusicResult(
+                    id = id,
+                    title = item.optString("title"),
+                    poster = item.optString("thumbnail"),
+                    category = MusicCategory.YOUTUBE,
+                    addonBaseUrl = baseUrl,
+                    youtubeChannel = item.optString("channel")
+                ))
+            }
+        }
+    } finally {
+        connection.disconnect()
     }
 }
