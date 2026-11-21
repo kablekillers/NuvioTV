@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -44,6 +45,7 @@ fun MusicHubScreen(
     onOpenRecording: (MusicResult) -> Unit,
     viewModel: MusicHubViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     var search by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(MusicCategory.SONGS) }
     var selectedAlbum by remember { mutableStateOf<MusicResult?>(null) }
@@ -83,7 +85,9 @@ fun MusicHubScreen(
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(viewModel.results, key = { it.id }) { result ->
                 MusicResultRow(result) {
-                    if (result.category == MusicCategory.ALBUMS && (result.id.startsWith("ia:") || result.id.startsWith("audiuspl:"))) {
+                    if (result.category == MusicCategory.YOUTUBE) {
+                        context.startActivity(YouTubeVideoActivity.intentFor(context, result))
+                    } else if (result.category == MusicCategory.ALBUMS && (result.id.startsWith("ia:") || result.id.startsWith("audiuspl:"))) {
                         selectedAlbum = result
                     } else {
                         onOpenRecording(result)
@@ -134,7 +138,7 @@ private fun MusicResultRow(result: MusicResult, onClick: () -> Unit) {
         )
         Column {
             Text(result.title, color = Color.White, fontWeight = FontWeight.SemiBold)
-            Text(result.category.label, color = ElectricBlue, fontSize = 13.sp)
+            Text(result.youtubeChannel ?: result.category.label, color = ElectricBlue, fontSize = 13.sp)
         }
     }
 }
