@@ -25,6 +25,11 @@ jobs:
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+      - name: Configure production authentication for verification
+        run: |
+          printf 'sdk.dir=%s\n' "${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
+          printf 'NUVIO_SUPABASE_URL=https://api.nuvio.tv\n' >> local.properties
+          printf 'NUVIO_SUPABASE_ANON_KEY=sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN\n' >> local.properties
       - uses: gradle/actions/setup-gradle@v4
       - name: Compile debug and run JVM unit tests
         run: ./gradlew :app:compileFullDebugKotlin :app:testFullDebugUnitTest --stacktrace --no-daemon
