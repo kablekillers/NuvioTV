@@ -37,11 +37,12 @@ import java.net.URLEncoder
 data class AlbumTrack(val title: String, val url: String, val index: Int)
 
 internal suspend fun loadAlbumTracks(recording: MusicResult): List<AlbumTrack> = withContext(Dispatchers.IO) {
-    if (!recording.id.startsWith("ia:")) return@withContext emptyList()
-    val identifier = recording.id.removePrefix("ia:")
+    if (!recording.id.startsWith("ia:") && !recording.id.startsWith("audiuspl:")) return@withContext emptyList()
+    val isAudius = recording.id.startsWith("audiuspl:")
+    val identifier = recording.id.substringAfter(":")
     if (!Regex("^[a-zA-Z0-9_.-]{1,200}$").matches(identifier)) return@withContext emptyList()
     val url = recording.addonBaseUrl.trimEnd('/') +
-        "/api/music/album/" + URLEncoder.encode(identifier, "UTF-8")
+        (if (isAudius) "/api/music/audius-album/" else "/api/music/album/") + URLEncoder.encode(identifier, "UTF-8")
     val connection = URL(url).openConnection() as HttpURLConnection
     try {
         connection.connectTimeout = 12000
@@ -53,7 +54,8 @@ internal suspend fun loadAlbumTracks(recording: MusicResult): List<AlbumTrack> =
             for (i in 0 until tracks.length()) {
                 val item = tracks.optJSONObject(i) ?: continue
                 val trackUrl = item.optString("url")
-                if (!trackUrl.startsWith("https://archive.org/download/")) continue
+                if (!trackUrl.startsWith("https://archive.org/download/") &&
+                    !trackUrl.startsWith("https://kable-killers-music.onrender.com/api/music/audius-track/")) continue
                 add(AlbumTrack(item.optString("title", "Track ${i + 1}"), trackUrl, i))
             }
         }
