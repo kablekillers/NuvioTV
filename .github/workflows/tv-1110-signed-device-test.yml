@@ -33,6 +33,10 @@ jobs:
             exit 1
           fi
           printf '%s' "$LOCAL_PROPERTIES_BASE64" | base64 --decode > local.properties
+          # Match the production public auth configuration used by the working Mobile build.
+          sed -i -E '/^[[:space:]]*NUVIO_SUPABASE_(URL|ANON_KEY)[[:space:]]*=/d' local.properties
+          printf '\nNUVIO_SUPABASE_URL=https://api.nuvio.tv\n' >> local.properties
+          printf 'NUVIO_SUPABASE_ANON_KEY=sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN\n' >> local.properties
           for property_name in NUVIO_SUPABASE_URL NUVIO_SUPABASE_ANON_KEY; do
             if ! grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*.+$" local.properties; then
               echo "::error::Missing production auth setting: ${property_name}"
