@@ -30,6 +30,8 @@ jobs:
           fi
           printf '\nNUVIO_SUPABASE_URL=https://api.nuvio.tv\nNUVIO_SUPABASE_ANON_KEY=sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN\n' >> local.properties
       - name: Build TV Music and NFL Channels APK
+        env:
+          CI_USE_DEBUG_SIGNING: "true"
         run: bash ./gradlew :app:assembleFullDebug --stacktrace --no-daemon
       - name: Upload TV test APK
         uses: actions/upload-artifact@v4
