@@ -62,6 +62,11 @@ private val Muted = Color(0xFFB4C2D6)
 @Composable
 fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel()) {
     var selectedLeague by remember { mutableStateOf(SportsLeague.NFL) }
+    var showAllSports by remember { mutableStateOf(true) }
+    var allBoards by remember { mutableStateOf<List<SportsScoreboard>>(emptyList()) }
+    var allLoading by remember { mutableStateOf(true) }
+    var allRefreshFailed by remember { mutableStateOf(false) }
+    var allClock by remember { mutableStateOf(System.currentTimeMillis()) }
     var board by remember { mutableStateOf<SportsScoreboard?>(null) }
     var loading by remember { mutableStateOf(true) }
     var refreshFailed by remember { mutableStateOf(false) }
@@ -94,7 +99,36 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         }
     }
 
-    val events = board?.takeIf { it.league == selectedLeague }?.events.orEmpty()
+    LaunchedEffect(showAllSports, lifecycleOwner) {
+        if (!showAllSports) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var first = true
+            while (true) {
+                val fresh = mutableListOf<SportsScoreboard>()
+                var failures = 0
+                for (league in SportsLeague.entries) {
+                    try {
+                        fresh.add(repository.scoreboard(league, forceRefresh = !first))
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        failures++
+                        repository.cached(league)?.let { fresh.add(it) }
+                    }
+                }
+                allBoards = fresh
+                allRefreshFailed = failures > 0
+                allLoading = false
+                allClock = System.currentTimeMillis()
+                first = false
+                delay(60_000L)
+            }
+        }
+    }
+
+    val combined = SportsHubCombinedEvents.combine(allBoards, allClock)
+    val events = if (showAllSports) combined.live + combined.upcoming
+        else board?.takeIf { it.league == selectedLeague }?.events.orEmpty()
 
     Box(modifier = Modifier.fillMaxSize()) {
     Column(
@@ -106,21 +140,47 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             SportsLogoCluster()
             Text("KABLE KILLERS SPORTS", color = ElectricBlue, fontSize = 30.sp, fontWeight = FontWeight.Bold)
         }
-        Text(statusLine(board, refreshFailed, selectedLeague), color = Muted, fontSize = 15.sp)
+        Text(
+            if (showAllSports) "All leagues • updates every 60 seconds" else statusLine(board, refreshFailed, selectedLeague),
+            color = Muted, fontSize = 15.sp
+        )
 
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            PanelButton(
+                "ALL SPORTS",
+                active = showAllSports,
+                modifier = if (showAllSports) Modifier.focusRequester(tabFocus) else Modifier
+            ) { showAllSports = true }
             SportsLeague.entries.forEach { league ->
                 LeagueTab(league, active = league == selectedLeague,
-                    modifier = if (league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
+                    modifier = if (!showAllSports && league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
+                    showAllSports = false
                     if (league != selectedLeague) selectedLeague = league
                 }
             }
         }
 
-        when {
+        if (showAllSports) {
+            if (allLoading && events.isEmpty()) InfoPanel("Loading games across all leagues…")
+            if (allRefreshFailed) InfoPanel("Some leagues could not refresh. Showing available games; retrying automatically.")
+            listOf("LIVE NOW" to combined.live, "UPCOMING • NEXT 60 MIN" to combined.upcoming)
+                .forEach { (heading, games) ->
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text(heading, color = if (heading == "LIVE NOW") LiveRed else ElectricBlue,
+                            fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        if (games.isEmpty()) InfoPanel(
+                            if (heading == "LIVE NOW") "No live games reported." else "No games scheduled in the next hour."
+                        )
+                        games.take(30).forEach { event ->
+                            val requester = cardFocus.getOrPut(event.id) { FocusRequester() }
+                            GameCard(event, requester) { selectedEventId = event.id }
+                        }
+                    }
+                }
+        } else when {
             loading && events.isEmpty() ->
                 InfoPanel("Loading ${selectedLeague.label} scores…")
             refreshFailed && events.isEmpty() ->
