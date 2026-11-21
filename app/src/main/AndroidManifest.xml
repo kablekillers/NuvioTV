@@ -44,6 +44,12 @@
         android:supportsRtl="true"
         android:localeConfig="@xml/locale_config"
         android:theme="@style/Theme.MyApplication">
+        <activity
+            android:name=".ui.screens.music.YouTubeVideoActivity"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
         <meta-data
             android:name="io.sentry.auto-init"
             android:value="false" />
