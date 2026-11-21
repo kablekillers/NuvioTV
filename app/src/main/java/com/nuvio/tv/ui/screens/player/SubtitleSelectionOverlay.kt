@@ -841,6 +841,28 @@ private fun SubtitleStyleRail(
         ) {
             item {
                 Card(
+                    onClick = { TvPlayerExtras.openSyncByEar() },
+                    colors = overlayCardColors(selected = false),
+                    shape = CardDefaults.shape(RoundedCornerShape(NuvioTheme.radii.md)),
+                    modifier = Modifier.fillMaxWidth(),
+                    scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+                ) {
+                    Column(Modifier.padding(horizontal = NuvioTheme.spacing.md, vertical = 10.dp)) {
+                        Text(
+                            text = "Sync by ear",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Press Heard and Saw to fix out-of-sync subtitles",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+            item {
+                Card(
                     onClick = { dispatchStyleEvent(PlayerEvent.OnShowSubtitleDelayOverlay) },
                     colors = overlayCardColors(selected = false),
                     shape = CardDefaults.shape(RoundedCornerShape(NuvioTheme.radii.md)),

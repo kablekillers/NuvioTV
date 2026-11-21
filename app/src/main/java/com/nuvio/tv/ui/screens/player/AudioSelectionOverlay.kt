@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -628,6 +629,50 @@ private fun AudioControlsContent(
                 )
             }
         }
+
+        // Kable Killers night mode: each press steps Off → Low → Medium → High.
+        val nightMode by TvPlayerExtras.nightMode.collectAsState()
+        Text(
+            text = "Night mode",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.92f)
+        )
+        Card(
+            onClick = { TvPlayerExtras.setNightMode(nightMode.next()) },
+            colors = CardDefaults.colors(
+                containerColor = if (nightMode != NightModeLevel.Off) NuvioTheme.colors.Secondary else Color.White.copy(alpha = 0.08f),
+                focusedContainerColor = if (nightMode != NightModeLevel.Off) NuvioTheme.colors.Secondary else Color.White.copy(alpha = 0.16f)
+            ),
+            shape = CardDefaults.shape(RoundedCornerShape(NuvioTheme.radii.md)),
+            border = CardDefaults.border(
+                border = Border(
+                    border = BorderStroke(NuvioTheme.spacing.xxs, Color.Transparent),
+                    shape = RoundedCornerShape(NuvioTheme.radii.md)
+                ),
+                focusedBorder = Border(
+                    border = NuvioTheme.focusRing.border(NuvioTheme.spacing.xxs),
+                    shape = RoundedCornerShape(NuvioTheme.radii.md)
+                )
+            ),
+            scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        ) {
+            Text(
+                text = when (nightMode) {
+                    NightModeLevel.Off -> "Off"
+                    NightModeLevel.Low -> "Low · up to +6 dB"
+                    NightModeLevel.Medium -> "Medium · up to +10 dB"
+                    NightModeLevel.High -> "High · up to +15 dB"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (nightMode != NightModeLevel.Off) NuvioTheme.colors.OnSecondary else Color.White,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
+        Text(
+            text = "Lifts dialogue and quiet sounds so you can keep the volume low. Loud scenes stay as they were mixed.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.66f)
+        )
     }
 }
 

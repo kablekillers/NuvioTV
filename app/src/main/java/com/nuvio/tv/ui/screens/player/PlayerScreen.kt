@@ -179,6 +179,20 @@ fun PlayerScreen(
     onOpenPartyMedia: (com.nuvio.tv.core.party.PartyMedia) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val extrasContext = LocalContext.current
+    remember { TvPlayerExtras.initialize(extrasContext) }
+    val nightModeLevel by TvPlayerExtras.nightMode.collectAsState()
+    val syncByEarOpen by TvPlayerExtras.syncByEarOpen.collectAsState()
+    LaunchedEffect(nightModeLevel, viewModel.controller.mpvView) {
+        viewModel.controller.mpvView?.applyNightMode(nightModeLevel.mpvFilter)
+    }
+    LaunchedEffect(syncByEarOpen) {
+        // Sync by ear needs the video visible: close the subtitle panels.
+        if (syncByEarOpen) {
+            viewModel.onEvent(PlayerEvent.OnShowSubtitleDelayOverlay)
+            viewModel.onEvent(PlayerEvent.OnHideSubtitleDelayOverlay)
+        }
+    }
     val partyState by viewModel.party.state.collectAsState()
     val partyAvailable by viewModel.party.available.collectAsState()
     val partyCanUse by viewModel.party.canUse.collectAsState()
@@ -602,6 +616,14 @@ fun PlayerScreen(
             .focusRequester(containerFocusRequester)
             .focusable(enabled = uiState.error == null)
             .onPreviewKeyEvent { keyEvent ->
+                // Sync by ear is open: Back closes it instead of the player.
+                if (TvPlayerExtras.syncByEarOpen.value &&
+                    (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK ||
+                        keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ESCAPE)
+                ) {
+                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) TvPlayerExtras.closeSyncByEar()
+                    return@onPreviewKeyEvent true
+                }
                 // Consume the confirm KEY_UP that opened the subtitle timing dialog before
                 // the newly focused "Sync" button can treat it as a second click. Preview
                 // is required: after open, focus moves into the dialog so onKeyEvent on
@@ -1541,6 +1563,8 @@ fun PlayerScreen(
         ) {
             SeekOverlayHost(viewModel = viewModel)
         }
+
+        SyncByEarOverlay(viewModel = viewModel)
 
         // Episodes/streams side panel (slides in from right)
         AnimatedVisibility(
@@ -2647,6 +2671,8 @@ private fun PlayerControlsProgressBarHost(
 ) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
 
+    Column {
+    SeekThumbnailPreview(viewModel = viewModel, modifier = Modifier.padding(bottom = 12.dp))
     ProgressBar(
         currentPosition = playbackTimeline.currentPosition,
         duration = playbackTimeline.duration,
@@ -2663,6 +2689,7 @@ private fun PlayerControlsProgressBarHost(
         onFocused = onFocused,
         bufferedPosition = playbackTimeline.bufferedPosition
     )
+    }
 }
 
 @Composable
@@ -2995,11 +3022,17 @@ private fun SeekOverlay(
 private fun SeekOverlayHost(viewModel: PlayerViewModel) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
 
-    SeekOverlay(
-        currentPosition = playbackTimeline.currentPosition,
-        duration = playbackTimeline.duration,
-        bufferedPosition = playbackTimeline.bufferedPosition
-    )
+    Column {
+        SeekThumbnailPreview(
+            viewModel = viewModel,
+            modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxl),
+        )
+        SeekOverlay(
+            currentPosition = playbackTimeline.currentPosition,
+            duration = playbackTimeline.duration,
+            bufferedPosition = playbackTimeline.bufferedPosition
+        )
+    }
 }
 
 @Composable

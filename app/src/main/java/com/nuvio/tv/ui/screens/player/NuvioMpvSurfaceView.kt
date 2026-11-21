@@ -253,6 +253,13 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         mpv.setPropertyDouble("speed", speed.toDouble())
     }
 
+    /** Kable Killers night mode: an mpv audio filter, or none. */
+    fun applyNightMode(filter: String) {
+        if (!initialized) return
+        runCatching { mpv.setPropertyString("af", filter) }
+            .onFailure { Log.w(TAG, "Failed to apply night mode on mpv: ${it.message}") }
+    }
+
     fun applyAudioAmplificationDb(db: Int) {
         if (!initialized) return
         val clampedDb = db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
@@ -653,6 +660,7 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
 
     override fun initOptions() {
         mpv.setOptionString("profile", "fast")
+        TvPlayerExtras.nightModeNow.mpvFilter.takeIf { it.isNotEmpty() }?.let { mpv.setOptionString("af", it) }
         mpv.setOptionString("msg-level", "ffmpeg=warn,vd=warn,ad=warn,vo=warn,ao=warn,demux=warn,lavf=warn,cplayer=warn,autoconvert=warn,hwupload=warn")
         setVo(if (hi10pGnextSoftwareFallbackActive) MPV_VIDEO_OUTPUT_GPU_NEXT else MPV_VIDEO_OUTPUT_GPU)
         mpv.setOptionString("gpu-context", "android")

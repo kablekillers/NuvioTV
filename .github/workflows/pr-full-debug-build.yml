@@ -8,6 +8,7 @@ on:
       - kk-backup-1.1.7
       - nuvio-beta-2026-10-16-test
       - watch-party-integration-stage
+      - tv-dev/1.1.11-features
   workflow_dispatch:
 
 permissions:

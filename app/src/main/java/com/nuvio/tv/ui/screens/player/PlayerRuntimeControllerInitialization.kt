@@ -2214,7 +2214,7 @@ private class SubtitleOffsetRenderersFactory(
         }
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-            .setAudioProcessors(arrayOf(gainAudioProcessor))
+            .setAudioProcessors(arrayOf(gainAudioProcessor, TvNightModeAudioProcessor()))
         val baseAudioSink = builder.build()
         val playbackSpeedAwareAudioSink = PlaybackSpeedAwareAudioSink(
             sink = baseAudioSink,

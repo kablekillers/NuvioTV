@@ -50,6 +50,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
@@ -1050,6 +1052,8 @@ open class MainActivity : ComponentActivity() {
                         buildSet {
                             add(Screen.Home.route)
                             add(Screen.SportsHub.route)
+                            add(Screen.MusicHub.route)
+                            add(Screen.YouTubeHub.route)
                             add(Screen.Calendar.route)
                             add(Screen.Search.route)
                             add(Screen.Library.route)
@@ -1086,6 +1090,20 @@ open class MainActivity : ComponentActivity() {
                                     route = Screen.SportsHub.route,
                                     label = "Sports Hub",
                                     icon = Icons.Default.Explore
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.MusicHub.route,
+                                    label = "Music",
+                                    icon = Icons.Default.LibraryMusic
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.YouTubeHub.route,
+                                    label = "YouTube",
+                                    icon = Icons.Default.SmartDisplay
                                 )
                             )
                             add(

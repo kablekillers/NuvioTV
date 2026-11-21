@@ -191,6 +191,12 @@ private fun PlaybackNavHost(
                 navController.navigate(Screen.Detail.createRoute(itemId = ep.showId, itemType = ep.showType))
             })
         }
+        composable(Screen.MusicHub.route) {
+            com.nuvio.tv.ui.screens.music.TvMusicScreen()
+        }
+        composable(Screen.YouTubeHub.route) {
+            com.nuvio.tv.ui.screens.music.TvYouTubeScreen()
+        }
         composable(Screen.SportsHub.route) {
             SportsHubScreen(onOpenStream = { match ->
                 navController.navigate(
