@@ -183,6 +183,10 @@ fun PlayerScreen(
     remember { TvPlayerExtras.initialize(extrasContext) }
     val nightModeLevel by TvPlayerExtras.nightMode.collectAsState()
     val syncByEarOpen by TvPlayerExtras.syncByEarOpen.collectAsState()
+    // Start the seek-thumbnail reader with playback so previews are ready when you fast-forward.
+    val seekThumbnailsOn by TvPlayerExtras.seekThumbnails.collectAsState()
+    if (seekThumbnailsOn) TvSeekThumbnails.loaderFor(viewModel)
+    DisposableEffect(Unit) { onDispose { TvSeekThumbnails.releaseAll() } }
     LaunchedEffect(nightModeLevel, viewModel.controller.mpvView) {
         viewModel.controller.mpvView?.applyNightMode(nightModeLevel.mpvFilter)
     }

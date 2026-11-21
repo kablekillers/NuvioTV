@@ -61,6 +61,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
@@ -218,32 +222,79 @@ internal class TvNightModeAudioProcessor : BaseAudioProcessor() {
 
 // --- Seek thumbnails --------------------------------------------------------
 
-/** Frames for the seek preview, read with MediaMetadataRetriever (progressive files only). */
-internal class TvSeekThumbnailLoader(private val url: String, private val headers: Map<String, String>) {
+/**
+ * Frames for the seek preview, read with MediaMetadataRetriever (progressive files only). Once
+ * opened it fills in thumbnails across the whole video in the background, so fast-forward and
+ * rewind can show the nearest ready picture instantly; requested frames take priority.
+ */
+internal class TvSeekThumbnailLoader(
+    private val url: String,
+    private val headers: Map<String, String>,
+    private val scope: kotlinx.coroutines.CoroutineScope,
+) {
     private val mutex = Mutex()
     private var retriever: MediaMetadataRetriever? = null
     private var failed = false
-    private val cache = LinkedHashMap<Long, ImageBitmap>(32, 0.75f, true)
+    private var durationMs = 0L
+    private val cache = java.util.concurrent.ConcurrentSkipListMap<Long, ImageBitmap>()
+    private var prefetchJob: kotlinx.coroutines.Job? = null
+    @Volatile private var pendingOnDemand = 0
 
-    suspend fun frameAt(positionMs: Long): ImageBitmap? = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            if (failed) return@withLock null
-            val bucket = positionMs / BUCKET_MS
-            cache[bucket]?.let { return@withLock it }
-            val mmr = retriever ?: open() ?: return@withLock null
-            val bitmap = runCatching {
-                val timeUs = bucket * BUCKET_MS * 1000L
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                    mmr.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 384, 216)
-                } else {
-                    mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                        ?.let { Bitmap.createScaledBitmap(it, 384, 216, true) }
-                }
-            }.getOrNull() ?: return@withLock null
-            val image = bitmap.asImageBitmap()
-            cache[bucket] = image
-            if (cache.size > 80) cache.remove(cache.keys.first())
-            image
+    fun nearest(positionMs: Long): ImageBitmap? {
+        if (cache.isEmpty()) return null
+        val best = listOfNotNull(cache.floorEntry(positionMs), cache.ceilingEntry(positionMs))
+            .minByOrNull { abs(it.key - positionMs) } ?: return null
+        val tolerance = maxOf(20_000L, durationMs * 3 / 100)
+        return best.value.takeIf { abs(best.key - positionMs) <= tolerance }
+    }
+
+    suspend fun frameAt(positionMs: Long): ImageBitmap? {
+        val key = (positionMs / BUCKET_MS) * BUCKET_MS
+        cache[key]?.let { return it }
+        pendingOnDemand++
+        try {
+            return withContext(Dispatchers.IO) { mutex.withLock { decode(key) } }
+        } finally {
+            pendingOnDemand--
+            startPrefetch()
+        }
+    }
+
+    private fun decode(key: Long): ImageBitmap? {
+        if (failed) return null
+        cache[key]?.let { return it }
+        val mmr = retriever ?: open() ?: return null
+        val bitmap = runCatching {
+            val timeUs = key * 1000L
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                mmr.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 384, 216)
+            } else {
+                mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    ?.let { Bitmap.createScaledBitmap(it, 384, 216, true) }
+            }
+        }.getOrNull() ?: return null
+        val compact = runCatching { bitmap.copy(Bitmap.Config.RGB_565, false) }.getOrNull() ?: bitmap
+        if (compact !== bitmap) bitmap.recycle()
+        val image = compact.asImageBitmap()
+        cache[key] = image
+        while (cache.size > MAX_CACHED) cache.pollFirstEntry()
+        return image
+    }
+
+    private fun startPrefetch() {
+        if (prefetchJob != null || failed) return
+        prefetchJob = scope.launch(Dispatchers.IO) {
+            if (durationMs <= 0L) return@launch
+            val coarse = (1..40).map { durationMs * it / 41 }
+            val fine = (1..120).map { durationMs * it / 121 }
+            for (position in coarse + fine) {
+                if (!isActive || failed) break
+                while (pendingOnDemand > 0 && isActive) delay(50)
+                val key = (position / BUCKET_MS) * BUCKET_MS
+                if (cache.containsKey(key)) continue
+                mutex.withLock { decode(key) }
+                delay(150)
+            }
         }
     }
 
@@ -259,16 +310,34 @@ internal class TvSeekThumbnailLoader(private val url: String, private val header
                     else -> setDataSource(url, headers)
                 }
             }
-        }.onFailure { failed = true }.getOrNull()?.also { retriever = it }
+        }.onFailure { failed = true }.getOrNull()?.also { mmr ->
+            retriever = mmr
+            durationMs = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        }
+    }
+
+    fun warmUp() {
+        scope.launch {
+            delay(6_000)
+            frameAt(30_000)
+        }
     }
 
     fun release() {
-        runCatching { retriever?.release() }
-        retriever = null
-        cache.clear()
+        prefetchJob?.cancel()
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            mutex.withLock {
+                runCatching { retriever?.release() }
+                retriever = null
+                cache.clear()
+            }
+        }
     }
 
-    private companion object { const val BUCKET_MS = 5_000L }
+    private companion object {
+        const val BUCKET_MS = 5_000L
+        const val MAX_CACHED = 180
+    }
 }
 
 /** A still of the video above the seek bar while fast-forwarding or rewinding. */
@@ -278,16 +347,18 @@ internal fun SeekThumbnailPreview(viewModel: PlayerViewModel, modifier: Modifier
     val uiState by viewModel.uiState.collectAsState()
     val timeline by viewModel.playbackTimeline.collectAsState()
     val previewAt = uiState.pendingPreviewSeekPosition
-    val streamUrl = uiState.currentStreamUrl ?: viewModel.getCurrentStreamUrl()
     if (!enabled || timeline.isLive) return
-    val loader = remember(streamUrl) { TvSeekThumbnailLoader(streamUrl, viewModel.getCurrentHeaders()) }
-    DisposableEffect(loader) { onDispose { loader.release() } }
-    var frame by remember(streamUrl) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(previewAt?.let { it / 5_000L }) {
-        if (previewAt == null) { frame = null; return@LaunchedEffect }
-        delay(80)
-        loader.frameAt(previewAt)?.let { frame = it }
+    val loader = TvSeekThumbnails.loaderFor(viewModel)
+    val requests = remember(loader) { MutableStateFlow<Long?>(null) }
+    var frame by remember(loader) { mutableStateOf<ImageBitmap?>(null) }
+    androidx.compose.runtime.SideEffect {
+        requests.value = previewAt
+        if (previewAt != null) loader.nearest(previewAt)?.let { frame = it }
     }
+    LaunchedEffect(loader) {
+        requests.filterNotNull().conflate().collect { position -> loader.frameAt(position)?.let { frame = it } }
+    }
+    LaunchedEffect(previewAt == null) { if (previewAt == null) frame = null }
     val image = frame
     if (previewAt == null || image == null || timeline.duration <= 0L) return
     BoxWithConstraints(modifier.fillMaxWidth()) {
@@ -305,6 +376,29 @@ internal fun SeekThumbnailPreview(viewModel: PlayerViewModel, modifier: Modifier
                     .border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(10.dp)),
             )
         }
+    }
+}
+
+/** One frame reader per playing stream, shared by the seek overlay and the controls bar. */
+internal object TvSeekThumbnails {
+    private var current: Pair<String, TvSeekThumbnailLoader>? = null
+
+    @Composable
+    fun loaderFor(viewModel: PlayerViewModel): TvSeekThumbnailLoader {
+        val uiState by viewModel.uiState.collectAsState()
+        val url = uiState.currentStreamUrl ?: viewModel.getCurrentStreamUrl()
+        val existing = current
+        if (existing != null && existing.first == url) return existing.second
+        existing?.second?.release()
+        val loader = TvSeekThumbnailLoader(url, viewModel.getCurrentHeaders(), kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main))
+        current = url to loader
+        loader.warmUp()
+        return loader
+    }
+
+    fun releaseAll() {
+        current?.second?.release()
+        current = null
     }
 }
 
