@@ -99,6 +99,7 @@ private enum class HubView(val label: String) {
 @Composable
 fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel()) {
     var selectedLeague by rememberSaveable { mutableStateOf(SportsLeague.NFL) }
+    var showAllSports by rememberSaveable { mutableStateOf(true) }
     var board by remember { mutableStateOf<SportsScoreboard?>(null) }
     var loading by remember { mutableStateOf(true) }
     var refreshFailed by remember { mutableStateOf(false) }
@@ -131,6 +132,35 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         }
     }
 
+    var allBoards by remember { mutableStateOf<List<SportsScoreboard>>(emptyList()) }
+    var allLoading by remember { mutableStateOf(true) }
+    var allRefreshFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(showAllSports, lifecycleOwner) {
+        if (!showAllSports) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var first = true
+            while (true) {
+                val collected = mutableListOf<SportsScoreboard>()
+                var failures = 0
+                for (league in SportsLeague.entries) {
+                    try {
+                        collected += repository.scoreboard(league, forceRefresh = !first)
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        failures++
+                        repository.cached(league)?.let { collected += it }
+                    }
+                }
+                allBoards = collected
+                allRefreshFailed = failures > 0
+                allLoading = false
+                first = false
+                delay(60_000L)
+            }
+        }
+    }
+
     val context = androidx.compose.ui.platform.LocalContext.current
     remember { SportsPreferences.init(context) }
     val prefs by SportsPreferences.state.collectAsStateWithLifecycle()
@@ -146,8 +176,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         }
     }
     var clockNow by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(prefs.scoreDelaySeconds) {
-        while (prefs.scoreDelaySeconds > 0) {
+    LaunchedEffect(prefs.scoreDelaySeconds, showAllSports) {
+        while (prefs.scoreDelaySeconds > 0 || showAllSports) {
             clockNow = System.currentTimeMillis()
             delay(5_000L)
         }
@@ -157,6 +187,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         history.lastOrNull { it.fetchedAtEpochMillis <= cutoff } ?: history.firstOrNull() ?: board?.takeIf { it.league == selectedLeague }
     }
     val events = shownBoard?.events.orEmpty()
+    val combinedFeed = SportsHubCombinedEvents.combine(allBoards, clockNow)
     val liveGames = SportsEventSections.live(events)
 
     val catalogOnly = selectedLeague.scoreboardPath == null
@@ -237,9 +268,15 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 modifier = Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                PanelButton(
+                    "ALL SPORTS",
+                    active = showAllSports,
+                    modifier = if (showAllSports) Modifier.focusRequester(tabFocus) else Modifier
+                ) { showAllSports = true }
                 SportsLeague.entries.forEach { league ->
-                    LeagueTab(league, active = league == selectedLeague,
-                        modifier = if (league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
+                    LeagueTab(league, active = !showAllSports && league == selectedLeague,
+                        modifier = if (!showAllSports && league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
+                        showAllSports = false
                         if (league != selectedLeague) {
                             if (view == HubView.CHANNELS && league != SportsLeague.NFL) view = HubView.ALL
                             if (view == HubView.STANDINGS && (!league.usesTeamStats || league.scoreboardPath == null)) {
@@ -256,7 +293,10 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                HubView.entries.forEach { v ->
+                val orderedViews = if (selectedLeague == SportsLeague.NFL) {
+                    listOf(HubView.CHANNELS) + HubView.entries.filterNot { it == HubView.CHANNELS }
+                } else HubView.entries
+                orderedViews.forEach { v ->
                     if ((v != HubView.STANDINGS || selectedLeague.usesTeamStats) &&
                         (v != HubView.CHANNELS || selectedLeague == SportsLeague.NFL)) {
                         val label = if (v == HubView.ALL && catalogOnly) "Events" else v.label
@@ -274,6 +314,28 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             }
 
             when {
+                showAllSports -> {
+                    SectionTitle("LIVE NOW", live = combinedFeed.live.isNotEmpty())
+                    when {
+                        allLoading && allBoards.isEmpty() -> InfoPanel("Loading games across leagues…")
+                        allRefreshFailed && allBoards.isEmpty() -> InfoPanel("Sports schedules unavailable. Retrying automatically.")
+                        combinedFeed.live.isEmpty() -> InfoPanel("No live games right now.")
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            combinedFeed.live.forEach { event ->
+                                val requester = cardFocus.getOrPut(event.id) { FocusRequester() }
+                                GameCard(event, requester) { selectedEventId = event.id }
+                            }
+                        }
+                    }
+                    SectionTitle("UPCOMING · NEXT 60 MIN", live = false)
+                    if (combinedFeed.upcoming.isEmpty()) InfoPanel("No games starting in the next hour.")
+                    else Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        combinedFeed.upcoming.forEach { event ->
+                            val requester = cardFocus.getOrPut(event.id) { FocusRequester() }
+                            GameCard(event, requester) { selectedEventId = event.id }
+                        }
+                    }
+                }
                 view == HubView.CHANNELS && selectedLeague == SportsLeague.NFL -> {
                     SectionTitle("NFL REDZONE & NFL NETWORK", live = false)
                     when {
@@ -373,7 +435,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     }
 
     val selected = selectedEventId?.let { id ->
-        events.firstOrNull { it.id == id } ?: myTeamGames?.firstOrNull { it.id == id }
+        (events + combinedFeed.live + combinedFeed.upcoming).firstOrNull { it.id == id } ?: myTeamGames?.firstOrNull { it.id == id }
     }
     if (selectedEventId != null) {
         val closeDetails = {
