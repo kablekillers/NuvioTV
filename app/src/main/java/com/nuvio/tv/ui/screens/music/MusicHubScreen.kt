@@ -46,6 +46,7 @@ fun MusicHubScreen(
 ) {
     var search by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(MusicCategory.SONGS) }
+    var selectedAlbum by remember { mutableStateOf<MusicResult?>(null) }
 
     LaunchedEffect(search, category) {
         delay(350)
@@ -81,9 +82,18 @@ fun MusicHubScreen(
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(viewModel.results, key = { it.id }) { result ->
-                MusicResultRow(result) { onOpenRecording(result) }
+                MusicResultRow(result) {
+                    if (result.category == MusicCategory.ALBUMS && result.id.startsWith("ia:")) {
+                        selectedAlbum = result
+                    } else {
+                        onOpenRecording(result)
+                    }
+                }
             }
         }
+    }
+    selectedAlbum?.let { album ->
+        AlbumPlayerDialog(recording = album, onDismiss = { selectedAlbum = null })
     }
 }
 
