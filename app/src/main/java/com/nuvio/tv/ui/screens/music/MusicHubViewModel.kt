@@ -80,10 +80,13 @@ class MusicHubViewModel @Inject constructor(
                     MusicCategory.YOUTUBE -> emptyList()
                 }
                 val collected = mutableListOf<MusicResult>()
+                val effectiveQuery = query.trim().ifBlank {
+                    if (category == MusicCategory.ALBUMS) "live music" else ""
+                }
                 var failed = 0
                 for (id in ids) {
                     val descriptor = installed.catalogs.firstOrNull { it.id == id } ?: continue
-                    if (query.isBlank() && descriptor.extra.any { it.name == "search" && it.isRequired }) continue
+                    if (effectiveQuery.isBlank() && descriptor.extra.any { it.name == "search" && it.isRequired }) continue
                     try {
                         val response = catalogs.getCatalog(
                             addonBaseUrl = installed.baseUrl,
@@ -92,7 +95,7 @@ class MusicHubViewModel @Inject constructor(
                             catalogId = descriptor.id,
                             catalogName = descriptor.name,
                             type = descriptor.apiType,
-                            extraArgs = if (query.isBlank()) emptyMap() else mapOf("search" to query)
+                            extraArgs = if (effectiveQuery.isBlank()) emptyMap() else mapOf("search" to effectiveQuery)
                         ).first { it !is NetworkResult.Loading }
                         if (response is NetworkResult.Success) {
                             collected += response.data.items.map { item: MetaPreview ->
