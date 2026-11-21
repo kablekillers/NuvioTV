@@ -1030,6 +1030,7 @@ open class MainActivity : ComponentActivity() {
                         buildSet {
                             add(Screen.Home.route)
                             add(Screen.SportsHub.route)
+                            add(Screen.MusicHub.route)
                             add(Screen.Search.route)
                             add(Screen.Library.route)
                             add(Screen.Settings.route)
@@ -1064,6 +1065,13 @@ open class MainActivity : ComponentActivity() {
                                 DrawerItem(
                                     route = Screen.SportsHub.route,
                                     label = "Sports Hub",
+                                    icon = Icons.Default.Explore
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.MusicHub.route,
+                                    label = "Music Hub",
                                     icon = Icons.Default.Explore
                                 )
                             )
