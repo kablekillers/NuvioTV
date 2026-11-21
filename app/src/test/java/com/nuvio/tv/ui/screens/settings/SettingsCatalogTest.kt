@@ -26,6 +26,7 @@ class SettingsCatalogTest {
                 SettingsCategory.INTEGRATION,
                 SettingsCategory.TRACKING,
                 SettingsCategory.ADVANCED,
+                SettingsCategory.APPS,
                 SettingsCategory.ABOUT,
                 SettingsCategory.DEBUG
             ),
