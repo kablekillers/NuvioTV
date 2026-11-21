@@ -293,7 +293,10 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                HubView.entries.forEach { v ->
+                val orderedViews = if (selectedLeague == SportsLeague.NFL) {
+                    listOf(HubView.CHANNELS) + HubView.entries.filterNot { it == HubView.CHANNELS }
+                } else HubView.entries
+                orderedViews.forEach { v ->
                     if ((v != HubView.STANDINGS || selectedLeague.usesTeamStats) &&
                         (v != HubView.CHANNELS || selectedLeague == SportsLeague.NFL)) {
                         val label = if (v == HubView.ALL && catalogOnly) "Events" else v.label
