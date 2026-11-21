@@ -83,7 +83,7 @@ fun MusicHubScreen(
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(viewModel.results, key = { it.id }) { result ->
                 MusicResultRow(result) {
-                    if (result.category == MusicCategory.ALBUMS && result.id.startsWith("ia:")) {
+                    if (result.category == MusicCategory.ALBUMS && (result.id.startsWith("ia:") || result.id.startsWith("audiuspl:"))) {
                         selectedAlbum = result
                     } else {
                         onOpenRecording(result)
