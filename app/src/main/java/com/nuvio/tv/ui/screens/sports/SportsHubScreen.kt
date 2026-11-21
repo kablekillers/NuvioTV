@@ -93,7 +93,7 @@ private val Muted = Color(0xFF9E998F)
 private val Soft = Color(0xFFCFC9BE)
 
 private enum class HubView(val label: String) {
-    ALL("All games"), STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams")
+    ALL("All games"), STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams"), CHANNELS("NFL Channels")
 }
 
 @Composable
@@ -179,6 +179,19 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         }
     }
 
+    var nflChannels by remember { mutableStateOf<List<SportsCatalogMatch>?>(null) }
+    LaunchedEffect(selectedLeague, view) {
+        if (selectedLeague == SportsLeague.NFL && view == HubView.CHANNELS) {
+            nflChannels = null
+            try {
+                nflChannels = streamsViewModel.browseNflChannels()
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                nflChannels = emptyList()
+            }
+        }
+    }
     var myTeamGames by remember { mutableStateOf<List<SportsEvent>?>(null) }
     LaunchedEffect(view, prefs.favoriteTeams) {
         if (view != HubView.MY_TEAMS) return@LaunchedEffect
@@ -228,6 +241,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                     LeagueTab(league, active = league == selectedLeague,
                         modifier = if (league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
                         if (league != selectedLeague) {
+                            if (view == HubView.CHANNELS && league != SportsLeague.NFL) view = HubView.ALL
                             if (view == HubView.STANDINGS && (!league.usesTeamStats || league.scoreboardPath == null)) {
                                 view = HubView.ALL
                             }
@@ -243,7 +257,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 HubView.entries.forEach { v ->
-                    if (v != HubView.STANDINGS || selectedLeague.usesTeamStats) {
+                    if ((v != HubView.STANDINGS || selectedLeague.usesTeamStats) &&
+                        (v != HubView.CHANNELS || selectedLeague == SportsLeague.NFL)) {
                         val label = if (v == HubView.ALL && catalogOnly) "Events" else v.label
                         PanelButton(label, active = view == v) { view = v }
                     }
@@ -259,6 +274,20 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             }
 
             when {
+                view == HubView.CHANNELS && selectedLeague == SportsLeague.NFL -> {
+                    SectionTitle("NFL REDZONE & NFL NETWORK", live = false)
+                    when {
+                        nflChannels == null -> InfoPanel("Checking your installed add-ons for NFL channels…")
+                        nflChannels!!.isEmpty() -> InfoPanel(
+                            "No NFL RedZone or NFL Network channel found in enabled add-ons."
+                        )
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            nflChannels!!.forEach { channel ->
+                                SourceRow(channel, verified = true) { onOpenStream(channel) }
+                            }
+                        }
+                    }
+                }
                 browseCatalog -> {
                     val kind = when (view) {
                         HubView.REPLAYS -> SportsContentKind.REPLAY
