@@ -3367,4 +3367,27 @@
     <string name="autosync_toast_failed_no_reference">Sync failed: this video has no embedded subtitles to compare with.</string>
     <string name="autosync_toast_failed_unsupported">Sync failed: Auto Sync doesn\'t support this subtitle format.</string>
     <string name="autosync_label_synced">Auto synced</string>
+    <!-- Install Apps (Kable Killers) -->
+    <string name="install_apps_title">Install Apps</string>
+    <string name="install_apps_subtitle">Install other apps on this device from the Kable Killers store or from a link.</string>
+    <string name="install_apps_store_section">From the Kable Killers store</string>
+    <string name="install_apps_link_section">From a link</string>
+    <string name="install_apps_link_title">Install from a link</string>
+    <string name="install_apps_link_subtitle">Type the exact web address of an APK file.</string>
+    <string name="install_apps_link_dialog_subtitle">Enter the full link to the APK file. Only install apps you trust.</string>
+    <string name="install_apps_link_placeholder">https://example.com/app.apk</string>
+    <string name="install_apps_install">Install</string>
+    <string name="install_apps_cancel">Cancel</string>
+    <string name="install_apps_downloading">Downloading…</string>
+    <string name="install_apps_downloading_percent">Downloading %1$d%%</string>
+    <string name="install_apps_loading">Loading apps…</string>
+    <string name="install_apps_empty">No apps are listed right now.</string>
+    <string name="install_apps_load_failed">Couldn\'t load the app list</string>
+    <string name="install_apps_retry">Select to try again.</string>
+    <string name="install_apps_invalid_url">That doesn\'t look like a valid link.</string>
+    <string name="install_apps_download_failed">Download failed. Check the link and your connection, then try again.</string>
+    <string name="install_apps_install_failed">Couldn\'t open the installer.</string>
+    <string name="install_apps_permission_title">Allow app installs</string>
+    <string name="install_apps_permission_body">Kable Killers needs permission to install apps. Turn on \"Allow from this source\" on the next screen, then come back and the install will continue.</string>
+    <string name="install_apps_open_settings">Open settings</string>
 </resources>
