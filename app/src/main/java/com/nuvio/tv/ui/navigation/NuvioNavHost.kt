@@ -22,6 +22,7 @@ import androidx.navigation.NavType
 import com.nuvio.tv.core.party.PartyMedia
 import com.nuvio.tv.ui.screens.party.PartyScreen
 import com.nuvio.tv.ui.screens.sports.SportsHubScreen
+import com.nuvio.tv.ui.screens.music.MusicHubScreen
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
@@ -184,6 +185,19 @@ private fun PlaybackNavHost(
                     }
                 }
             )
+        }
+
+        composable(Screen.MusicHub.route) {
+            MusicHubScreen(onOpenRecording = { recording ->
+                navController.navigate(Screen.Stream.createRoute(
+                    videoId = recording.id,
+                    contentType = "music",
+                    title = recording.title,
+                    poster = recording.poster,
+                    manualSelection = true,
+                    returnToHomeOnBack = true
+                ))
+            })
         }
 
         composable(Screen.SportsHub.route) {
