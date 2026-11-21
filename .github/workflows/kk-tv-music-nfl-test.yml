@@ -29,5 +29,12 @@ jobs:
             touch local.properties
           fi
           printf '\nNUVIO_SUPABASE_URL=https://api.nuvio.tv\nNUVIO_SUPABASE_ANON_KEY=sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN\n' >> local.properties
-      - name: Compile TV Music and NFL Channels
-        run: bash ./gradlew :app:compileFullDebugKotlin --stacktrace --no-daemon
+      - name: Build TV Music and NFL Channels APK
+        run: bash ./gradlew :app:assembleFullDebug --stacktrace --no-daemon
+      - name: Upload TV test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kable-Killers-TV-Music-NFL-Test-APK
+          path: app/build/outputs/apk/full/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
