@@ -149,10 +149,14 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            PanelButton("ALL SPORTS", active = showAllSports) { showAllSports = true }
+            PanelButton(
+                "ALL SPORTS",
+                active = showAllSports,
+                modifier = if (showAllSports) Modifier.focusRequester(tabFocus) else Modifier
+            ) { showAllSports = true }
             SportsLeague.entries.forEach { league ->
                 LeagueTab(league, active = league == selectedLeague,
-                    modifier = if (league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
+                    modifier = if (!showAllSports && league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
                     showAllSports = false
                     if (league != selectedLeague) selectedLeague = league
                 }
