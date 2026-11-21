@@ -58,7 +58,7 @@ class MusicHubViewModel @Inject constructor(
                 }
                 val ids = when (category) {
                     MusicCategory.SONGS -> listOf("kablekillers_music_search", "kk_audius", "kk_commons")
-                    MusicCategory.ALBUMS -> listOf("kk_archive")
+                    MusicCategory.ALBUMS -> listOf("kk_audius_albums", "kk_archive")
                     MusicCategory.RADIO -> listOf("kk_radio")
                 }
                 val collected = mutableListOf<MusicResult>()
