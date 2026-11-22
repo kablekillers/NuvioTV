@@ -59,6 +59,8 @@ import java.net.URL
 internal object TvWhatsNewNotes {
     val byVersion: Map<String, List<String>> = mapOf(
         "1.1.13" to listOf(
+            "Fixed: each profile has its own Continue Watching again. Profile 1 syncs to the cloud; other profiles stay on this TV.",
+            "Fixed: the profile button is back at the top of the side menu. Press up from Home to switch profiles.",
             "A What's new box like this one now appears after each update.",
             "Music and YouTube tabs in the sidebar, under Sports Hub.",
             "Night mode in the audio panel: Off, Low, Medium or High.",

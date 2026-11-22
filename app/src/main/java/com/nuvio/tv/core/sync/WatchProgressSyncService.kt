@@ -68,6 +68,13 @@ class WatchProgressSyncService @Inject constructor(
         }
     }
 
+    // Kable Killers: household profiles on the customer login stay on this device.
+    private fun usesCloud(profileId: Int): Boolean =
+        KableKillersAccountPolicy.syncsWatchDataToCloud(authManager.authState.value, profileId)
+
+    private fun localOnlySyncResult() =
+        WatchProgressRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false)
+
     suspend fun shouldUseSupabaseWatchProgressSync(
         profileId: Int = profileManager.activeProfileId.value
     ): Boolean {
@@ -110,6 +117,7 @@ class WatchProgressSyncService @Inject constructor(
         keys: Collection<String>,
         profileId: Int = profileManager.activeProfileId.value
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             deleteFromRemoteLocked(keys, profileId)
         }
@@ -150,6 +158,7 @@ class WatchProgressSyncService @Inject constructor(
     suspend fun pushToRemote(
         profileId: Int = profileManager.activeProfileId.value
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             pushToRemoteLocked(profileId)
         }
@@ -220,6 +229,7 @@ class WatchProgressSyncService @Inject constructor(
         progress: WatchProgress,
         profileId: Int = profileManager.activeProfileId.value
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             pushSingleToRemoteLocked(key, progress, profileId)
         }
@@ -280,6 +290,7 @@ class WatchProgressSyncService @Inject constructor(
         sinceLastWatched: Long? = null,
         limit: Int? = null
     ): Result<List<Pair<String, WatchProgress>>> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(emptyList())
         try {
             if (!shouldUseSupabaseWatchProgressSync(profileId)) {
                 Log.d(TAG, "Using tracking provider watch progress, skipping watch progress pull")
@@ -336,6 +347,7 @@ class WatchProgressSyncService @Inject constructor(
     suspend fun syncDeltaFromRemote(
         profileId: Int = profileManager.activeProfileId.value
     ): Result<WatchProgressRemoteSyncResult> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(localOnlySyncResult())
         deltaSyncMutex.withLock {
             syncDeltaFromRemoteLocked(profileId)
         }
@@ -344,6 +356,7 @@ class WatchProgressSyncService @Inject constructor(
     suspend fun syncSnapshotFromRemote(
         profileId: Int = profileManager.activeProfileId.value
     ): Result<WatchProgressRemoteSyncResult> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(localOnlySyncResult())
         deltaSyncMutex.withLock {
             try {
                 if (!shouldUseSupabaseWatchProgressSync(profileId)) {

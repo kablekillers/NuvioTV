@@ -10,6 +10,8 @@ import com.nuvio.tv.domain.model.LibrarySyncReducer
 import com.nuvio.tv.domain.model.LibrarySyncState
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.model.SavedLibraryItem
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -27,7 +29,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(12L, "upsert", libraryItem("delta"))
             )
         )
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, allowCloud())
 
         val result = service.syncFromRemote(profileId = 3).getOrThrow()
 
@@ -55,7 +57,7 @@ class LibrarySyncServiceTest {
             LibrarySyncState(deltaInitialized = true)
         )
         val remote = FakeLibrarySyncRemote(events = events)
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, allowCloud())
 
         val result = service.syncFromRemote(profileId = 5).getOrThrow()
 
@@ -85,7 +87,7 @@ class LibrarySyncServiceTest {
                 LibraryDeltaEvent(5L, "delete", localItem)
             )
         )
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, allowCloud())
 
         val result = service.syncFromRemote(profileId = 1).getOrThrow()
 
@@ -108,7 +110,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, allowCloud())
 
         val result = service.pushToRemote(profileId = 2)
 
@@ -130,7 +132,7 @@ class LibrarySyncServiceTest {
         )
         val local = InMemoryLibrarySyncStore(pendingState)
         val remote = FakeLibrarySyncRemote(deleteFailure = IllegalStateException("offline"))
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, allowCloud())
 
         val result = service.pushToRemote(profileId = 1)
 
@@ -147,7 +149,7 @@ class LibrarySyncServiceTest {
             )
         )
         val remote = FakeLibrarySyncRemote()
-        val service = LibrarySyncService(remote, local)
+        val service = LibrarySyncService(remote, local, allowCloud())
 
         val result = service.pushToRemote(profileId = 1)
 
@@ -272,5 +274,9 @@ private class FakeLibrarySyncRemote(
     ) {
         deleteFailure?.let { throw it }
         deletedKeys += keys
+    }
+
+    private fun allowCloud(): WatchDataCloudGate = mockk<WatchDataCloudGate>().also {
+        every { it.usesCloud(any()) } returns true
     }
 }

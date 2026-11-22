@@ -46,6 +46,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -1548,14 +1550,20 @@ private fun LegacySidebarScaffold(
                         label = "legacySidebarItemWidth"
                     )
 
-                    if (isExpanded) {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .fillMaxWidth()
-                        ) {
-                            Spacer(modifier = Modifier.height(30.dp))
-                            if (showProfileSelector && activeProfileName.isNotEmpty()) {
+                    // Profile switcher and menu share one column so the menu can never
+                    // cover the profile button, however many tabs there are. It scrolls
+                    // if a screen is too short to show everything.
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(modifier = Modifier.fillMaxWidth().height(sidebarTokens.itemHeight)) {
+                            if (isExpanded && showProfileSelector && activeProfileName.isNotEmpty()) {
                                 var isProfileFocused by remember { mutableStateOf(false) }
                                 val profileItemShape = NuvioTheme.shapes.navItem
                                 val profileLeadingInset = NuvioTheme.spacing.lg + NuvioTheme.spacing.xxs
@@ -1599,7 +1607,7 @@ private fun LegacySidebarScaffold(
                                         )
                                     }
                                 }
-                            } else {
+                            } else if (isExpanded) {
                                 BrandWordmark(
                                     contentDescription = stringResource(R.string.app_name),
                                     modifier = Modifier
@@ -1608,16 +1616,7 @@ private fun LegacySidebarScaffold(
                                 )
                             }
                         }
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .offset(y = 28.dp)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalAlignment = Alignment.Start
-                    ) {
+                        Spacer(modifier = Modifier.height(4.dp))
                         drawerItems.forEach { item ->
                             key(item.route) {
                                 LegacySidebarButton(

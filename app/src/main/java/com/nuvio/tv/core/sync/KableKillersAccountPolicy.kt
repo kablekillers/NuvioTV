@@ -52,6 +52,18 @@ object KableKillersAccountPolicy {
         return householdLocks.filterKeys { it != PRIMARY_PROFILE_ID } + (PRIMARY_PROFILE_ID to primaryLocked)
     }
 
+    /**
+     * Continue Watching, watch progress, watched marks and Library.
+     *
+     * On the shared customer login only Profile 1 uses the cloud. Household
+     * profiles exist only on the device they were made on, so the cloud has no
+     * matching profile for them; syncing them by number would show Profile 1's
+     * (or another customer's) history. They stay on this device instead.
+     * Every profile on any other login syncs normally.
+     */
+    fun syncsWatchDataToCloud(authState: AuthState, profileId: Int): Boolean =
+        profileId == PRIMARY_PROFILE_ID || cloudProfilesEnabled(authState)
+
     /** PINs for this profile are saved on the device instead of the cloud. */
     fun usesDevicePin(authState: AuthState, profileId: Int): Boolean =
         profileId != PRIMARY_PROFILE_ID && isCustomerAccount(authState)

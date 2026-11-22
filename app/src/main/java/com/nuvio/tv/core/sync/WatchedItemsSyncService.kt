@@ -71,6 +71,13 @@ class WatchedItemsSyncService @Inject constructor(
         }
     }
 
+    // Kable Killers: household profiles on the customer login stay on this device.
+    private fun usesCloud(profileId: Int): Boolean =
+        KableKillersAccountPolicy.syncsWatchDataToCloud(authManager.authState.value, profileId)
+
+    private fun localOnlySyncResult() =
+        WatchedItemsRemoteSyncResult(0, 0, usedSnapshot = false, preservedLocalItems = false)
+
     private suspend fun shouldUseSupabaseWatchProgressSync(profileId: Int): Boolean {
         val source = traktSettingsDataStore.getWatchProgressSource(profileId)
         val providerId = source.providerId ?: return true
@@ -108,6 +115,7 @@ class WatchedItemsSyncService @Inject constructor(
     }
 
     suspend fun pushToRemote(profileId: Int = profileManager.activeProfileId.value): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             pushToRemoteLocked(profileId)
         }
@@ -134,6 +142,7 @@ class WatchedItemsSyncService @Inject constructor(
         updateLastSuccessfulPush: Boolean = false,
         profileId: Int = profileManager.activeProfileId.value
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             pushItemsToRemoteLocked(items, updateLastSuccessfulPush, profileId)
         }
@@ -185,6 +194,7 @@ class WatchedItemsSyncService @Inject constructor(
     suspend fun pullFromRemote(
         profileId: Int = profileManager.activeProfileId.value
     ): Result<List<WatchedItem>> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(emptyList())
         try {
             Log.d(TAG, "pullFromRemote: starting full watched items snapshot for profile $profileId")
             if (!shouldUseSupabaseWatchProgressSync(profileId)) {
@@ -233,6 +243,7 @@ class WatchedItemsSyncService @Inject constructor(
     suspend fun syncDeltaFromRemote(
         profileId: Int = profileManager.activeProfileId.value
     ): Result<WatchedItemsRemoteSyncResult> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(localOnlySyncResult())
         deltaSyncMutex.withLock {
             syncDeltaFromRemoteLocked(profileId)
         }
@@ -241,6 +252,7 @@ class WatchedItemsSyncService @Inject constructor(
     suspend fun syncSnapshotFromRemote(
         profileId: Int = profileManager.activeProfileId.value
     ): Result<WatchedItemsRemoteSyncResult> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(localOnlySyncResult())
         deltaSyncMutex.withLock {
             syncSnapshotFromRemoteLocked(profileId)
         }
@@ -407,6 +419,7 @@ class WatchedItemsSyncService @Inject constructor(
         episode: Int?,
         profileId: Int = profileManager.activeProfileId.value
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             deleteKeysFromRemoteLocked(
                 keys = listOf(WatchedMutationKey(contentId, season, episode)),
@@ -420,6 +433,7 @@ class WatchedItemsSyncService @Inject constructor(
         episodes: List<Pair<Int, Int>>,
         profileId: Int = profileManager.activeProfileId.value
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!usesCloud(profileId)) return@withContext Result.success(Unit)
         outboundSyncMutex(profileId).withLock {
             deleteKeysFromRemoteLocked(
                 keys = episodes.map { (season, episode) ->

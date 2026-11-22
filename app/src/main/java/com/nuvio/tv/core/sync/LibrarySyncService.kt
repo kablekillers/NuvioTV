@@ -29,11 +29,13 @@ data class LibraryRemoteSyncResult(
 @Singleton
 class LibrarySyncService @Inject constructor(
     private val remoteDataSource: LibrarySyncRemoteDataSource,
-    private val localStore: LibrarySyncLocalStore
+    private val localStore: LibrarySyncLocalStore,
+    private val cloudGate: WatchDataCloudGate
 ) {
     private val syncMutex = Mutex()
 
     suspend fun pushToRemote(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!cloudGate.usesCloud(profileId)) return@withContext Result.success(Unit)
         syncMutex.withLock {
             try {
                 var state = localStore.getSyncState(profileId)
@@ -54,6 +56,7 @@ class LibrarySyncService @Inject constructor(
     suspend fun syncFromRemote(
         profileId: Int
     ): Result<LibraryRemoteSyncResult> = withContext(Dispatchers.IO) {
+        if (!cloudGate.usesCloud(profileId)) return@withContext Result.success(LibraryRemoteSyncResult(0, 0, 0, 0, usedSnapshot = false, preservedLocalItems = false))
         syncMutex.withLock {
             try {
                 var state = localStore.getSyncState(profileId)
