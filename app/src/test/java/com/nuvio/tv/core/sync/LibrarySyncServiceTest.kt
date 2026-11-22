@@ -276,7 +276,8 @@ private class FakeLibrarySyncRemote(
         deletedKeys += keys
     }
 
-    private fun allowCloud(): WatchDataCloudGate = mockk<WatchDataCloudGate>().also {
-        every { it.usesCloud(any()) } returns true
-    }
+}
+
+private fun allowCloud(): WatchDataCloudGate = mockk<WatchDataCloudGate>().also {
+    every { it.usesCloud(any()) } returns true
 }
