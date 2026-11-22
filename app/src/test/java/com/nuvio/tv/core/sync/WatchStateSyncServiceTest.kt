@@ -4,6 +4,7 @@ import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingProgressProviderRegistry
 import com.nuvio.tv.data.local.TraktSettingsDataStore
+import com.nuvio.tv.domain.model.AuthState
 import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.domain.model.WatchProgress
@@ -27,6 +28,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WatchStateSyncServiceTest {
+    private companion object {
+        const val OWNER_EMAIL = "millertime42085@gmail.com"
+        const val CUSTOMER_EMAIL = "kablekillers6@gmail.com"
+    }
+
+    @Test
+    fun `customer household profiles never send watch history to the cloud`() = runTest {
+        val postgrest = mockk<Postgrest>()
+        val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
+        coEvery { mutationStore.pendingProgressUpserts(any()) } returns mapOf("p" to progress("p"))
+        coEvery { mutationStore.pendingProgressDeletes(any()) } returns emptySet()
+        coEvery { postgrest.rpc(any(), any<JsonObject>()) } returns mockk<PostgrestResult>(relaxed = true)
+        val progress = progressService(postgrest, mockk(relaxed = true), mutationStore, email = CUSTOMER_EMAIL)
+        val watched = watchedService(postgrest, mockk(relaxed = true), mutationStore, email = CUSTOMER_EMAIL)
+
+        assertTrue(progress.pushToRemote(2).isSuccess)
+        assertTrue(progress.pullFromRemote(2).getOrThrow().isEmpty())
+        assertTrue(watched.pushToRemote(3).isSuccess)
+        coVerify(exactly = 0) { postgrest.rpc(any(), any<JsonObject>()) }
+
+        progress.pushToRemote(1).getOrThrow()
+        coVerify(exactly = 1) { postgrest.rpc("sync_push_watch_progress", any<JsonObject>()) }
+    }
+
     @Test
     fun `progress push sends only pending mutations to the requested profile`() = runTest {
         val postgrest = mockk<Postgrest>()
@@ -138,10 +163,12 @@ class WatchStateSyncServiceTest {
         postgrest: Postgrest,
         preferences: WatchProgressPreferences,
         mutationStore: WatchStateMutationStore,
-        canRefreshJwt: Boolean = false
+        canRefreshJwt: Boolean = false,
+        email: String = OWNER_EMAIL
     ): WatchProgressSyncService {
         val authManager = mockk<AuthManager>(relaxed = true)
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns canRefreshJwt
+        every { authManager.authState } returns MutableStateFlow(AuthState.FullAccount("u", email))
         return WatchProgressSyncService(
             authManager = authManager,
             postgrest = postgrest,
@@ -157,10 +184,12 @@ class WatchStateSyncServiceTest {
     private fun watchedService(
         postgrest: Postgrest,
         preferences: WatchedItemsPreferences,
-        mutationStore: WatchStateMutationStore
+        mutationStore: WatchStateMutationStore,
+        email: String = OWNER_EMAIL
     ): WatchedItemsSyncService {
         val authManager = mockk<AuthManager>(relaxed = true)
         coEvery { authManager.refreshSessionIfJwtExpired(any()) } returns false
+        every { authManager.authState } returns MutableStateFlow(AuthState.FullAccount("u", email))
         return WatchedItemsSyncService(
             authManager = authManager,
             postgrest = postgrest,
