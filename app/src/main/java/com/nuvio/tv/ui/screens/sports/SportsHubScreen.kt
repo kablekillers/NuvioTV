@@ -278,11 +278,15 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                         HubView.HIGHLIGHTS -> SportsContentKind.HIGHLIGHT
                         else -> SportsContentKind.EVENT
                     }
-                    val rows = catalogMatches?.filter { it.kind == kind }
+                    val rows = catalogMatches?.filter { match ->
+                        match.kind == kind && (view != HubView.CHANNELS ||
+                            Regex("""(?i)nfl|red.?zone|espn|sports?|live.?tv|channels?|fs1|fs2|nbc|cbs|fox|tnt""")
+                                .containsMatchIn(match.title))
+                    }
                     when {
                         rows == null -> InfoPanel("Checking installed add-ons…")
                         rows.isEmpty() -> {
-                            val label = if (replays) view.label.lowercase() else "events"
+                            val label = if (view == HubView.CHANNELS) "channels" else if (replays) view.label.lowercase() else "events"
                             InfoPanel("No ${selectedLeague.label} $label from installed add-ons.")
                         }
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
