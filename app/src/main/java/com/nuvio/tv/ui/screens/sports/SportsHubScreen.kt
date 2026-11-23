@@ -279,7 +279,6 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             rows.forEach { match ->
                                 SourceRow(match, verified = true) { onOpenStream(match) }
-                                PanelButton("＋ Add to Multi-View", active = false) { onAddMultiview(match) }
                             }
                         }
                     }
@@ -855,7 +854,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                                         fontWeight = FontWeight.ExtraBold, letterSpacing = 1.8.sp, modifier = Modifier.padding(top = 6.dp))
                                     browse.take(12).forEach { match ->
                                         SourceRow(match, verified = false) { onOpenStream(match) }
-                                        PanelButton("＋ Add to Multi-View") { onAddMultiview(match) }
+                                        PanelButton("＋ Add to Multi-View", active = false) { onAddMultiview(match) }
                                     }
                                 }
                             }
