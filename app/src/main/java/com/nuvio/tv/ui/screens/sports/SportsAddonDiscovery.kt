@@ -59,7 +59,19 @@ class SportsAddonDiscovery @Inject constructor(
                     ?: return@mapNotNull null
                 val args = catalogArgs(catalog) ?: return@mapNotNull null
                 async {
-                    limit.withPermit { inspectCatalog(addon, catalog, args, league, matcher, replays, browsingLeague) }
+                    val pages = searchQueries(catalog, league, events).map { query ->
+                        limit.withPermit {
+                            inspectCatalog(addon, catalog,
+                                if (query == null) args else args + ("search" to query),
+                                league, matcher, replays, browsingLeague)
+                        }
+                    }
+                    CatalogMatches(
+                        matches = pages.flatMap { it.matches },
+                        browse = pages.flatMap { it.browse },
+                        itemCount = pages.sumOf { it.itemCount },
+                        failed = pages.isNotEmpty() && pages.all { it.failed },
+                    )
                 }
             }
         }
@@ -122,7 +134,7 @@ class SportsAddonDiscovery @Inject constructor(
 
     private fun catalogArgs(catalog: CatalogDescriptor): Map<String, String>? {
         val required = catalog.extra.filter { it.isRequired }
-        if (required.any { it.name != "genre" && it.name != "skip" }) return null
+        if (required.any { it.name !in setOf("genre", "skip", "search") }) return null
         val genre = required.firstOrNull { it.name == "genre" }
         val genreValue = genre?.options?.firstOrNull { it.equals("all", ignoreCase = true) }
         if (genre != null && genreValue == null) return null
@@ -130,6 +142,28 @@ class SportsAddonDiscovery @Inject constructor(
             genreValue?.let { put("genre", it) }
             if (required.any { it.name == "skip" }) put("skip", "0")
         }
+    }
+
+    /** Search-only sports catalogs need real game and league queries. */
+    private fun searchQueries(
+        catalog: CatalogDescriptor,
+        league: SportsLeague,
+        events: List<SportsEvent>,
+    ): List<String?> {
+        if (catalog.extra.none { it.isRequired && it.name == "search" }) return listOf(null)
+        val leagueTerms = when (league) {
+            SportsLeague.NFL -> listOf("NFL", "NFL Network", "NFL RedZone")
+            SportsLeague.COLLEGE_FOOTBALL -> listOf("College Football", "NCAA Football", "Wisconsin Badgers")
+            SportsLeague.NBA -> listOf("NBA")
+            SportsLeague.MLB -> listOf("MLB")
+            SportsLeague.NHL -> listOf("NHL")
+            SportsLeague.UFC -> listOf("UFC")
+            else -> listOf(league.label)
+        }
+        return (events.take(3).flatMap { event ->
+            listOf(event.title) + event.competitors.map { it.name }
+        } + leagueTerms).map { it.trim() }.filter { it.isNotEmpty() }
+            .distinct().take(8)
     }
 
     private fun SportsCatalogMatch.identity() = Triple(addon.baseUrl, contentType, streamId)
