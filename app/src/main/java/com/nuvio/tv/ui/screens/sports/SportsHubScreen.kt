@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,7 +37,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -281,7 +279,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             rows.forEach { match ->
                                 SourceRow(match, verified = true) { onOpenStream(match) }
-                                PanelButton("＋ Add to Multi-View") { onAddMultiview(match) }
+                                PanelButton("＋ Add to Multi-View", active = false) { onAddMultiview(match) }
                             }
                         }
                     }
@@ -374,7 +372,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         Dialog(onDismissRequest = { multiviewPending = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Column(Modifier.fillMaxSize().background(Background).padding(36.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                PanelButton("‹ Back to Sports Hub") { multiviewPending = null }
+                PanelButton("‹ Back to Sports Hub", active = false) { multiviewPending = null }
                 DetailHeading("CHOOSE A STREAM · " + multiviewPending.orEmpty())
                 if (multiviewViewModel.loading) InfoPanel("Searching enabled add-ons for playable streams…")
                 multiviewViewModel.error?.let { InfoPanel(it) }
@@ -384,7 +382,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     multiviewViewModel.choices.forEach { choice ->
-                        PanelButton(choice.addon + " · " + choice.label) {
+                        PanelButton(choice.addon + " · " + choice.label, active = false) {
                             val tile = TvMultiviewTile(choice.id, multiviewPending.orEmpty(), choice.url)
                             if (multiviewTiles.size == 4) multiviewTiles.removeAt(0)
                             multiviewTiles.add(tile)
@@ -402,8 +400,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             Column(Modifier.fillMaxSize().background(Background).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PanelButton("‹ Sports Hub") { multiviewOpen = false }
-                    PanelButton("Remove focused") {
+                    PanelButton("‹ Sports Hub", active = false) { multiviewOpen = false }
+                    PanelButton("Remove focused", active = false) {
                         multiviewTiles.removeAll { it.id == multiviewFocus }
                         multiviewFocus = multiviewTiles.firstOrNull()?.id
                         if (multiviewTiles.isEmpty()) multiviewOpen = false
