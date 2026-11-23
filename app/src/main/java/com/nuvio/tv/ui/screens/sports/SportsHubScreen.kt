@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,6 +38,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -97,7 +99,7 @@ private enum class HubView(val label: String) {
 }
 
 @Composable
-fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel()) {
+fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel(), multiviewViewModel: SportsMultiviewViewModel = hiltViewModel()) {
     var selectedLeague by rememberSaveable { mutableStateOf(SportsLeague.NFL) }
     var board by remember { mutableStateOf<SportsScoreboard?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -107,6 +109,10 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     val lifecycleOwner = LocalLifecycleOwner.current
     var showIntro by rememberSaveable { mutableStateOf(true) }
     val tabFocus = remember { FocusRequester() }
+    val multiviewTiles = remember { mutableStateListOf<TvMultiviewTile>() }
+    var multiviewOpen by remember { mutableStateOf(false) }
+    var multiviewFocus by remember { mutableStateOf<String?>(null) }
+    var multiviewPending by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(selectedLeague, lifecycleOwner) {
         board = repository.cached(selectedLeague)
@@ -275,6 +281,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             rows.forEach { match ->
                                 SourceRow(match, verified = true) { onOpenStream(match) }
+                                PanelButton("＋ Add to Multi-View") { onAddMultiview(match) }
                             }
                         }
                     }
@@ -359,9 +366,61 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             LaunchedEffect(Unit) { closeDetails() }
         } else {
             LaunchedEffect(selected.id) { streamsViewModel.lookup(selected) }
-            GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.browse, streamsViewModel.diagnostics, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> closeDetails(); onOpenStream(match) }, onDismiss = closeDetails)
+            GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.browse, streamsViewModel.diagnostics, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> closeDetails(); onOpenStream(match) }, onAddMultiview = { match -> multiviewPending = selected.title; multiviewViewModel.search(match); closeDetails() }, onDismiss = closeDetails)
         }
     }
+
+    if (multiviewPending != null) {
+        Dialog(onDismissRequest = { multiviewPending = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.fillMaxSize().background(Background).padding(36.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                PanelButton("‹ Back to Sports Hub") { multiviewPending = null }
+                DetailHeading("CHOOSE A STREAM · " + multiviewPending.orEmpty())
+                if (multiviewViewModel.loading) InfoPanel("Searching enabled add-ons for playable streams…")
+                multiviewViewModel.error?.let { InfoPanel(it) }
+                if (!multiviewViewModel.loading && multiviewViewModel.choices.isEmpty()) {
+                    InfoPanel("No direct playable links found. Try another source.")
+                }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    multiviewViewModel.choices.forEach { choice ->
+                        PanelButton(choice.addon + " · " + choice.label) {
+                            val tile = TvMultiviewTile(choice.id, multiviewPending.orEmpty(), choice.url)
+                            if (multiviewTiles.size == 4) multiviewTiles.removeAt(0)
+                            multiviewTiles.add(tile)
+                            multiviewFocus = tile.id
+                            multiviewPending = null
+                            multiviewOpen = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (multiviewOpen && multiviewTiles.isNotEmpty()) {
+        Dialog(onDismissRequest = { multiviewOpen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.fillMaxSize().background(Background).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PanelButton("‹ Sports Hub") { multiviewOpen = false }
+                    PanelButton("Remove focused") {
+                        multiviewTiles.removeAll { it.id == multiviewFocus }
+                        multiviewFocus = multiviewTiles.firstOrNull()?.id
+                        if (multiviewTiles.isEmpty()) multiviewOpen = false
+                    }
+                    Text("MULTI-VIEW · " + multiviewTiles.size + "/4 · D-pad selects audio",
+                        color = CinemaGold.Base, fontSize = 16.sp)
+                }
+                SportsMultiviewPlayers(
+                    tiles = multiviewTiles.toList(),
+                    focusedId = multiviewFocus,
+                    onFocus = { multiviewFocus = it },
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            }
+        }
+    }
+
 }
 
 /** Gold and ember glows that slowly breathe behind the hub. */
@@ -724,7 +783,7 @@ private fun GameCard(event: SportsEvent, focusRequester: FocusRequester, onSelec
 }
 
 @Composable
-private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventRepository, matches: List<SportsCatalogMatch>, browse: List<SportsCatalogMatch>, diagnostics: String, loading: Boolean, error: String?, onOpenStream: (SportsCatalogMatch) -> Unit, onDismiss: () -> Unit) {
+private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventRepository, matches: List<SportsCatalogMatch>, browse: List<SportsCatalogMatch>, diagnostics: String, loading: Boolean, error: String?, onOpenStream: (SportsCatalogMatch) -> Unit, onAddMultiview: (SportsCatalogMatch) -> Unit, onDismiss: () -> Unit) {
     var boxScore by remember(event.id) { mutableStateOf<SportsBoxScore?>(null) }
     var statsLoading by remember(event.id) { mutableStateOf(event.status != SportsEventStatus.SCHEDULED) }
     var statsFailed by remember(event.id) { mutableStateOf(false) }
@@ -798,6 +857,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                                         fontWeight = FontWeight.ExtraBold, letterSpacing = 1.8.sp, modifier = Modifier.padding(top = 6.dp))
                                     browse.take(12).forEach { match ->
                                         SourceRow(match, verified = false) { onOpenStream(match) }
+                                        PanelButton("＋ Add to Multi-View") { onAddMultiview(match) }
                                     }
                                 }
                             }
