@@ -120,7 +120,7 @@ class SportsAddonDiscovery @Inject constructor(
                 val kind = if (replays) SportsRecordingClassifier.kind(addon.id, catalog, item) else SportsContentKind.EVENT
                 val candidate = SportsCatalogMatch(addon, catalog.id, item.apiType, item.id, item.name, score, kind)
                 when {
-                    score > 0 || browsingLeague && (useRecordingMetadata || scoped) -> found += candidate
+                    score > 0 || browsingLeague && (useRecordingMetadata || scoped || channelCatalog(catalog, item.name)) -> found += candidate
                     !browsingLeague && scoped -> browse += candidate
                 }
             }
@@ -131,6 +131,10 @@ class SportsAddonDiscovery @Inject constructor(
             CatalogMatches(failed = true)
         }
     }
+
+    private fun channelCatalog(catalog: CatalogDescriptor, title: String): Boolean =
+        Regex("""(?i)channel|live.?tv|nfl.?network|red.?zone|espn|sports.?tv""")
+            .containsMatchIn(catalog.id + " " + catalog.name + " " + title)
 
     private fun catalogArgs(catalog: CatalogDescriptor): Map<String, String>? {
         val required = catalog.extra.filter { it.isRequired }
