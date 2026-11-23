@@ -93,7 +93,7 @@ private val Muted = Color(0xFF9E998F)
 private val Soft = Color(0xFFCFC9BE)
 
 private enum class HubView(val label: String) {
-    ALL("All games"), STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams")
+    ALL("All games"), CHANNELS("All Channels"), STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams")
 }
 
 @Composable
@@ -165,7 +165,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
 
     val catalogOnly = selectedLeague.scoreboardPath == null
     val replays = view == HubView.REPLAYS || view == HubView.HIGHLIGHTS
-    val browseCatalog = replays || catalogOnly && view == HubView.ALL
+    val browseCatalog = replays || view == HubView.CHANNELS || catalogOnly && view == HubView.ALL
     var catalogMatches by remember(selectedLeague, browseCatalog, replays) {
         mutableStateOf<List<SportsCatalogMatch>?>(null)
     }
