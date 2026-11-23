@@ -115,12 +115,20 @@ object SportsAddonCatalogs {
 
     private fun additionalCatalogs(addon: Addon, replays: Boolean): List<CatalogDescriptor> {
         val identity = (addon.id + " " + addon.name).lowercase().filter(Char::isLetterOrDigit)
-        if (additionalProviders.none { it in identity }) return emptyList()
-
+        // CNCBridge extensions can have distinct IDs; inspect catalog metadata too.
+        val knownProvider = additionalProviders.any { it in identity }
         return addon.catalogs.filter { catalog ->
-            catalog.apiType in eventTypes &&
-                replayCatalog.containsMatchIn("${catalog.id} ${catalog.name}") == replays &&
-                addon.resources.any { it.name == "stream" && (it.types.isEmpty() || catalog.apiType in it.types) }
+            val label = (catalog.id + " " + catalog.name).lowercase()
+            val sportsCatalog = Regex(
+                """sports?|nfl|redzone|football|basketball|baseball|hockey|ufc|ncaa|live.?tv|channels?|events?""",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(label)
+            val isRecording = replayCatalog.containsMatchIn(label)
+            (knownProvider || sportsCatalog) &&
+                (if (replays) isRecording else !isRecording) &&
+                catalog.apiType in (eventTypes + setOf("movie", "series")) &&
+                addon.resources.any { it.name == "stream" &&
+                    (it.types.isEmpty() || catalog.apiType in it.types) }
         }
     }
 
