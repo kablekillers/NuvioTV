@@ -12,7 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-internal data class TvMultiviewChoice(
+data class TvMultiviewChoice(
     val id: String,
     val label: String,
     val addon: String,
