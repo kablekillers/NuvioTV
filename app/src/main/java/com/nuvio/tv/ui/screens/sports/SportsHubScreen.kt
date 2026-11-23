@@ -253,6 +253,15 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                     }
                 }
                 Spacer(Modifier.width(18.dp))
+                PanelButton("▦  Multi-View (" + multiviewTiles.size + "/4)", active = multiviewOpen) {
+                    if (multiviewTiles.isNotEmpty()) {
+                        multiviewOpen = true
+                    } else {
+                        view = HubView.ALL
+                        multiviewOpen = false
+                    }
+                }
+                Spacer(Modifier.width(18.dp))
                 PanelButton(
                     "⏱  " + if (prefs.scoreDelaySeconds <= 0) "Live scores" else if (prefs.scoreDelaySeconds < 60) "${prefs.scoreDelaySeconds}s delay" else "${prefs.scoreDelaySeconds / 60} min delay",
                     active = prefs.scoreDelaySeconds > 0
