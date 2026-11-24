@@ -93,7 +93,7 @@ private val Muted = Color(0xFF9E998F)
 private val Soft = Color(0xFFCFC9BE)
 
 private enum class HubView(val label: String) {
-    ALL("All games"), CHANNELS("All Channels"), STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams")
+    ALL("All games"), CHANNELS("NFL Channels"), STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams")
 }
 
 @Composable
@@ -248,7 +248,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 HubView.entries.forEach { v ->
-                    if (v != HubView.STANDINGS || selectedLeague.usesTeamStats) {
+                    if ((v != HubView.STANDINGS || selectedLeague.usesTeamStats) && (v != HubView.CHANNELS || selectedLeague == SportsLeague.NFL)) {
                         val label = if (v == HubView.ALL && catalogOnly) "Events" else v.label
                         PanelButton(label, active = view == v) { view = v }
                     }
@@ -280,7 +280,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                     }
                     val rows = catalogMatches?.filter { match ->
                         match.kind == kind && (view != HubView.CHANNELS ||
-                            Regex("""(?i)nfl|red.?zone|espn|sports?|live.?tv|channels?|fs1|fs2|nbc|cbs|fox|tnt""")
+                            Regex("""(?i)nfl.?network|nfl.?red.?zone|red.?zone.?nfl|nfl.?channel""")
                                 .containsMatchIn(match.title))
                     }
                     when {
