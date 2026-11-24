@@ -111,6 +111,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     var multiviewOpen by remember { mutableStateOf(false) }
     var multiviewFocus by remember { mutableStateOf<String?>(null) }
     var multiviewPending by remember { mutableStateOf<String?>(null) }
+    var multiviewHelp by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedLeague, lifecycleOwner) {
         board = repository.cached(selectedLeague)
@@ -257,8 +258,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                     if (multiviewTiles.isNotEmpty()) {
                         multiviewOpen = true
                     } else {
-                        view = HubView.ALL
-                        multiviewOpen = false
+                        multiviewHelp = true
                     }
                 }
                 Spacer(Modifier.width(18.dp))
@@ -377,6 +377,22 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         } else {
             LaunchedEffect(selected.id) { streamsViewModel.lookup(selected) }
             GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.browse, streamsViewModel.diagnostics, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> closeDetails(); onOpenStream(match) }, onAddMultiview = { match -> multiviewPending = selected.title; multiviewViewModel.search(match); closeDetails() }, onDismiss = closeDetails)
+        }
+    }
+
+    if (multiviewHelp) {
+        Dialog(onDismissRequest = { multiviewHelp = false }) {
+            Column(
+                Modifier.background(Background, RoundedCornerShape(16.dp)).padding(28.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                DetailHeading("START MULTI-VIEW")
+                InfoPanel("Choose a game in Sports Hub, select a source, then choose Add to Multi-View. Repeat for up to four games. Use the D-pad to select which game has sound.")
+                PanelButton("OK · Browse games", active = true) {
+                    multiviewHelp = false
+                    view = HubView.ALL
+                }
+            }
         }
     }
 
