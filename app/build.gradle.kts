@@ -102,6 +102,14 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
+        // Kable Killers Music: optional services. Left empty, their cards stay hidden
+        // (Nuvio One's own keys aren't carried over).
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"\"")
+        buildConfigField("String", "SPOTIFY_LINK_BASE_URL", "\"\"")
+        buildConfigField("String", "LASTFM_API_KEY", "\"\"")
+        buildConfigField("String", "LASTFM_SECRET", "\"\"")
+        buildConfigField("String", "GOOGLE_DRIVE_CLIENT_ID", "\"\"")
+        buildConfigField("String", "GOOGLE_DRIVE_CLIENT_SECRET", "\"\"")
         applicationId = "com.kablekillers.tv"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 24
@@ -546,6 +554,12 @@ dependencies {
     implementation(libs.supabase.storage)
     implementation(libs.supabase.realtime)
     implementation(libs.ktor.client.okhttp)
+    // Kable Killers Music (from Nuvio One) and the YouTube engine it plays through.
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(project(":mediaservicecore:youtubeapi"))
+    implementation(project(":mediaservicecore:sharedutils"))
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation(libs.sentry.android)
 
     // Kotlinx Serialization

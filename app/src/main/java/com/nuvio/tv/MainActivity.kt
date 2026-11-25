@@ -1427,6 +1427,13 @@ open class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        // Kable Killers Music keeps playing in the background only if that's switched on.
+        val music = com.nuvio.tv.music.MusicPlayer.state.value
+        if (!com.nuvio.tv.music.MusicSettings.keepPlayingWhileBrowsing.value &&
+            (music.isPlaying || music.isBuffering)
+        ) {
+            com.nuvio.tv.music.MusicPlayer.pause()
+        }
         externalPlaybackTracker.onExternalPlayerCoveredApp()
         super.onStop()
         startupSyncService.stopPeriodicSurfacePulls()

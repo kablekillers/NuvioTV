@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -80,6 +81,14 @@ private fun PlaybackNavHost(
 ) {
     val playbackAvailability = LocalPlaybackAvailability.current
     val context = LocalContext.current
+    // Music never plays over a video: pause it when the player opens.
+    val musicRouteEntry by navController.currentBackStackEntryAsState()
+    val musicRoute = musicRouteEntry?.destination?.route
+    androidx.compose.runtime.LaunchedEffect(musicRoute) {
+        if (musicRoute == Screen.Player.route) {
+            com.nuvio.tv.music.MusicPlayer.pauseForVideo()
+        }
+    }
     fun isStreamToPlayer(from: String, to: String): Boolean {
         return from.startsWith("stream/") && to.startsWith("player/")
     }
@@ -192,7 +201,9 @@ private fun PlaybackNavHost(
             })
         }
         composable(Screen.MusicHub.route) {
-            com.nuvio.tv.ui.screens.music.TvMusicScreen()
+            // Kable Killers Music: Nuvio One's Music section (YouTube Music browsing,
+            // search, library and the audio-first player).
+            com.nuvio.tv.music.MusicScreen()
         }
         composable(Screen.YouTubeHub.route) {
             com.nuvio.tv.ui.screens.music.TvYouTubeScreen()

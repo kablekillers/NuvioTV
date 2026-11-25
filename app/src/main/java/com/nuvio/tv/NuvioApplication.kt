@@ -83,6 +83,8 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        // Kable Killers Music: the chosen YouTube content region, ready before the first feed request.
+        runCatching { com.nuvio.tv.youtube.YouTubeContentRegion.apply(this) }
         cacheCleaner.runStartupCleanup()
         SentryInitializer.start(this, sentrySettingsDataStore)
         PluginRuntimeHooks.onApplicationCreate(this)
