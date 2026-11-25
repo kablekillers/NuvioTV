@@ -1739,4 +1739,37 @@
     <string name="iptv_settings_your_provider_s_copy_offered_with_your_addon">"Your provider\'s copy offered with your addon streams for movies and episodes"</string>
     <string name="iptv_settings_your_provider_s_own_movies_and_series">"Your provider\'s own movies and series"</string>
     <string name="iptv_settings_your_tv">"your TV"</string>
+    <string name="iptv_quick_channels_add_group">Add a Playlist Group…</string>
+    <string name="iptv_quick_channels_add_group_hint">Any group from any playlist, your own groups too</string>
+    <string name="iptv_quick_channels_add_groups_hint">Each one you tick becomes its own list in Quick Channels.</string>
+    <string name="iptv_quick_channels_add_groups_title">Add Playlist Groups</string>
+    <string name="iptv_quick_channels_built_in">Built in</string>
+    <plurals name="iptv_quick_channels_count">
+        <item quantity="one">%1$d channel</item>
+        <item quantity="other">%1$d channels</item>
+    </plurals>
+    <string name="iptv_quick_channels_favorites">Favorites</string>
+    <string name="iptv_quick_channels_first_list">First list</string>
+    <string name="iptv_quick_channels_group_missing">Group not found</string>
+    <string name="iptv_quick_channels_group_missing_hint">Not in your playlists right now</string>
+    <string name="iptv_quick_channels_last_used">Last one used</string>
+    <string name="iptv_quick_channels_lists_hint">Lists in the row · OK turns one on or off, the arrows move it</string>
+    <string name="iptv_quick_channels_my_groups">My Groups</string>
+    <string name="iptv_quick_channels_no_groups">No groups yet. Add a playlist first.</string>
+    <string name="iptv_quick_channels_opens_on">Opens On</string>
+    <string name="iptv_quick_channels_opens_on_hint">The list it shows first</string>
+    <string name="iptv_quick_channels_playlist_group">%1$s · playlist group</string>
+    <string name="iptv_quick_channels_recent">Recently Watched</string>
+    <string name="iptv_quick_channels_show">Show Quick Channels</string>
+    <string name="iptv_quick_channels_subtitle">Shortcuts tucked under the play bar. Press Down on the bar to open them.</string>
+    <string name="iptv_quick_channels_title">Quick Channels</string>
+    <string name="iptv_quick_channels_your_group">Your group</string>
+    <string name="iptv_settings_group_tags_clear">"Clear all"</string>
+    <string name="iptv_settings_group_tags_count">"%1$d channels · %2$d groups"</string>
+    <string name="iptv_settings_group_tags_empty">"No tags yet. Scan your groups to see the tags they use."</string>
+    <string name="iptv_settings_group_tags_hint">"Select a tag to hide every channel in groups with that tag. Your favorites stay visible."</string>
+    <string name="iptv_settings_group_tags_no_channels">"No channels loaded yet. Refresh Live TV, then scan again."</string>
+    <string name="iptv_settings_group_tags_scan">"Scan tags"</string>
+    <string name="iptv_settings_group_tags_scan_again">"Scan again"</string>
+    <string name="iptv_settings_group_tags_scanning">"Scanning groups…"</string>
 </resources>

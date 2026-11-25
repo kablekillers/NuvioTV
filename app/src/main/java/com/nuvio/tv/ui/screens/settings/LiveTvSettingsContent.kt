@@ -3127,7 +3127,7 @@ private fun SourceFormDialog(
                     onValueChange = { values[i].value = it },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = field.hint,
-                    prefixText = if (field.defaultHttp) playlistAddressPrefix(values[i].value) else null,
+
                     focusRequester = if (i == 0) firstField else null
                 )
             }

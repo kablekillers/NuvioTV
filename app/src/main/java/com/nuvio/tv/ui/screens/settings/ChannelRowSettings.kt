@@ -1,5 +1,15 @@
 package com.nuvio.tv.ui.screens.settings
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import com.nuvio.tv.livetv.ui.liveCellColors
+import com.nuvio.tv.livetv.ui.focusedTextColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
@@ -196,5 +206,35 @@ private fun AddRowGroupsDialog(
                 }
             }
         }
+    }
+}
+
+/** Move up / move down button (from Nuvio One's side-menu settings). */
+@androidx.compose.runtime.Composable
+internal fun ArrowButton(up: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    var focused by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val colors = liveCellColors(focused, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f))
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    androidx.compose.foundation.layout.Box(
+        androidx.compose.ui.Modifier
+            .size(46.dp)
+            .clip(shape)
+            .background(colors.background)
+            .border(if (focused) 2.dp else 0.dp, colors.border, shape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(
+                interactionSource = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                enabled = enabled,
+                onClick = onClick
+            ),
+        contentAlignment = androidx.compose.ui.Alignment.Center
+    ) {
+        androidx.tv.material3.Icon(
+            if (up) androidx.compose.material.icons.Icons.Default.KeyboardArrowUp else androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
+            contentDescription = androidx.compose.ui.res.stringResource(if (up) com.nuvio.tv.R.string.iptv_settings_move_up else com.nuvio.tv.R.string.iptv_settings_move_down),
+            tint = focusedTextColor(focused).copy(alpha = if (enabled) 1f else 0.3f),
+            modifier = androidx.compose.ui.Modifier.size(22.dp)
+        )
     }
 }
