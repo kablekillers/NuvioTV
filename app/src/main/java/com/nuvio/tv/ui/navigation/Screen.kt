@@ -11,7 +11,13 @@ sealed class Screen(val route: String) {
     data object LiveTv : Screen("live_tv")
     data object LiveTvPlayer : Screen("live_tv_player")
     data object LiveTvMultiview : Screen("live_tv_multiview")
-    data object LiveTvSportsMultiview : Screen("live_tv_sports_multiview")
+    data object SportsMultiview : Screen("live_tv_sports_multiview")
+    // Names Nuvio One's Live TV code uses for pages Kable Killers has under other names.
+    data object Sports : Screen("sports_hub")
+    data object Music : Screen("music_hub")
+    data object YouTube : Screen("youtube_hub")
+    // On Demand has no page of its own here: it opens Live TV.
+    data object OnDemand : Screen("live_tv")
     data object LiveTvSettings : Screen("live_tv_settings")
     data object Recordings : Screen("recordings")
     data object YouTubeHub : Screen("youtube_hub")

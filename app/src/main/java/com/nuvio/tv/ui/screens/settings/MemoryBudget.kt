@@ -57,6 +57,9 @@ object MemoryBudget {
 
     private val maxHeapMb: Long = Runtime.getRuntime().maxMemory() / (1024L * 1024L)
 
+    /** The app's heap size in MB (Live TV sizes its buffers from it). */
+    val heapMb: Long get() = maxHeapMb
+
     /** True when the app heap is below the high-RAM threshold (Fire TV / TV-stick class). */
     val isLowRamTier: Boolean = maxHeapMb < HIGH_HEAP_THRESHOLD_MB
 

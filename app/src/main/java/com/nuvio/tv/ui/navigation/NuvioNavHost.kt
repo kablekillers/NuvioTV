@@ -215,7 +215,7 @@ private fun PlaybackNavHost(
                 onOpenMultiview = { navController.navigate(Screen.LiveTvMultiview.route) { launchSingleTop = true } },
                 onOpenSportsMultiview = { panes, channelKey ->
                     com.nuvio.tv.livetv.sports.SportsWatchLaunch.request(panes, channelKey)
-                    navController.navigate(Screen.LiveTvSportsMultiview.route) { launchSingleTop = true }
+                    navController.navigate(Screen.SportsMultiview.route) { launchSingleTop = true }
                 },
                 onFindInNuvio = { navController.navigate(Screen.Search.route) { launchSingleTop = true } },
                 // Live TV's sports links go to the Kable Killers Sports Hub.
@@ -257,7 +257,7 @@ private fun PlaybackNavHost(
                 },
             )
         }
-        composable(Screen.LiveTvSportsMultiview.route) {
+        composable(Screen.SportsMultiview.route) {
             com.nuvio.tv.livetv.multiview.MultiviewScreen(
                 onBack = { navController.popBackStack() },
                 startOnSports = true,

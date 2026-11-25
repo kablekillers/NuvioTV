@@ -133,8 +133,7 @@ object CalendarHomeFeed {
                 sortTimestamp = at,
                 releaseTimestamp = at,
                 isReleaseAlert = aired,
-                isNewSeasonRelease = aired && episode == 1,
-                fromCalendar = true
+                isNewSeasonRelease = aired && episode == 1
             )
         )
     }
@@ -156,7 +155,7 @@ object CalendarHomeFeed {
         main: List<ContinueWatchingItem>,
         upcomingRow: List<ContinueWatchingItem>
     ): Pair<List<ContinueWatchingItem>, List<ContinueWatchingItem>> {
-        fun mine(it: ContinueWatchingItem) = (it is ContinueWatchingItem.NextUp && it.info.fromCalendar) ||
+        fun mine(it: ContinueWatchingItem) = 
             (it is ContinueWatchingItem.InProgress && it.progress.source == SOURCE)
         val baseMain = main.filterNot(::mine)
         val baseUp = upcomingRow.filterNot(::mine)

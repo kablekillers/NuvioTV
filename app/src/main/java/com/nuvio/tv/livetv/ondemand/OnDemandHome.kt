@@ -99,14 +99,4 @@ object OnDemandHomeSettings {
 }
 
 
-/** Home's state without its content (rows, Continue watching, hero): just its settings. */
-fun com.nuvio.tv.ui.screens.home.HomeUiState.settingsOnly(): com.nuvio.tv.ui.screens.home.HomeUiState = copy(
-    catalogRows = emptyList(),
-    homeRows = emptyList(),
-    gridItems = emptyList(),
-    continueWatchingItems = emptyList(),
-    onDemandContinueWatchingItems = emptyList(),
-    upcomingItems = emptyList(),
-    heroItems = emptyList(),
-    modernHomePresentation = com.nuvio.tv.ui.screens.home.ModernHomePresentationState()
-)
+
