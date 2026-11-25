@@ -49,3 +49,37 @@ CREATE TABLE IF NOT EXISTS pin_attempts (
   attempts INTEGER NOT NULL,
   window_start INTEGER NOT NULL
 );
+
+-- Backup QR sign-in (for when Nuvio is down). The TV/phone shows a QR, the
+-- owner scans it and approves the device once. A device that was approved
+-- before (and isn't blocked) goes straight through on later QR scans.
+-- status: waiting -> approved -> done (key collected), or denied.
+-- device_key is held here only until the TV/phone collects it, then cleared.
+CREATE TABLE IF NOT EXISTS qr_logins (
+  code TEXT PRIMARY KEY,
+  poll_hash TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  device_name TEXT,
+  device_model TEXT,
+  platform TEXT,
+  app_version TEXT,
+  country TEXT,
+  account_email TEXT,
+  requester TEXT,
+  status TEXT NOT NULL,
+  device_key TEXT,
+  auto_approved INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  claimed_at INTEGER,
+  decided_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_qr_logins_status ON qr_logins(status, created_at DESC);
+
+-- After a Nuvio outage, the device that is sending the outage changes up to Nuvio.
+CREATE TABLE IF NOT EXISTS upload_leases (
+  account_email TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  snapshot_id INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);

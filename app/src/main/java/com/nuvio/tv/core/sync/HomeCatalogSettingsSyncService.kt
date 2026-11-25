@@ -191,6 +191,9 @@ class HomeCatalogSettingsSyncService @Inject constructor(
         }
     }
 
+    /** Profile 1's Home rows, in the shape Nuvio stores them (for the Kable Killers backup). */
+    internal suspend fun localPayloadForBackup(): SyncHomeCatalogPayload = loadLocalPayload()
+
     private suspend fun loadLocalPayload(): SyncHomeCatalogPayload {
         val addons = addonRepository.getInstalledAddons().first().enabledAddons()
         val collections = collectionsDataStore.getCurrentCollections()

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.VpnKey
@@ -76,6 +77,12 @@ class KableKillersBackupViewModel @Inject constructor(
     fun signInWithPin(email: String, pin: String, describe: (KableKillersRestoreSummary) -> String) = launchAction {
         service.signInWithRestorePin(email, pin).getOrThrow()
         service.restoreNow().map(describe)
+    }
+
+    /** Backup-only sign-in (no Nuvio account): disconnect so the next sign-in takes a new QR. */
+    fun signOutOfDevice() {
+        service.forgetDevice()
+        _ui.value = KableKillersBackupUiState()
     }
 
     private fun launchAction(block: suspend () -> Result<String>) {
@@ -160,7 +167,16 @@ internal fun KableKillersBackupSection(
                 subtitle = stringResource(R.string.kk_backup_restore_subtitle),
                 onClick = { confirmRestore = true }
             )
-        } else if (!signedIn) {
+        }
+        if (state.hasDeviceKey && !signedIn) {
+            SettingsActionButton(
+                icon = Icons.AutoMirrored.Filled.Logout,
+                title = stringResource(R.string.kk_backup_sign_out_title),
+                subtitle = stringResource(R.string.kk_backup_sign_out_subtitle),
+                onClick = { viewModel.signOutOfDevice() }
+            )
+        }
+        if (!state.hasDeviceKey && !signedIn) {
             SettingsActionButton(
                 icon = Icons.Default.VpnKey,
                 title = stringResource(R.string.kk_backup_pin_title),

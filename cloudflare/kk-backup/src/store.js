@@ -91,21 +91,36 @@ export async function getCurrent(db, email) {
  * A copy that looks like a wipe is kept for the owner to look at, but never
  * becomes the one devices restore from. A locked account keeps its copy.
  */
-export async function saveSnapshot(db, { email, capture, deviceId, at = now() }) {
+export const originOf = (current) => {
+  if (!current) return null;
+  try { return JSON.parse(current.payload).origin || "nuvio"; } catch { return "nuvio"; }
+};
+
+/**
+ * origin "nuvio": read from Nuvio. origin "device": sent by an unlocked device while Nuvio was down.
+ * After an outage, a Nuvio copy never replaces a device copy (Nuvio is stale) until a device has
+ * sent the outage changes up to Nuvio and says so (acceptOverDevice).
+ */
+export async function saveSnapshot(db, { email, capture, deviceId, origin = "nuvio", acceptOverDevice = false, at = now() }) {
   const surfacesJson = JSON.stringify(capture.surfaces);
   const sha = await sha256Hex(surfacesJson);
   const summary = summarize(capture.surfaces);
   const current = await getCurrent(db, email);
 
-  if (current && current.sha256 === sha) {
+  // Same contents: just note the check. (Except when Nuvio has caught up with outage changes:
+  // then save it again as a Nuvio copy so devices stop treating it as waiting to go up.)
+  const catchingUp = acceptOverDevice && originOf(current) === "device";
+  if (current && current.sha256 === sha && !catchingUp) {
     await db.prepare("UPDATE current_snapshot SET last_checked_at = ? WHERE account_email = ?").bind(at, email).run();
     return { changed: false, snapshotId: current.snapshot_id, summary };
   }
 
   const previousSummary = current ? JSON.parse(current.summary) : null;
   const suspicious = looksWiped(summary, previousSummary);
+  const heldForOutage = origin === "nuvio" && originOf(current) === "device" && !acceptOverDevice;
   const payload = JSON.stringify({
     schema: "kk-backup-v1",
+    origin,
     account_email: email,
     nuvio_user_id: capture.owner_user_id,
     captured_at: at,
@@ -123,7 +138,7 @@ export async function saveSnapshot(db, { email, capture, deviceId, at = now() })
       "INSERT INTO current_snapshot (account_email, snapshot_id, updated_at, last_checked_at, locked) VALUES (?, ?, ?, ?, 0)"
     ).bind(email, snapshotId, at, at).run();
     madeCurrent = true;
-  } else if (!suspicious && !current.locked) {
+  } else if (!suspicious && !current.locked && !heldForOutage) {
     await db.prepare(
       "UPDATE current_snapshot SET snapshot_id = ?, updated_at = ?, last_checked_at = ? WHERE account_email = ?"
     ).bind(snapshotId, at, at, email).run();
@@ -133,7 +148,7 @@ export async function saveSnapshot(db, { email, capture, deviceId, at = now() })
   }
 
   await pruneSnapshots(db, email);
-  return { changed: true, snapshotId, summary, suspicious, madeCurrent, locked: Boolean(current?.locked) };
+  return { changed: true, snapshotId, summary, suspicious, madeCurrent, heldForOutage, locked: Boolean(current?.locked) };
 }
 
 export async function pruneSnapshots(db, email, keep = KEEP_SNAPSHOTS) {
@@ -200,4 +215,36 @@ export async function clearPinFailures(db, buckets) {
   for (const bucket of buckets) {
     await db.prepare("DELETE FROM pin_attempts WHERE bucket = ?").bind(bucket).run();
   }
+}
+
+/** Counts one hit in a fixed window; true once the bucket is over `max` (for QR start rate limits). */
+export async function hitLimit(db, bucket, max, windowSeconds, at = now()) {
+  await db.prepare(
+    `INSERT INTO pin_attempts (bucket, attempts, window_start) VALUES (?, 1, ?)
+     ON CONFLICT(bucket) DO UPDATE SET
+       attempts = CASE WHEN ? - window_start >= ? THEN 1 ELSE attempts + 1 END,
+       window_start = CASE WHEN ? - window_start >= ? THEN ? ELSE window_start END`
+  ).bind(bucket, at, at, windowSeconds, at, windowSeconds, at).run();
+  const row = await db.prepare("SELECT attempts FROM pin_attempts WHERE bucket = ?").bind(bucket).first();
+  return (row?.attempts ?? 0) > max;
+}
+
+// ---------- After an outage: one device at a time sends the outage changes up to Nuvio ----------
+
+export const UPLOAD_LEASE_SECONDS = 10 * 60;
+
+/** Gives this device the job of sending the outage changes to Nuvio, unless another device has it. */
+export async function takeUploadLease(db, email, deviceId, snapshotId, at = now()) {
+  await db.prepare(
+    `INSERT INTO upload_leases (account_email, device_id, snapshot_id, expires_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(account_email) DO UPDATE SET device_id = excluded.device_id, snapshot_id = excluded.snapshot_id,
+       expires_at = excluded.expires_at
+     WHERE upload_leases.expires_at <= ? OR upload_leases.device_id = excluded.device_id OR upload_leases.snapshot_id <> excluded.snapshot_id`
+  ).bind(email, deviceId, snapshotId, at + UPLOAD_LEASE_SECONDS, at).run();
+  const row = await db.prepare("SELECT device_id FROM upload_leases WHERE account_email = ?").bind(email).first();
+  return row?.device_id === deviceId;
+}
+
+export async function clearUploadLease(db, email) {
+  await db.prepare("DELETE FROM upload_leases WHERE account_email = ?").bind(email).run();
 }

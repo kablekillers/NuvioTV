@@ -93,8 +93,8 @@ fun AuthQrSignInScreen(
     val isOnboardingMode = onContinue != null
     val useEmailLogin = viewModel.usesEmailPasswordLogin
     val useQrLogin = !useEmailLogin
-    val isApproved = remember(uiState.qrLoginStatus) {
-        uiState.qrLoginStatus?.contains("approved", ignoreCase = true) == true
+    val isApproved = remember(uiState.qrLoginStatus, uiState.qrLoginBackupMode) {
+        !uiState.qrLoginBackupMode && uiState.qrLoginStatus?.contains("approved", ignoreCase = true) == true
     }
     var onboardingTransitionHandled by remember(isOnboardingMode) { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
@@ -154,6 +154,16 @@ fun AuthQrSignInScreen(
         if (useQrLogin && isApproved && !uiState.isLoading) {
             viewModel.exchangeQrLogin()
         }
+    }
+
+    // Signed in through a Kable Killers backup QR (Nuvio was down): leave the screen like a normal sign-in.
+    LaunchedEffect(uiState.qrLoginBackupSignedIn) {
+        if (!uiState.qrLoginBackupSignedIn || exitRequested) return@LaunchedEffect
+        delay(1_200) // let "Signed in" show for a moment
+        exitRequested = true
+        onboardingTransitionHandled = true
+        viewModel.clearQrLoginSession()
+        if (onContinue != null) onContinue() else onBackPress()
     }
 
     LaunchedEffect(isOnboardingMode, isSignedIn) {
@@ -248,7 +258,7 @@ fun AuthQrSignInScreen(
     if (showSignOutConfirmation) {
         AccountSignOutConfirmationDialog(
             onConfirm = {
-                viewModel.signOut()
+                viewModel.signOutOfDevice()
                 showSignOutConfirmation = false
             },
             onDismiss = { showSignOutConfirmation = false }

@@ -7,13 +7,20 @@
 //   POST /v1/ping      device key          -> "still here" (works while Nuvio is down)
 //   GET  /v1/config    device key          -> the copy to restore from
 //   POST /v1/pin-login email + restore PIN -> device key, for a new device while Nuvio is down
+//   POST /v1/unlock    device key + restore PIN -> edit token for changing Profile 1 while Nuvio is down
+//   POST /v1/push      device key (+ edit token) + Profile 1 setup -> new copy every device follows
+//   POST /v1/qr/start  device info         -> backup QR code for when Nuvio is down
+//   POST /v1/qr/poll   code + poll token   -> waiting / approved (device key) / denied / expired
+// QR link page (owner scans and approves): /link/<code>
 // Owner page: /admin (password = ADMIN_PASSWORD secret)
 
 import { handleAdmin } from "./admin.js";
+import { handleLinkPage, handleQrPoll, handleQrStart } from "./qr.js";
+import { handlePush, handleUnlock } from "./edit.js";
 import { captureProfileOne, NuvioUnauthorized, NuvioUnavailable, verifyNuvioUser } from "./nuvio.js";
 import {
-  authenticateDevice, clearPinFailures, getCurrent, pinBlocked, recordPinFailure,
-  registerDevice, saveSnapshot, SYNC_MIN_INTERVAL_SECONDS, touchDevice,
+  authenticateDevice, clearPinFailures, clearUploadLease, getCurrent, originOf, pinBlocked, recordPinFailure,
+  registerDevice, saveSnapshot, SYNC_MIN_INTERVAL_SECONDS, takeUploadLease, touchDevice,
 } from "./store.js";
 import {
   allowedAccounts, bearer, cleanText, isDeviceId, json, normalizeEmail, now, readJson, safeEqual,
@@ -53,22 +60,42 @@ async function handleSync(request, env) {
   });
   if (registration.blocked) return json({ error: "This device was blocked by the owner" }, 403);
 
+  let current = await getCurrent(env.DB, user.email);
+  const uploadedOutageChanges =
+    current && originOf(current) === "device" && Number(body.uploaded_snapshot_id) === current.snapshot_id;
+
   // Several devices sync at once after an app update; one Nuvio read every couple of minutes is plenty.
-  const current = await getCurrent(env.DB, user.email);
-  if (current && now() - current.last_checked_at < SYNC_MIN_INTERVAL_SECONDS && body.force !== true) {
+  // (Never skipped while outage changes are waiting to go up to Nuvio.)
+  if (current && originOf(current) !== "device" && now() - current.last_checked_at < SYNC_MIN_INTERVAL_SECONDS && body.force !== true) {
     return json({ ok: true, skipped: true, device_key: registration.key, snapshot_id: current.snapshot_id });
   }
 
   const capture = await captureProfileOne(env, token, user);
-  const saved = await saveSnapshot(env.DB, { email: user.email, capture, deviceId: body.device_id });
+  const saved = await saveSnapshot(env.DB, {
+    email: user.email, capture, deviceId: body.device_id, acceptOverDevice: uploadedOutageChanges,
+  });
+  if (uploadedOutageChanges) await clearUploadLease(env.DB, user.email);
   await touchDevice(env.DB, body.device_id, { field: "backup" });
+
+  // Profile 1 was changed on the backup while Nuvio was down, and Nuvio still has the old setup.
+  // One device that already has those changes (and is on Profile 1) sends them up to Nuvio.
+  current = await getCurrent(env.DB, user.email);
+  let outage = null;
+  if (current && originOf(current) === "device") {
+    const canUpload = body.can_upload === true && Number(body.applied_snapshot_id) === current.snapshot_id;
+    outage = {
+      snapshot_id: current.snapshot_id,
+      upload: canUpload && (await takeUploadLease(env.DB, user.email, body.device_id, current.snapshot_id)),
+    };
+  }
   return json({
     ok: true,
     device_key: registration.key,
-    snapshot_id: saved.snapshotId,
+    snapshot_id: current?.snapshot_id ?? saved.snapshotId,
     changed: saved.changed,
     held_back: saved.changed && !saved.madeCurrent,
     summary: saved.summary,
+    outage_changes: outage,
   });
 }
 
@@ -84,7 +111,10 @@ async function handlePing(request, env) {
   const body = await readJson(request).catch(() => ({}));
   await touchDevice(env.DB, device.id, { info: deviceInfo(body), country: country(request) });
   const current = await getCurrent(env.DB, device.account_email);
-  return json({ ok: true, account_email: device.account_email, snapshot_id: current?.snapshot_id ?? null });
+  return json({
+    ok: true, account_email: device.account_email, snapshot_id: current?.snapshot_id ?? null,
+    origin: originOf(current),
+  });
 }
 
 async function handleConfig(request, env) {
@@ -130,11 +160,16 @@ export default {
       if (route === "GET /health" || route === "GET /") return json({ status: "ok", service: "kable-killers-backup" });
       if (!env.DB) return json({ error: "Backup database is not connected" }, 503);
       if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) return await handleAdmin(request, env, url);
+      if (url.pathname.startsWith("/link/")) return await handleLinkPage(request, env, url);
       switch (route) {
         case "POST /v1/sync": return await handleSync(request, env);
         case "POST /v1/ping": return await handlePing(request, env);
         case "GET /v1/config": return await handleConfig(request, env);
         case "POST /v1/pin-login": return await handlePinLogin(request, env);
+        case "POST /v1/unlock": return await handleUnlock(request, env);
+        case "POST /v1/push": return await handlePush(request, env);
+        case "POST /v1/qr/start": return await handleQrStart(request, env, url);
+        case "POST /v1/qr/poll": return await handleQrPoll(request, env);
         default: return json({ error: "Not found" }, 404);
       }
     } catch (error) {
