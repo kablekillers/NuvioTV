@@ -29,6 +29,8 @@ class SportsStreamsViewModel @Inject constructor(
     suspend fun browseLeague(league: SportsLeague, events: List<SportsEvent>, replays: Boolean): List<SportsCatalogMatch> =
         discovery.discoverLeague(league, events, replays)
 
+    suspend fun findNflChannels(): List<SportsCatalogMatch> = discovery.findNflChannels()
+
     fun lookup(event: SportsEvent) {
         job?.cancel()
         matches = emptyList()
