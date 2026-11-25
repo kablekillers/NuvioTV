@@ -32,3 +32,26 @@ data class SportsPlayerLine(
     val starter: Boolean = false,
     val stats: List<String>
 )
+
+/**
+ * Each team's top players by stat category, as ESPN reports them on the game page:
+ * season numbers before the game starts, game numbers once it's under way.
+ */
+data class SportsLeaders(
+    val eventId: String,
+    val teams: List<SportsTeamLeaders>,
+    val fetchedAtEpochMillis: Long = 0L,
+)
+
+data class SportsTeamLeaders(
+    val name: String,
+    val abbreviation: String?,
+    val categories: List<SportsLeaderCategory>,
+) {
+    val shortLabel: String get() = abbreviation?.takeIf { it.isNotBlank() } ?: name
+}
+
+/** "Passing Yards" → [Josh Allen (QB) · "3,731 YDS, 28 TD"] */
+data class SportsLeaderCategory(val title: String, val leaders: List<SportsLeaderLine>)
+
+data class SportsLeaderLine(val name: String, val position: String?, val value: String)

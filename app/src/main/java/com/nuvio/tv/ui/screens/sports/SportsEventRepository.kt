@@ -81,6 +81,24 @@ class SportsEventRepository(
         return fresh
     }
 
+    private val leadersCache = mutableMapOf<String, SportsLeaders>()
+
+    /** Stat leaders for a game; season numbers change slowly, so a copy up to 10 minutes old is reused. */
+    suspend fun leaders(event: SportsEvent, forceRefresh: Boolean = false): SportsLeaders? {
+        if (!forceRefresh) {
+            mutex.withLock { leadersCache[event.id] }?.let { cached ->
+                val maxAge = if (event.status == SportsEventStatus.LIVE) LIVE_BOX_SCORE_MAX_AGE_MILLIS else STANDINGS_MAX_AGE_MILLIS
+                if (event.status == SportsEventStatus.FINAL || clock() - cached.fetchedAtEpochMillis < maxAge) return cached
+            }
+        }
+        val fresh = provider.leaders(event)?.copy(fetchedAtEpochMillis = clock()) ?: return null
+        mutex.withLock {
+            if (leadersCache.size >= MAX_CACHED_BOX_SCORES) leadersCache.remove(leadersCache.keys.first())
+            leadersCache[event.id] = fresh
+        }
+        return fresh
+    }
+
     private val standingsCache = mutableMapOf<SportsLeague, SportsStandings>()
 
     /** League tables change slowly; a copy up to 10 minutes old is reused. */

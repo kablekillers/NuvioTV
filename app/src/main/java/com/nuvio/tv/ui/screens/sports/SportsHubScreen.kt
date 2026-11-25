@@ -1106,6 +1106,16 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
     var statsLoading by remember(event.id) { mutableStateOf(event.status != SportsEventStatus.SCHEDULED) }
     var statsFailed by remember(event.id) { mutableStateOf(false) }
     var selectedTeam by remember(event.id) { mutableStateOf(0) }
+    // Season leaders before the game; game leaders when ESPN has no full box score (some college sports).
+    var leaders by remember(event.id) { mutableStateOf<SportsLeaders?>(null) }
+    var leadersLoading by remember(event.id) { mutableStateOf(event.league.usesTeamStats) }
+    LaunchedEffect(event.id, event.status, statsLoading, boxScore == null) {
+        if (!event.league.usesTeamStats) { leadersLoading = false; return@LaunchedEffect }
+        val needed = event.status == SportsEventStatus.SCHEDULED || (!statsLoading && boxScore == null)
+        if (!needed) return@LaunchedEffect
+        leaders = runCatching { repository.leaders(event) }.getOrElse { if (it is CancellationException) throw it; null }
+        leadersLoading = false
+    }
 
     // Load player stats; keep them updating while the game is live.
     LaunchedEffect(event.id, event.status) {
@@ -1207,17 +1217,31 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                     }
                     Column(Modifier.weight(0.55f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.weight(1f)) { DetailHeading("PLAYER STATS") }
-                            boxScore?.teams?.forEachIndexed { index, team ->
-                                PanelButton(team.shortLabel, active = index == selectedTeam) { selectedTeam = index }
+                            val scheduled = event.status == SportsEventStatus.SCHEDULED
+                            val showLeaders = scheduled || (boxScore == null && leaders != null)
+                            Box(Modifier.weight(1f)) {
+                                DetailHeading(if (scheduled) "SEASON STATS" else if (showLeaders) "GAME LEADERS" else "PLAYER STATS")
+                            }
+                            val teamLabels = if (showLeaders) leaders?.teams?.map { it.shortLabel } else boxScore?.teams?.map { it.shortLabel }
+                            teamLabels?.forEachIndexed { index, label ->
+                                PanelButton(label, active = index == selectedTeam) { selectedTeam = index }
                             }
                         }
                         val team = boxScore?.teams?.getOrNull(selectedTeam)
+                        val teamLeaders = leaders?.teams?.getOrNull(selectedTeam)
                         when {
                             !event.league.usesTeamStats -> InfoPanel("Individual stats aren't available for this event.")
-                            event.status == SportsEventStatus.SCHEDULED -> InfoPanel("Player stats appear once the game starts.")
+                            event.status == SportsEventStatus.SCHEDULED -> when {
+                                teamLeaders != null -> {
+                                    Text("This season's leaders · the game hasn't started yet", color = Muted, fontSize = 13.sp)
+                                    LeadersTable(teamLeaders)
+                                }
+                                leadersLoading -> InfoPanel("Loading season stats…")
+                                else -> InfoPanel("Season stats aren't available for this game. Player stats appear once it starts.")
+                            }
                             team != null -> team.groups.forEach { group -> StatTable(group) }
                             statsLoading -> InfoPanel("Loading player stats…")
+                            teamLeaders != null -> LeadersTable(teamLeaders)
                             statsFailed -> InfoPanel("Player stats unavailable right now.")
                             else -> InfoPanel("No player stats reported for this game yet.")
                         }
@@ -1448,6 +1472,42 @@ private fun PanelButton(label: String, active: Boolean, modifier: Modifier = Mod
             .padding(horizontal = 20.dp, vertical = 10.dp)
     ) {
         Text(label, color = if (focused || active) CinemaGold.Ink else Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+    }
+}
+
+/** One team's stat leaders: category, then each leader with their numbers. */
+@Composable
+private fun LeadersTable(team: SportsTeamLeaders) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        team.categories.forEach { category ->
+            var focused by remember { mutableStateOf(false) }
+            val shape = RoundedCornerShape(14.dp)
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(shape)
+                    .background(if (focused) CardFocused else Card)
+                    .border(if (focused) 2.dp else 1.dp, if (focused) CinemaGold.Soft else CardBorder, shape)
+                    // Focusable so the remote can scroll through long lists.
+                    .onFocusChanged { focused = it.isFocused }
+                    .focusable()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(category.title.uppercase(), color = CinemaGold.Base, fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold, letterSpacing = 1.4.sp)
+                category.leaders.forEach { line ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            line.name + (line.position?.let { "  $it" } ?: ""),
+                            color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.45f),
+                        )
+                        Text(line.value, color = Soft, fontSize = 14.sp, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.55f))
+                    }
+                }
+            }
+        }
     }
 }
 

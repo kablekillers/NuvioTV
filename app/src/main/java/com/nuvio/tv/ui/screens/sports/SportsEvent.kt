@@ -144,6 +144,9 @@ interface SportsEventProvider {
     /** Individual player stats for a game, or null when the provider has none (e.g. not started). */
     suspend fun boxScore(event: SportsEvent): SportsBoxScore? = null
 
+    /** Each team's stat leaders: season numbers before the game, game numbers once it starts. */
+    suspend fun leaders(event: SportsEvent): SportsLeaders? = null
+
     /** League tables, or null when the provider has none (e.g. UFC). */
     suspend fun standings(league: SportsLeague): SportsStandings? = null
 }

@@ -79,6 +79,13 @@ class EspnSportsEventProvider : SportsEventProvider {
         return parseBoxScore(payload, event.id)
     }
 
+    override suspend fun leaders(event: SportsEvent): SportsLeaders? {
+        if (!event.league.usesTeamStats) return null
+        val path = event.feedPath ?: event.league.scoreboardPath ?: return null
+        val payload = get("https://site.api.espn.com/apis/site/v2/sports/$path/summary?event=${URLEncoder.encode(event.providerEventId, "UTF-8")}")
+        return parseLeaders(payload, event.id)
+    }
+
     override suspend fun standings(league: SportsLeague): SportsStandings? {
         if (!league.usesTeamStats || league.feeds.isEmpty()) return null
         val parts = coroutineScope {
@@ -340,6 +347,32 @@ class EspnSportsEventProvider : SportsEventProvider {
                 SportsTeamBox(teamName, team?.str("abbreviation"), groups)
             }
             return SportsBoxScore(eventId, teams).takeUnless { it.teams.isEmpty() || it.isEmpty }
+        }
+
+        /** The game page's "leaders" block: per team, per stat category, the top players. */
+        internal fun parseLeaders(payload: String, eventId: String): SportsLeaders? {
+            val root = runCatching { json.parseToJsonElement(payload) }.getOrNull() as? JsonObject ?: return null
+            val teams = root.arr("leaders").orEmpty().mapNotNull { element ->
+                val entry = element as? JsonObject ?: return@mapNotNull null
+                val team = entry.obj("team")
+                val teamName = team?.str("displayName") ?: team?.str("shortDisplayName") ?: return@mapNotNull null
+                val categories = entry.arr("leaders").orEmpty().mapNotNull { c ->
+                    val category = c as? JsonObject ?: return@mapNotNull null
+                    val title = category.str("displayName") ?: category.str("shortDisplayName")
+                        ?: category.str("name")?.replace(Regex("([a-z])([A-Z])"), "$1 $2")?.replaceFirstChar { it.uppercase() }
+                        ?: return@mapNotNull null
+                    val lines = category.arr("leaders").orEmpty().mapNotNull { l ->
+                        val line = l as? JsonObject ?: return@mapNotNull null
+                        val athlete = line.obj("athlete") ?: return@mapNotNull null
+                        val name = athlete.str("displayName") ?: athlete.str("shortName") ?: return@mapNotNull null
+                        val value = line.str("displayValue")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        SportsLeaderLine(name, athlete.obj("position")?.str("abbreviation"), value)
+                    }.take(3)
+                    if (lines.isEmpty()) null else SportsLeaderCategory(title, lines)
+                }
+                if (categories.isEmpty()) null else SportsTeamLeaders(teamName, team?.str("abbreviation"), categories)
+            }
+            return if (teams.isEmpty()) null else SportsLeaders(eventId, teams)
         }
 
         /** "Washington Passing" -> "Passing"; falls back to the key name ("kickReturns" -> "Kick Returns"). */
