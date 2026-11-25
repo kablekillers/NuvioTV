@@ -86,6 +86,77 @@ class SportsAddonDiscovery @Inject constructor(
         )
     }
 
+    /**
+     * Dedicated continuous NFL channel discovery, matching the Mobile 0.9.1 flow.
+     * This is independent of ESPN fixtures and only returns stream-capable IDs
+     * supplied by enabled add-on manifests.
+     */
+    suspend fun findNflChannels(): List<SportsCatalogMatch> = withContext(Dispatchers.Default) {
+        val addons = addonRepository.getInstalledAddons().first().filter { it.enabled }
+        val limit = Semaphore(4)
+        val requests = addons.flatMap { addon ->
+            addon.catalogs.filter { catalog ->
+                val label = (catalog.id + " " + catalog.name + " " + addon.id + " " + addon.displayName)
+                catalog.apiType in setOf("tv", "sport", "sports", "channel", "livetv", "live-tv", "live_tv") &&
+                    !Regex("replays?|highlights?|recaps?", RegexOption.IGNORE_CASE).containsMatchIn(label) &&
+                    Regex("nfl|sport|live|channel|tv|cncbridge|cncverse|plavio", RegexOption.IGNORE_CASE)
+                        .containsMatchIn(label)
+            }.take(10).mapNotNull { catalog ->
+                val args = catalogArgs(catalog) ?: return@mapNotNull null
+                async {
+                    val queries: List<String?> =
+                        if (catalog.extra.any { it.isRequired && it.name == "search" })
+                            listOf("NFL", "NFL Network", "NFL RedZone", "RedZone", "Football")
+                        else listOf(null)
+                    queries.flatMap { query ->
+                        limit.withPermit {
+                            try {
+                                val response = withTimeoutOrNull(10_000) {
+                                    catalogRepository.getCatalog(
+                                        addonBaseUrl = addon.baseUrl,
+                                        addonId = addon.id,
+                                        addonName = addon.displayName,
+                                        catalogId = catalog.id,
+                                        catalogName = catalog.name,
+                                        type = catalog.apiType,
+                                        extraArgs = if (query == null) args else args + ("search" to query),
+                                    ).first { it !is NetworkResult.Loading }
+                                }
+                                if (response !is NetworkResult.Success) emptyList()
+                                else response.data.items.mapNotNull { item ->
+                                    ensureActive()
+                                    if (nflChannelLabel(item.name) == null ||
+                                        !SportsAddonCatalogs.supportsStream(addon, item.apiType, item.id)
+                                    ) null else SportsCatalogMatch(
+                                        addon, catalog.id, item.apiType, item.id, item.name,
+                                        100, SportsContentKind.EVENT
+                                    )
+                                }
+                            } catch (cancel: CancellationException) {
+                                throw cancel
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        requests.awaitAll().flatten().distinctBy { it.identity() }
+            .sortedWith(compareBy({ if (nflChannelLabel(it.title) == "NFL RedZone") 0 else 1 }, { it.addon.displayName }))
+            .take(20)
+    }
+
+    private fun nflChannelLabel(title: String): String? {
+        if (Regex("replay|highlight|recap|condensed", RegexOption.IGNORE_CASE).containsMatchIn(title)) return null
+        val normalized = title.lowercase().replace(Regex("[^a-z0-9]"), "")
+        return when {
+            "nflredzone" in normalized || "redzonenfl" in normalized -> "NFL RedZone"
+            "nflnetwork" in normalized || "nflchannel" in normalized -> "NFL Network"
+            else -> null
+        }
+    }
+
     private suspend fun inspectCatalog(
         addon: Addon,
         catalog: CatalogDescriptor,
