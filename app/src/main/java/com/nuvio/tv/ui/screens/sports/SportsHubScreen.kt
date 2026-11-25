@@ -166,7 +166,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
 
     val catalogOnly = selectedLeague.scoreboardPath == null
     val replays = view == HubView.REPLAYS || view == HubView.HIGHLIGHTS
-    val browseCatalog = replays || view == HubView.CHANNELS || catalogOnly && view == HubView.ALL
+    val browseCatalog = replays || catalogOnly && view == HubView.ALL
     var catalogMatches by remember(selectedLeague, browseCatalog, replays) {
         mutableStateOf<List<SportsCatalogMatch>?>(null)
     }
@@ -181,6 +181,16 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             throw cancelled
         } catch (_: Exception) {
             catalogMatches = emptyList()
+        }
+    }
+
+    var nflChannels by remember { mutableStateOf<List<SportsCatalogMatch>?>(null) }
+    LaunchedEffect(view, selectedLeague) {
+        if (view == HubView.CHANNELS && selectedLeague == SportsLeague.NFL) {
+            nflChannels = null
+            nflChannels = try { streamsViewModel.findNflChannels() } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) { emptyList() }
         }
     }
 
@@ -272,6 +282,17 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             }
 
             when {
+                view == HubView.CHANNELS -> {
+                    when {
+                        nflChannels == null -> InfoPanel("Searching installed add-ons for NFL Network and RedZone…")
+                        nflChannels!!.isEmpty() -> InfoPanel("No NFL Network or NFL RedZone channels found in enabled add-ons.")
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            nflChannels!!.forEach { match ->
+                                SourceRow(match, verified = true) { onOpenStream(match) }
+                            }
+                        }
+                    }
+                }
                 browseCatalog -> {
                     val kind = when (view) {
                         HubView.REPLAYS -> SportsContentKind.REPLAY
