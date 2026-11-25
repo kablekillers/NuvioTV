@@ -86,7 +86,37 @@ class EspnSportsEventProvider : SportsEventProvider {
         return parseLeaders(payload, event.id)
     }
 
+    // ---- F1 from Jolpica (the free successor of the Ergast F1 API) ----
+
+    /** Drivers' and constructors' championship. */
+    private suspend fun f1Standings(): SportsStandings? = coroutineScope {
+        val drivers = async { runCatching { get("$JOLPICA/current/driverStandings.json") }.getOrNull() }
+        val teams = async { runCatching { get("$JOLPICA/current/constructorStandings.json") }.getOrNull() }
+        val groups = listOfNotNull(
+            drivers.await()?.let { parseJolpicaDriverStandings(it) },
+            teams.await()?.let { parseJolpicaConstructorStandings(it) },
+        )
+        if (groups.isEmpty()) null else SportsStandings(SportsLeague.FORMULA_1, groups)
+    }
+
+    /** Full race / qualifying classification (times, gaps, points) for a finished F1 session. */
+    override suspend fun detailedResults(event: SportsEvent): SportsResults? {
+        if (event.league != SportsLeague.FORMULA_1 || event.status != SportsEventStatus.FINAL) return null
+        val start = event.startTimeEpochMillis ?: return null
+        val session = event.title.substringAfterLast(" · ", "Race")
+        val qualifying = session.contains("Qualifying", ignoreCase = true) && !session.contains("Sprint", ignoreCase = true)
+        if (!qualifying && session != "Race" && !session.equals("race", true)) return null
+        val year = Instant.ofEpochMilli(start).atZone(ZoneId.of("UTC")).year
+        val races = runCatching { get("$JOLPICA/$year/races.json?limit=100") }.getOrNull() ?: return null
+        val round = jolpicaRoundNear(races, start) ?: return null
+        val payload = runCatching {
+            get("$JOLPICA/$year/$round/" + if (qualifying) "qualifying.json" else "results.json")
+        }.getOrNull() ?: return null
+        return if (qualifying) parseJolpicaQualifying(payload) else parseJolpicaRace(payload)
+    }
+
     override suspend fun standings(league: SportsLeague): SportsStandings? {
+        if (league == SportsLeague.FORMULA_1) return f1Standings()
         if (!league.usesTeamStats || league.feeds.isEmpty()) return null
         val parts = coroutineScope {
             league.feeds.map { feed ->
@@ -130,6 +160,80 @@ class EspnSportsEventProvider : SportsEventProvider {
 
     companion object {
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+        private const val JOLPICA = "https://api.jolpi.ca/ergast/f1"
+
+        private fun jolpicaRaces(payload: String): List<JsonObject> {
+            val root = runCatching { json.parseToJsonElement(payload) }.getOrNull() as? JsonObject ?: return emptyList()
+            return root.obj("MRData")?.obj("RaceTable")?.arr("Races").orEmpty().mapNotNull { it as? JsonObject }
+        }
+
+        /** The round whose race weekend is within 4 days of the session start. */
+        internal fun jolpicaRoundNear(payload: String, startEpochMillis: Long): String? =
+            jolpicaRaces(payload).minByOrNull { race ->
+                val date = race.str("date")?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+                    ?: return@minByOrNull Long.MAX_VALUE
+                kotlin.math.abs(date.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli() - startEpochMillis)
+            }?.takeIf { race ->
+                val date = race.str("date")?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return@takeIf false
+                kotlin.math.abs(date.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli() - startEpochMillis) <= 4 * 86_400_000L
+            }?.str("round")
+
+        private fun driverName(row: JsonObject): String? = row.obj("Driver")?.let {
+            listOfNotNull(it.str("givenName"), it.str("familyName")).joinToString(" ").takeIf { n -> n.isNotBlank() }
+        }
+
+        internal fun parseJolpicaRace(payload: String): SportsResults? {
+            val race = jolpicaRaces(payload).firstOrNull() ?: return null
+            val rows = race.arr("Results").orEmpty().mapNotNull { r ->
+                val row = r as? JsonObject ?: return@mapNotNull null
+                val name = driverName(row) ?: return@mapNotNull null
+                val time = row.obj("Time")?.str("time") ?: row.str("status").orEmpty()
+                SportsResultRow(
+                    listOf(row.str("positionText") ?: row.str("position") ?: "", name,
+                        row.obj("Constructor")?.str("name").orEmpty(), time, row.str("points").orEmpty()),
+                    highlight = row.str("position") == "1",
+                )
+            }
+            return if (rows.isEmpty()) null else SportsResults("RACE RESULT", listOf("Pos", "Driver", "Team", "Time", "Pts"), rows, source = "Jolpica F1")
+        }
+
+        internal fun parseJolpicaQualifying(payload: String): SportsResults? {
+            val race = jolpicaRaces(payload).firstOrNull() ?: return null
+            val rows = race.arr("QualifyingResults").orEmpty().mapNotNull { r ->
+                val row = r as? JsonObject ?: return@mapNotNull null
+                val name = driverName(row) ?: return@mapNotNull null
+                SportsResultRow(
+                    listOf(row.str("position").orEmpty(), name, row.obj("Constructor")?.str("name").orEmpty(),
+                        row.str("Q1").orEmpty(), row.str("Q2").orEmpty(), row.str("Q3").orEmpty()),
+                    highlight = row.str("position") == "1",
+                )
+            }
+            return if (rows.isEmpty()) null else SportsResults("QUALIFYING", listOf("Pos", "Driver", "Team", "Q1", "Q2", "Q3"), rows, source = "Jolpica F1")
+        }
+
+        private fun standingsList(payload: String): JsonObject? {
+            val root = runCatching { json.parseToJsonElement(payload) }.getOrNull() as? JsonObject ?: return null
+            return root.obj("MRData")?.obj("StandingsTable")?.arr("StandingsLists")?.firstOrNull() as? JsonObject
+        }
+
+        internal fun parseJolpicaDriverStandings(payload: String): SportsStandingsGroup? {
+            val entries = standingsList(payload)?.arr("DriverStandings").orEmpty().mapNotNull { r ->
+                val row = r as? JsonObject ?: return@mapNotNull null
+                val name = driverName(row) ?: return@mapNotNull null
+                SportsStandingsEntry(name, row.obj("Driver")?.str("code"), null,
+                    listOf(row.str("points").orEmpty(), row.str("wins").orEmpty()))
+            }
+            return if (entries.isEmpty()) null else SportsStandingsGroup("Drivers", listOf("PTS", "W"), entries)
+        }
+
+        internal fun parseJolpicaConstructorStandings(payload: String): SportsStandingsGroup? {
+            val entries = standingsList(payload)?.arr("ConstructorStandings").orEmpty().mapNotNull { r ->
+                val row = r as? JsonObject ?: return@mapNotNull null
+                val name = row.obj("Constructor")?.str("name") ?: return@mapNotNull null
+                SportsStandingsEntry(name, null, null, listOf(row.str("points").orEmpty(), row.str("wins").orEmpty()))
+            }
+            return if (entries.isEmpty()) null else SportsStandingsGroup("Constructors", listOf("PTS", "W"), entries)
+        }
 
         internal fun parseScoreboard(payload: String, league: SportsLeague): List<SportsEvent> {
             val root = runCatching { json.parseToJsonElement(payload) }.getOrNull() as? JsonObject
@@ -247,8 +351,98 @@ class EspnSportsEventProvider : SportsEventProvider {
                 statusDetail = type?.str("shortDetail") ?: type?.str("detail"),
                 competitors = competitorsOf(competition, tennis = league.catalogSport == "tennis"),
                 venue = venue,
-                broadcasts = broadcasts
+                broadcasts = broadcasts,
+                results = runCatching { resultsOf(event, competition, league) }.getOrNull(),
             )
+        }
+
+        /** Number from ESPN ("66.0" → "66"), or the text as given. */
+        private fun JsonObject.cell(key: String): String? {
+            val raw = this[key]?.primitiveContent()?.takeIf { it.isNotBlank() } ?: return null
+            return raw.toDoubleOrNull()?.let { if (it % 1.0 == 0.0) it.toLong().toString() else raw } ?: raw
+        }
+
+        private fun nameOf(c: JsonObject): String? =
+            (c.obj("athlete")?.str("displayName") ?: c.obj("athlete")?.str("shortName")
+                ?: c.obj("roster")?.str("displayName") ?: c.obj("team")?.str("displayName"))?.takeIf { it.isNotBlank() }
+
+        private fun isWinner(c: JsonObject) = (c["winner"] as? JsonPrimitive)?.booleanOrNull == true
+
+        /** Results table for sports without team box scores, straight from the scoreboard data. */
+        private fun resultsOf(event: JsonObject, competition: JsonObject?, league: SportsLeague): SportsResults? {
+            if (league.usesTeamStats) return null
+            val competitors = competition?.arr("competitors").orEmpty().mapNotNull { it as? JsonObject }
+            return when (league.catalogSport) {
+                "golf" -> {
+                    // Leaderboard order as ESPN sends it; equal scores share a "T" position.
+                    val rows = competitors.sortedBy { (it["order"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: Int.MAX_VALUE }
+                    val rounds = rows.maxOfOrNull { it.arr("linescores")?.size ?: 0 }?.coerceAtMost(4) ?: 0
+                    var lastScore: String? = null
+                    var lastPos = 0
+                    val table = rows.take(60).mapIndexedNotNull { index, c ->
+                        val name = nameOf(c) ?: return@mapIndexedNotNull null
+                        val score = c.cell("score") ?: "–"
+                        if (score != lastScore) { lastPos = index + 1; lastScore = score }
+                        val tied = rows.count { it.cell("score") == score } > 1
+                        val roundCells = (0 until rounds).map { r ->
+                            (c.arr("linescores")?.getOrNull(r) as? JsonObject)?.cell("value") ?: "–"
+                        }
+                        SportsResultRow(listOf((if (tied) "T" else "") + lastPos, name, score) + roundCells, highlight = lastPos == 1)
+                    }
+                    if (table.isEmpty()) null
+                    else SportsResults("LEADERBOARD", listOf("Pos", "Player", "To par") + (1..rounds).map { "R$it" }, table)
+                }
+                "motor_sports" -> {
+                    val rows = competitors.sortedBy { (it["order"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: Int.MAX_VALUE }
+                    val table = rows.take(40).mapIndexedNotNull { index, c ->
+                        val name = nameOf(c) ?: return@mapIndexedNotNull null
+                        val car = c.obj("vehicle")?.str("number") ?: c.str("number")
+                        val team = c.obj("vehicle")?.str("manufacturer") ?: c.obj("team")?.str("displayName")
+                        SportsResultRow(listOf("${index + 1}", name, car.orEmpty(), team.orEmpty()), highlight = isWinner(c))
+                    }
+                    if (table.isEmpty()) null else {
+                        val showCar = table.any { it.cells[2].isNotBlank() }
+                        val showTeam = table.any { it.cells[3].isNotBlank() }
+                        SportsResults(
+                            "RESULTS",
+                            listOfNotNull("Pos", "Driver", "No.".takeIf { showCar }, "Team".takeIf { showTeam }),
+                            table.map { row ->
+                                row.copy(cells = listOfNotNull(row.cells[0], row.cells[1], row.cells[2].takeIf { showCar }, row.cells[3].takeIf { showTeam }))
+                            },
+                        )
+                    }
+                }
+                "tennis" -> {
+                    if (competitors.size != 2) return null
+                    val sets = competitors.maxOf { it.arr("linescores")?.size ?: 0 }
+                    if (sets == 0) return null
+                    SportsResults(
+                        "SETS",
+                        listOf("Player") + (1..sets).map { "S$it" },
+                        competitors.mapNotNull { c ->
+                            val name = nameOf(c) ?: return@mapNotNull null
+                            val cells = (0 until sets).map { s -> (c.arr("linescores")?.getOrNull(s) as? JsonObject)?.cell("value") ?: "–" }
+                            SportsResultRow(listOf(name) + cells, highlight = isWinner(c))
+                        },
+                    )
+                }
+                "fight" -> {
+                    // Every bout on the card, main event first.
+                    val fights = event.arr("competitions").orEmpty().mapNotNull { it as? JsonObject }.reversed()
+                    val table = fights.mapNotNull { fight ->
+                        val sides = fight.arr("competitors").orEmpty().mapNotNull { it as? JsonObject }
+                        if (sides.size != 2) return@mapNotNull null
+                        val names = sides.map { nameOf(it) ?: return@mapNotNull null }
+                        val winner = sides.firstOrNull(::isWinner)?.let(::nameOf)
+                        val result = fight.obj("status")?.obj("type")?.str("shortDetail")
+                            ?: fight.obj("status")?.obj("type")?.str("detail") ?: ""
+                        val weight = fight.obj("type")?.str("abbreviation") ?: fight.obj("type")?.str("text") ?: ""
+                        SportsResultRow(listOf(names.joinToString(" vs "), weight, winner ?: "–", result), highlight = winner != null)
+                    }
+                    if (table.isEmpty()) null else SportsResults("FIGHT CARD", listOf("Fight", "Class", "Winner", "Result"), table)
+                }
+                else -> null
+            }
         }
 
         private fun parseStart(raw: String?): Long? = raw?.let {

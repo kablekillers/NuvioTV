@@ -99,6 +99,19 @@ class SportsEventRepository(
         return fresh
     }
 
+    private val detailedResultsCache = mutableMapOf<String, SportsResults>()
+
+    /** Fuller results from another source (F1 times and points); finished sessions don't change. */
+    suspend fun detailedResults(event: SportsEvent): SportsResults? {
+        mutex.withLock { detailedResultsCache[event.id] }?.let { return it }
+        val fresh = provider.detailedResults(event) ?: return null
+        mutex.withLock {
+            if (detailedResultsCache.size >= MAX_CACHED_BOX_SCORES) detailedResultsCache.remove(detailedResultsCache.keys.first())
+            detailedResultsCache[event.id] = fresh
+        }
+        return fresh
+    }
+
     private val standingsCache = mutableMapOf<SportsLeague, SportsStandings>()
 
     /** League tables change slowly; a copy up to 10 minutes old is reused. */

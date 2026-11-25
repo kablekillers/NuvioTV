@@ -106,6 +106,8 @@ data class SportsEvent(
     val division: String? = null,
     /** ESPN feed this game came from (for box scores in multi-feed leagues). */
     val feedPath: String? = null,
+    /** Golf leaderboard / race order / tennis sets / fight results, when the provider has them. */
+    val results: SportsResults? = null,
 ) {
     init {
         require(id.isNotBlank())
@@ -146,6 +148,9 @@ interface SportsEventProvider {
 
     /** Each team's stat leaders: season numbers before the game, game numbers once it starts. */
     suspend fun leaders(event: SportsEvent): SportsLeaders? = null
+
+    /** Fuller results from another source (e.g. F1 times and points), or null to use [SportsEvent.results]. */
+    suspend fun detailedResults(event: SportsEvent): SportsResults? = null
 
     /** League tables, or null when the provider has none (e.g. UFC). */
     suspend fun standings(league: SportsLeague): SportsStandings? = null

@@ -55,3 +55,16 @@ data class SportsTeamLeaders(
 data class SportsLeaderCategory(val title: String, val leaders: List<SportsLeaderLine>)
 
 data class SportsLeaderLine(val name: String, val position: String?, val value: String)
+
+/**
+ * Results for sports without team box scores: golf leaderboard, race finishing
+ * order, tennis sets, fight results. [columns] line up with each row's cells.
+ */
+data class SportsResults(
+    val title: String,
+    val columns: List<String>,
+    val rows: List<SportsResultRow>,
+    val source: String = "ESPN",
+)
+
+data class SportsResultRow(val cells: List<String>, val highlight: Boolean = false)

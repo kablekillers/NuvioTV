@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.sports
 
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -123,7 +124,8 @@ private fun viewsFor(league: SportsLeague?): List<HubView> = if (league == null)
     if (league.scoreboardPath == null || league == SportsLeague.UFC) add(HubView.EVENTS)
     add(HubView.REPLAYS)
     add(HubView.HIGHLIGHTS)
-    if (league.usesTeamStats && league.scoreboardPath != null) add(HubView.STANDINGS)
+    // F1 championship tables come from Jolpica.
+    if (league.usesTeamStats && league.scoreboardPath != null || league == SportsLeague.FORMULA_1) add(HubView.STANDINGS)
 }
 
 /** Sport plus Men's/Women's (or ATP/WTA, UFC) when the sport has several feeds. */
@@ -1106,6 +1108,12 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
     var statsLoading by remember(event.id) { mutableStateOf(event.status != SportsEventStatus.SCHEDULED) }
     var statsFailed by remember(event.id) { mutableStateOf(false) }
     var selectedTeam by remember(event.id) { mutableStateOf(0) }
+    // Golf leaderboard / race order / tennis sets / fight card: fuller F1 results from Jolpica when finished.
+    var detailed by remember(event.id) { mutableStateOf<SportsResults?>(null) }
+    LaunchedEffect(event.id, event.status) {
+        if (event.league.usesTeamStats) return@LaunchedEffect
+        detailed = runCatching { repository.detailedResults(event) }.getOrElse { if (it is CancellationException) throw it; null }
+    }
     // Season leaders before the game; game leaders when ESPN has no full box score (some college sports).
     var leaders by remember(event.id) { mutableStateOf<SportsLeaders?>(null) }
     var leadersLoading by remember(event.id) { mutableStateOf(event.league.usesTeamStats) }
@@ -1220,7 +1228,12 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                             val scheduled = event.status == SportsEventStatus.SCHEDULED
                             val showLeaders = scheduled || (boxScore == null && leaders != null)
                             Box(Modifier.weight(1f)) {
-                                DetailHeading(if (scheduled) "SEASON STATS" else if (showLeaders) "GAME LEADERS" else "PLAYER STATS")
+                                DetailHeading(when {
+                                    !event.league.usesTeamStats -> "RESULTS"
+                                    scheduled -> "SEASON STATS"
+                                    showLeaders -> "GAME LEADERS"
+                                    else -> "PLAYER STATS"
+                                })
                             }
                             val teamLabels = if (showLeaders) leaders?.teams?.map { it.shortLabel } else boxScore?.teams?.map { it.shortLabel }
                             teamLabels?.forEachIndexed { index, label ->
@@ -1230,7 +1243,14 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                         val team = boxScore?.teams?.getOrNull(selectedTeam)
                         val teamLeaders = leaders?.teams?.getOrNull(selectedTeam)
                         when {
-                            !event.league.usesTeamStats -> InfoPanel("Individual stats aren't available for this event.")
+                            !event.league.usesTeamStats -> {
+                                val results = detailed ?: event.results
+                                when {
+                                    results != null -> ResultsTable(results)
+                                    scheduledOrUnknown(event) -> InfoPanel("Results appear once this event starts.")
+                                    else -> InfoPanel("No results reported for this event yet.")
+                                }
+                            }
                             event.status == SportsEventStatus.SCHEDULED -> when {
                                 teamLeaders != null -> {
                                     Text("This season's leaders · the game hasn't started yet", color = Muted, fontSize = 13.sp)
@@ -1473,6 +1493,62 @@ private fun PanelButton(label: String, active: Boolean, modifier: Modifier = Mod
     ) {
         Text(label, color = if (focused || active) CinemaGold.Ink else Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
     }
+}
+
+private fun scheduledOrUnknown(event: SportsEvent) =
+    event.status == SportsEventStatus.SCHEDULED || event.status == SportsEventStatus.UNKNOWN
+
+/** Leaderboard / race results / sets / fight card. Each row can take focus so the remote scrolls it. */
+@Composable
+private fun ResultsTable(results: SportsResults) {
+    // First column narrow (position), second flexible (name), the rest fixed.
+    val nameColumn = if (results.columns.firstOrNull() in setOf("Pos")) 1 else 0
+    Column(
+        Modifier.fillMaxWidth()
+            .background(Card, RoundedCornerShape(18.dp))
+            .border(1.dp, CardBorder, RoundedCornerShape(18.dp))
+            .padding(vertical = 10.dp)
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(results.title, color = CinemaGold.Base, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
+            Text(results.source, color = Muted, fontSize = 11.sp)
+        }
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+            results.columns.forEachIndexed { index, col ->
+                Text(col, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                    modifier = resultCell(index, nameColumn, col))
+            }
+        }
+        results.rows.forEach { row ->
+            var focused by remember { mutableStateOf(false) }
+            Row(
+                Modifier.fillMaxWidth()
+                    .background(if (focused) CardFocused else if (row.highlight) CinemaGold.Base.copy(alpha = 0.08f) else Color.Transparent)
+                    .onFocusChanged { focused = it.isFocused }
+                    .focusable()
+                    .padding(horizontal = 16.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                row.cells.forEachIndexed { index, cell ->
+                    Text(cell, color = if (row.highlight && index == nameColumn) CinemaGold.Soft else Color.White,
+                        fontSize = 14.sp, fontWeight = if (index == nameColumn) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = resultCell(index, nameColumn, results.columns.getOrNull(index).orEmpty()))
+                }
+            }
+        }
+    }
+}
+
+private val narrowResultColumn = Regex("""^(R\d|S\d|No\.|Pts|PTS|W|To par)$""")
+
+private fun RowScope.resultCell(index: Int, nameColumn: Int, column: String): Modifier = when {
+    index == nameColumn -> Modifier.weight(1f).padding(end = 8.dp)
+    index < nameColumn -> Modifier.width(44.dp)
+    narrowResultColumn.matches(column) -> Modifier.width(50.dp).padding(start = 4.dp)
+    column.startsWith("Q") -> Modifier.width(74.dp).padding(start = 4.dp)
+    else -> Modifier.width(110.dp).padding(start = 6.dp)
 }
 
 /** One team's stat leaders: category, then each leader with their numbers. */
