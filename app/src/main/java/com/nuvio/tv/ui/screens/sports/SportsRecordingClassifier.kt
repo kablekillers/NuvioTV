@@ -71,12 +71,10 @@ internal object SportsRecordingClassifier {
         "nba" -> league == SportsLeague.NBA
         "nhl" -> league == SportsLeague.NHL
         "ncaaf", "college football" -> league == SportsLeague.COLLEGE_FOOTBALL
-        "ncaaw" -> league == SportsLeague.NCAA_WOMEN
-        "ncaam" -> league == SportsLeague.NCAA_MEN
-        "ncaab" -> league.isCollegeBasketball
+        // Men's and women's college basketball share one tab now.
+        "ncaaw", "ncaam", "ncaab" -> league.isCollegeBasketball
         else -> when {
-            "women" in label -> league == SportsLeague.NCAA_WOMEN
-            "men" in label -> league == SportsLeague.NCAA_MEN
+            "women" in label || "men" in label -> league.isCollegeBasketball
             else -> false
         }
     }

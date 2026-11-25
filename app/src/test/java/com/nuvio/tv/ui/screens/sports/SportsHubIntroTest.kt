@@ -33,12 +33,11 @@ class SportsHubIntroTest {
     }
 
     @Test fun expandedLeaguesUseTheirLeagueLogosAndSportFallbacks() {
-        assertTrue(SportsLeague.NCAA_MEN.logoPath.orEmpty().endsWith("NCAASports_MensBasketball.png"))
-        assertTrue(SportsLeague.NCAA_WOMEN.logoPath.orEmpty().endsWith("NCAASports_WomensBasketball.png"))
+        assertTrue(SportsLeague.COLLEGE_BASKETBALL.logoPath.orEmpty().endsWith("NCAASports_MensBasketball.png"))
         assertTrue(SportsLeague.PGA.logoPath.orEmpty().endsWith("pgatour.png"))
-        assertEquals(SportGlyph.BASKETBALL, SportsLeague.NCAA_WOMEN.glyph())
+        assertEquals(SportGlyph.BASKETBALL, SportsLeague.COLLEGE_BASKETBALL.glyph())
         assertEquals(SportGlyph.GOLF, SportsLeague.PGA.glyph())
-        assertEquals(SportGlyph.TENNIS, SportsLeague.WTA.glyph())
+        assertEquals(SportGlyph.TENNIS, SportsLeague.TENNIS.glyph())
         assertEquals(SportGlyph.RACING, SportsLeague.FORMULA_1.glyph())
     }
 }

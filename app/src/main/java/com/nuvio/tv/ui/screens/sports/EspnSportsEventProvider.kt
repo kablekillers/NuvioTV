@@ -45,27 +45,63 @@ class EspnSportsEventProvider : SportsEventProvider {
         }.awaitAll().flatten()
     }
 
-    private suspend fun scoreboard(league: SportsLeague, date: String? = null): List<SportsEvent> {
-        val path = league.scoreboardPath ?: return emptyList()
-        val options = buildList {
-            if (league.isCollegeBasketball) add("groups=50&limit=100")
-            if (date != null) add("dates=$date")
-        }
-        val query = options.joinToString("&", prefix = if (options.isEmpty()) "" else "?")
-        val payload = get("https://site.api.espn.com/apis/site/v2/sports/$path/scoreboard$query")
-        return withContext(Dispatchers.Default) { parseScoreboard(payload, league) }
+    /** Every feed of the league (men's + women's, ATP + WTA), each game tagged with its division. */
+    private suspend fun scoreboard(league: SportsLeague, date: String? = null): List<SportsEvent> = coroutineScope {
+        val results = league.feeds.map { feed ->
+            async {
+                try {
+                    val options = buildList {
+                        if (feed.allDivisionOne) add("groups=50&limit=200")
+                        if (date != null) add("dates=$date")
+                    }
+                    val query = options.joinToString("&", prefix = if (options.isEmpty()) "" else "?")
+                    val payload = get("https://site.api.espn.com/apis/site/v2/sports/${feed.path}/scoreboard$query")
+                    Result.success(withContext(Dispatchers.Default) {
+                        parseScoreboard(payload, league).map { it.copy(division = feed.division, feedPath = feed.path) }
+                    })
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Result.failure(error)
+                }
+            }
+        }.awaitAll()
+        // One feed failing (e.g. women's hockey off-season) shouldn't hide the other.
+        if (results.isNotEmpty() && results.all { it.isFailure }) throw results.first().exceptionOrNull()!!
+        results.flatMap { it.getOrDefault(emptyList()) }.distinctBy { it.id }
     }
 
     override suspend fun boxScore(event: SportsEvent): SportsBoxScore? {
         // UFC summaries have no per-athlete stat tables.
         if (!event.league.usesTeamStats || event.status == SportsEventStatus.SCHEDULED) return null
-        val payload = get("https://site.api.espn.com/apis/site/v2/sports/${event.league.scoreboardPath}/summary?event=${URLEncoder.encode(event.providerEventId, "UTF-8")}")
+        val path = event.feedPath ?: event.league.scoreboardPath ?: return null
+        val payload = get("https://site.api.espn.com/apis/site/v2/sports/$path/summary?event=${URLEncoder.encode(event.providerEventId, "UTF-8")}")
         return parseBoxScore(payload, event.id)
     }
 
     override suspend fun standings(league: SportsLeague): SportsStandings? {
-        if (!league.usesTeamStats) return null
-        return parseStandings(get("https://site.api.espn.com/apis/v2/sports/${league.scoreboardPath}/standings"), league)
+        if (!league.usesTeamStats || league.feeds.isEmpty()) return null
+        val parts = coroutineScope {
+            league.feeds.map { feed ->
+                async {
+                    runCatching {
+                        parseStandings(get("https://site.api.espn.com/apis/v2/sports/${feed.path}/standings"), league)
+                    }.getOrNull()?.let { feed to it }
+                }
+            }.awaitAll().filterNotNull()
+        }
+        if (parts.isEmpty()) return null
+        if (parts.size == 1 && league.feeds.size == 1) return parts.first().second
+        // Men's and women's tables side by side: "Men's · Big Ten", "Women's · Hockey East".
+        return SportsStandings(
+            league = league,
+            groups = parts.flatMap { (feed, table) ->
+                table.groups.map { group ->
+                    group.copy(name = listOfNotNull(feed.division, group.name.takeIf { it.isNotBlank() }).joinToString(" · "))
+                }
+            },
+            fetchedAtEpochMillis = parts.maxOf { it.second.fetchedAtEpochMillis },
+        )
     }
 
     private suspend fun get(url: String): String = withContext(Dispatchers.IO) {
@@ -95,7 +131,7 @@ class EspnSportsEventProvider : SportsEventProvider {
             return events.flatMap { element ->
                 val event = element as? JsonObject ?: return@flatMap emptyList()
                 when (league) {
-                    SportsLeague.ATP, SportsLeague.WTA -> tennisEvents(event, league)
+                    SportsLeague.TENNIS -> tennisEvents(event, league)
                     SportsLeague.FORMULA_1 -> formulaOneSessions(event, league)
                     else -> listOfNotNull(parseEvent(event, league))
                 }

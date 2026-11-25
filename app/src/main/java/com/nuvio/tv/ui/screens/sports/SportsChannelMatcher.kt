@@ -27,7 +27,8 @@ internal object SportsChannelMatcher {
         SportsLeague.NBA -> listOf("nbatv")
         SportsLeague.MLB -> listOf("mlbnetwork")
         SportsLeague.NHL -> listOf("nhlnetwork")
-        SportsLeague.COLLEGE_FOOTBALL, SportsLeague.NCAA_MEN, SportsLeague.NCAA_WOMEN ->
+        SportsLeague.COLLEGE_FOOTBALL, SportsLeague.COLLEGE_BASKETBALL, SportsLeague.COLLEGE_HOCKEY,
+        SportsLeague.COLLEGE_BASEBALL, SportsLeague.COLLEGE_VOLLEYBALL ->
             listOf("secnetwork", "bigtennetwork", "accnetwork", "espnu")
         SportsLeague.UFC -> listOf("ufcfightpass")
         else -> emptyList()

@@ -122,7 +122,8 @@ class SportsAddonDiscovery @Inject constructor(
                         }
                     } else emptyList()
                     val items = (loaded + morePages).flatten().distinctBy { it.apiType to it.id }
-                    val unscoredAllowed = if (league.scoreboardPath == null) {
+                    // Boxing/MMA/UFC "Events" tab: fight-night lists (boxing included) aren't on ESPN's UFC schedule.
+                    val unscoredAllowed = if (league.scoreboardPath == null || browsingLeague && !replays && league == SportsLeague.UFC) {
                         SportsAddonCatalogs.isScopedCatalog(catalog, league)
                     } else {
                         (replays && isLeagueCatalog(catalog.id, league)) ||
@@ -215,13 +216,19 @@ class SportsAddonDiscovery @Inject constructor(
     internal fun deepSearchQueries(league: SportsLeague, events: List<SportsEvent>): List<String> {
         val competition = when (league) {
             SportsLeague.COLLEGE_FOOTBALL -> listOf("College Football", "NCAA Football")
-            SportsLeague.NCAA_MEN -> listOf("NCAA Basketball", "College Basketball")
-            SportsLeague.NCAA_WOMEN -> listOf("Women's College Basketball")
+            SportsLeague.COLLEGE_BASKETBALL -> listOf("NCAA Basketball", "College Basketball", "Women's College Basketball")
+            SportsLeague.COLLEGE_HOCKEY -> listOf("College Hockey", "NCAA Hockey")
+            SportsLeague.COLLEGE_BASEBALL -> listOf("College Baseball", "NCAA Baseball")
+            SportsLeague.COLLEGE_VOLLEYBALL -> listOf("College Volleyball", "NCAA Volleyball")
+            SportsLeague.TENNIS -> listOf("Tennis", "ATP", "WTA")
+            SportsLeague.PGA -> listOf("PGA Tour", "Golf")
+            SportsLeague.MLS -> listOf("MLS")
+            SportsLeague.WWE -> listOf("WWE", "Raw", "SmackDown")
             SportsLeague.NFL -> listOf("NFL")
             SportsLeague.NBA -> listOf("NBA")
             SportsLeague.MLB -> listOf("MLB")
             SportsLeague.NHL -> listOf("NHL")
-            SportsLeague.UFC -> listOf("UFC")
+            SportsLeague.UFC -> listOf("UFC", "Boxing", "MMA")
             else -> listOf(league.label)
         }
         val liveFirst = events.sortedBy {

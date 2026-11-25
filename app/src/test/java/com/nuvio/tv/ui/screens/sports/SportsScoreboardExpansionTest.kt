@@ -17,10 +17,10 @@ class SportsScoreboardExpansionTest {
                 ]
             }]}]
         }]}"""
-        val (tournament, match) = EspnSportsEventProvider.parseScoreboard(payload, SportsLeague.ATP)
+        val (tournament, match) = EspnSportsEventProvider.parseScoreboard(payload, SportsLeague.TENNIS)
         assertEquals(SportsEventStatus.FINAL, tournament.status)
         assertEquals(SportsEventStatus.LIVE, match.status)
-        assertEquals("ATP:t1:m1", match.id)
+        assertEquals("TENNIS:t1:m1", match.id)
         assertEquals("Alex Reed / Robin Allen vs Gabriel Brown / Rafael Gomez", match.title)
         assertEquals("1", match.away?.score)
         assertEquals("0", match.home?.score)

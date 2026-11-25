@@ -32,7 +32,7 @@ class SportsRecordingClassifierTest {
 
     @Test
     fun baseballCannotEnterCollegeTabsEvenWhenTeamWordsCoincide() {
-        val collegeLeagues = listOf(SportsLeague.COLLEGE_FOOTBALL, SportsLeague.NCAA_MEN, SportsLeague.NCAA_WOMEN)
+        val collegeLeagues = listOf(SportsLeague.COLLEGE_FOOTBALL, SportsLeague.COLLEGE_BASKETBALL)
         for (league in collegeLeagues) {
             val mlb = item("recap:streamed_baseball_cincinnati_pittsburgh", "Cincinnati vs Pittsburgh")
             assertFalse(SportsRecordingClassifier.accepts(SportsAddonCatalogs.SPORTS_STREAMS, recaps, mlb, league, 90))
@@ -46,8 +46,7 @@ class SportsRecordingClassifierTest {
         val basketball = item("recap:streamed_basketball_usc_tarleton", "USC vs Tarleton State",
             genres = listOf("basketball", "NCAAW"), runtime = "3h 46m")
         assertTrue(SportsRecordingClassifier.accepts(SportsAddonCatalogs.SPORTS_STREAMS, recaps, football, SportsLeague.COLLEGE_FOOTBALL, 80))
-        assertTrue(SportsRecordingClassifier.accepts(SportsAddonCatalogs.SPORTS_STREAMS, recaps, basketball, SportsLeague.NCAA_WOMEN, 80))
-        assertFalse(SportsRecordingClassifier.accepts(SportsAddonCatalogs.SPORTS_STREAMS, recaps, basketball, SportsLeague.NCAA_MEN, 80))
+        assertTrue(SportsRecordingClassifier.accepts(SportsAddonCatalogs.SPORTS_STREAMS, recaps, basketball, SportsLeague.COLLEGE_BASKETBALL, 80))
         assertEquals(SportsContentKind.REPLAY, SportsRecordingClassifier.kind(SportsAddonCatalogs.SPORTS_STREAMS, recaps, basketball))
     }
 

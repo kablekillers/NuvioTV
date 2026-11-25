@@ -33,7 +33,7 @@ class SportsLiveTv @Inject constructor(
     private val addonRepository: AddonRepository,
     private val catalogRepository: CatalogRepository,
 ) {
-    private class Found(val match: SportsCatalogMatch, val item: MetaPreview)
+    private class Found(val match: SportsCatalogMatch, val item: MetaPreview, val catalogLabel: String)
 
     private suspend fun enabledAddons(): List<Addon> =
         addonRepository.getInstalledAddons().first().filter { it.enabled }
@@ -120,6 +120,7 @@ class SportsLiveTv @Inject constructor(
                             Found(
                                 SportsCatalogMatch(addon, catalog.id, it.apiType, it.id, it.name, 100, SportsContentKind.EVENT),
                                 it,
+                                "${catalog.id.replace('_', ' ')} ${catalog.name}",
                             )
                         }
                 }
@@ -159,9 +160,13 @@ class SportsLiveTv @Inject constructor(
         val sportOrder = sportWords.mapIndexed { i, (name, _) -> name to i }.toMap()
         val events = found.groupBy { eventKey(it.item.name) }
             .filterKeys { it.length >= 4 }
-            .map { (_, group) ->
+            .mapNotNull { (_, group) ->
                 val ordered = group.sortedBy { it.match.priority() }
-                SportsLiveEvent(ordered.first().item.name.trim(), sportOf(group.first().item), ordered.map { it.match })
+                // Any add-on naming the sport decides it; non-American sports are left out.
+                val sports = group.map { sportOf(it.item, it.catalogLabel) }
+                if (sports.any { it == null } && sports.none { it != null && it != "More Events" }) return@mapNotNull null
+                val sport = sports.firstOrNull { it != null && it != "More Events" } ?: "More Events"
+                SportsLiveEvent(ordered.first().item.name.trim(), sport, ordered.map { it.match })
             }
             // Within a sport: events carried by a premium add-on first, then the most links.
             .sortedWith(
@@ -275,26 +280,36 @@ class SportsLiveTv @Inject constructor(
         return channel
     }
 
+    // American-list sports only (same list as the Sports Hub tabs). Order = order shown.
     private val sportWords = listOf(
-        "Football" to Regex("""\b(nfl|american football|college football|ncaaf)\b""", RegexOption.IGNORE_CASE),
-        "Basketball" to Regex("""\b(basketball|nba|wnba|ncaab)\b""", RegexOption.IGNORE_CASE),
+        "Football" to Regex("""\b(nfl|american football|college football|ncaaf|cfb|redzone)\b""", RegexOption.IGNORE_CASE),
+        "Basketball" to Regex("""\b(basketball|nba|wnba|ncaab|ncaam|ncaaw)\b""", RegexOption.IGNORE_CASE),
         "Baseball" to Regex("""\b(baseball|mlb)\b""", RegexOption.IGNORE_CASE),
         "Hockey" to Regex("""\b(hockey|nhl)\b""", RegexOption.IGNORE_CASE),
-        "Soccer" to Regex("""\b(soccer|football|fútbol|futbol|uefa|premier league|la ?liga|serie a|bundesliga|ligue 1|mls|spfl|eredivisie|copa|champions league)\b""", RegexOption.IGNORE_CASE),
-        "Fighting" to Regex("""\b(ufc|mma|boxing|wrestling|wwe|aew|fight)\b""", RegexOption.IGNORE_CASE),
-        "Motorsports" to Regex("""\b(f1|formula|nascar|indycar|motogp|racing|grand prix)\b""", RegexOption.IGNORE_CASE),
+        "Boxing / MMA / UFC" to Regex("""\b(ufc|mma|boxing|fight night|fights?|bellator|pfl)\b""", RegexOption.IGNORE_CASE),
+        "WWE" to Regex("""\b(wwe|wrestling|raw|smackdown|nxt)\b""", RegexOption.IGNORE_CASE),
+        "Racing" to Regex("""\b(f1|formula 1|formula one|nascar|indycar|indy 500)\b""", RegexOption.IGNORE_CASE),
         "Tennis" to Regex("""\b(tennis|atp|wta)\b""", RegexOption.IGNORE_CASE),
         "Golf" to Regex("""\b(golf|pga|lpga)\b""", RegexOption.IGNORE_CASE),
-        "Cricket" to Regex("""\b(cricket|ipl|t20)\b""", RegexOption.IGNORE_CASE),
-        "Rugby" to Regex("""\b(rugby)\b""", RegexOption.IGNORE_CASE),
+        "Volleyball" to Regex("""\b(volleyball)\b""", RegexOption.IGNORE_CASE),
+        // Soccer is only MLS.
+        "MLS" to Regex("""\b(mls|major league soccer|leagues cup)\b""", RegexOption.IGNORE_CASE),
     )
 
-    internal fun sportOf(item: MetaPreview): String {
-            val text = (item.genres + item.name).joinToString(" ")
-            // "American football" must not read as soccer.
-            sportWords.firstOrNull { (name, regex) -> name != "Soccer" && regex.containsMatchIn(text) }?.let { return it.first }
-            return sportWords.firstOrNull { it.second.containsMatchIn(text) }?.first ?: "Other Sports"
-        }
+    /** Sports that aren't on the Sports Hub list: events for these are left out. */
+    private val notOnList = Regex(
+        """\b(soccer|fútbol|futbol|uefa|premier league|epl|la ?liga|serie a|bundesliga|ligue 1|eredivisie|copa|champions league|europa|fa cup|carabao|spfl|liga mx|cricket|ipl|t20|odi|rugby|afl|darts|snooker|billiards|motogp|moto ?gp|wec|superbike|handball|badminton|table tennis|kabaddi|cycling|esports|horse racing)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** Sport for a live event, null when it's a sport that isn't on the Sports Hub list. */
+    internal fun sportOf(item: MetaPreview, catalogLabel: String = ""): String? {
+        val text = (item.genres + item.name + catalogLabel).joinToString(" ")
+        // American football / basketball words beat a bare "football" (soccer) list name.
+        sportWords.firstOrNull { (_, regex) -> regex.containsMatchIn(text) }?.let { return it.first }
+        if (notOnList.containsMatchIn(text) || Regex("""\bfootball\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)) return null
+        return "More Events"
+    }
 
         private fun eventKey(title: String) = title.lowercase()
             .replace(Regex("""\b(live|hd|fhd|uhd|4k|8k|exclusive|stream|watch)\b"""), " ")

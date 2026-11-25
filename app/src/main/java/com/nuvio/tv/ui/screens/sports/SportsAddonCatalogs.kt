@@ -127,7 +127,6 @@ object SportsAddonCatalogs {
             "motor_sports" -> sport in setOf("motorsport", "motorsports", "motor_sport")
             "fight" -> sport in setOf("mma", "boxing", "mma_boxing")
             "football" -> sport == "soccer"
-            "other" -> sport in setOf("others", "other_sports")
             else -> false
         }
         return exact || namesSport(catalog.id + " " + catalog.name, league)
@@ -145,21 +144,27 @@ object SportsAddonCatalogs {
         "basketball" -> when (league) {
             SportsLeague.NBA -> listOf("nba", "basketball")
             SportsLeague.WNBA -> listOf("wnba", "basketball")
-            else -> listOf("ncaa basketball", "college basketball", "ncaab", "basketball")
+            else -> listOf("ncaa basketball", "college basketball", "ncaab", "ncaam", "ncaaw", "basketball")
         }
-        "baseball" -> listOf("mlb", "baseball")
-        "hockey" -> listOf("nhl", "hockey", "ice hockey")
-        "fight" -> listOf("ufc", "mma", "boxing", "fight", "fights", "combat", "wrestling", "ppv")
+        "baseball" -> if (league == SportsLeague.COLLEGE_BASEBALL) {
+            listOf("college baseball", "ncaa baseball", "baseball")
+        } else listOf("mlb", "baseball")
+        "hockey" -> if (league == SportsLeague.COLLEGE_HOCKEY) {
+            listOf("college hockey", "ncaa hockey", "hockey")
+        } else listOf("nhl", "hockey", "ice hockey")
+        "fight" -> listOf("ufc", "mma", "boxing", "fight", "fights", "combat", "ppv")
+        "wrestling" -> listOf("wwe", "wrestling", "raw", "smackdown", "nxt")
         "tennis" -> listOf("tennis", "atp", "wta")
-        "golf" -> listOf("golf", "pga", "lpga")
-        "motor_sports" -> listOf("motorsport", "motorsports", "motor sport", "motor sports", "racing", "f1", "formula 1", "formula one", "nascar", "indycar", "motogp")
-        "football" -> listOf("soccer", "football", "premier league", "epl", "la liga", "laliga", "champions league", "serie a", "bundesliga", "ligue 1", "mls")
-        "rugby" -> listOf("rugby")
-        "afl" -> listOf("afl", "aussie rules")
-        "cricket" -> listOf("cricket", "ipl")
-        "darts" -> listOf("darts")
-        "billiards" -> listOf("billiards", "snooker", "pool")
-        else -> listOf("other sports", "others", "other")
+        "golf" -> if (league == SportsLeague.LPGA) listOf("lpga", "golf") else listOf("golf", "pga")
+        "motor_sports" -> when (league) {
+            SportsLeague.FORMULA_1 -> listOf("f1", "formula 1", "formula one", "grand prix")
+            SportsLeague.NASCAR -> listOf("nascar")
+            SportsLeague.INDYCAR -> listOf("indycar", "indy 500")
+            else -> listOf("racing")
+        }
+        "football" -> listOf("mls", "major league soccer", "soccer")
+        "volleyball" -> listOf("volleyball", "ncaa volleyball")
+        else -> emptyList()
     }
 
     /** Add-ons on the curated lists (searched deeply); others only get live channel lookups. */
