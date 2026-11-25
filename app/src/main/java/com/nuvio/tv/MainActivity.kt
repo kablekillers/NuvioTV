@@ -438,12 +438,18 @@ open class MainActivity : ComponentActivity() {
             // QR step was already passed this session, reset the per-session gates
             // so the QR sign-in screen comes back and, after signing in again,
             // profile selection / PIN entry is not skipped.
+            // A device signed in through the Kable Killers backup QR (Nuvio down) has no
+            // Nuvio session but is signed in: it must not get the QR screen. Every
+            // sign-out button also disconnects the backup, so this only stays true
+            // until the customer signs out.
+            val kkBackupSignIn by kableKillersBackupService.state.collectAsState()
+            val signedInThroughBackup = kkBackupSignIn.hasDeviceKey && !kkBackupSignIn.accountEmail.isNullOrBlank()
             var lastResolvedAuthWasAccount by remember { mutableStateOf<Boolean?>(null) }
-            LaunchedEffect(authState) {
+            LaunchedEffect(authState, signedInThroughBackup) {
                 when (authState) {
                     is AuthState.FullAccount -> lastResolvedAuthWasAccount = true
                     AuthState.SignedOut -> {
-                        if (lastResolvedAuthWasAccount == true) {
+                        if (lastResolvedAuthWasAccount == true && !signedInThroughBackup) {
                             onboardingCompletedThisSession = false
                             hasSelectedProfileThisSession = false
                             splashTriggered = false
@@ -782,6 +788,7 @@ open class MainActivity : ComponentActivity() {
                         // Still loading auth state; nothing to show yet.
                     } else if (
                         authState is AuthState.SignedOut &&
+                        !signedInThroughBackup &&
                         !onboardingCompletedThisSession
                     ) {
                         startupDestination = StartupDestination.Setup
