@@ -11,7 +11,7 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
  * This registry contains public manifest identifiers only. Personalized add-on
  * URLs and credentials are deliberately not embedded in the application.
  */
-object SportsCatalogDescriptors {
+object SportsAddonCatalogs {
     const val SPORTS_STREAMS = "community.sports.streamed.premium"
     private const val FREE_SPORTS_STREAMS = "community.sports.fly"
     const val NUVIO_LIVE = "community.nuvio.live-sports"
