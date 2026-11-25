@@ -23,6 +23,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -33,6 +34,10 @@ import javax.inject.Singleton
 /** One add-on link for a channel, small enough to keep on disk. */
 @Serializable
 data class KkChannelSource(val addonBaseUrl: String, val addonName: String, val type: String, val id: String, val name: String)
+
+/** The last channel list kept on disk: which add-ons it came from and when. */
+@Serializable
+private data class KkSavedChannels(val key: String, val at: Long, val channels: List<KkLiveChannel>)
 
 /** One US channel with every add-on that carries it, best add-on first. */
 @Serializable
@@ -159,13 +164,53 @@ class KkLiveChannels @Inject constructor(
 
     private fun rank(addon: Addon) = SportsAddonPriority.rank(addon.displayName, addon.name, addon.id)
 
-    /** The channel list (cached for a while). */
+    private val refreshScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+    @Volatile private var refreshing = false
+
+    /**
+     * The channel list. A list from the same add-ons is used straight away (from memory, or from
+     * disk after a restart) and, when it's older than [TTL_MILLIS], scanned again in the background,
+     * so Live TV never waits for the full add-on scan except the very first time.
+     */
     suspend fun channels(force: Boolean = false): List<KkLiveChannel> = withContext(Dispatchers.Default) {
         val addons = activeAddons()
         val key = addonsKey(addons)
-        if (!force) lock.withLock {
-            cache?.takeIf { it.first == key && System.currentTimeMillis() - it.second < TTL_MILLIS }?.third
-        }?.let { return@withContext it }
+        if (!force) {
+            val known = lock.withLock { cache?.takeIf { it.first == key } } ?: savedFor(key)
+            if (known != null) {
+                if (System.currentTimeMillis() - known.second >= TTL_MILLIS) refreshInBackground()
+                return@withContext known.third
+            }
+        }
+        scan(addons, key)
+    }
+
+    private fun refreshInBackground() {
+        if (refreshing) return
+        refreshing = true
+        refreshScope.launch {
+            try {
+                val addons = activeAddons()
+                scan(addons, addonsKey(addons))
+            } catch (_: Exception) {
+            } finally {
+                refreshing = false
+            }
+        }
+    }
+
+    /** The saved list if it came from these add-ons. */
+    private suspend fun savedFor(key: String): Triple<String, Long, List<KkLiveChannel>>? {
+        val saved = runCatching { load?.invoke()?.let { json.decodeFromString<KkSavedChannels>(it) } }.getOrNull()
+            ?: return null
+        if (saved.key != key || saved.channels.isEmpty()) return null
+        val entry = Triple(saved.key, saved.at, saved.channels)
+        lock.withLock { if (cache == null || cache!!.second < saved.at) cache = entry }
+        return entry
+    }
+
+    /** The full scan of every add-on's live TV lists (about two minutes with many add-ons). */
+    private suspend fun scan(addons: List<Addon>, key: String): List<KkLiveChannel> {
         val found = sweep(addons)
         val channels = found.groupBy { mergeKey(it.name) }
             .filterKeys { it.length >= 2 }
@@ -191,16 +236,17 @@ class KkLiveChannels @Inject constructor(
             channel.copy(slug = slug)
         }
         if (withSlugs.isNotEmpty()) {
-            lock.withLock { cache = Triple(key, System.currentTimeMillis(), withSlugs) }
-            runCatching { save?.invoke(json.encodeToString(withSlugs)) }
+            val now = System.currentTimeMillis()
+            lock.withLock { cache = Triple(key, now, withSlugs) }
+            runCatching { save?.invoke(json.encodeToString(KkSavedChannels(key, now, withSlugs))) }
         }
         // A sweep that came back empty (network hiccup): the last good list.
-        withSlugs.ifEmpty { cachedOrSaved().orEmpty() }
+        return withSlugs.ifEmpty { cachedOrSaved().orEmpty() }
     }
 
     private suspend fun cachedOrSaved(): List<KkLiveChannel>? {
         lock.withLock { cache?.third }?.let { return it }
-        val saved = runCatching { load?.invoke()?.let { json.decodeFromString<List<KkLiveChannel>>(it) } }.getOrNull()
+        val saved = runCatching { load?.invoke()?.let { json.decodeFromString<KkSavedChannels>(it).channels } }.getOrNull()
         if (!saved.isNullOrEmpty()) lock.withLock { if (cache == null) cache = Triple("", 0L, saved) }
         return saved
     }
@@ -266,7 +312,8 @@ class KkLiveChannels @Inject constructor(
         const val PLAYLIST_URL = "$BASE/playlist.m3u"
         const val PLAYLIST_NAME = "Kable Killers"
         private const val CHANNEL_PREFIX = "$BASE/ch/"
-        private const val TTL_MILLIS = 20 * 60_000L
+        /** How old the channel list can get before it's scanned again in the background. */
+        private const val TTL_MILLIS = 6 * 60 * 60_000L
 
         fun channelUrl(slug: String) = CHANNEL_PREFIX + slug
 

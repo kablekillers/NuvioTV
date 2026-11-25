@@ -60,13 +60,16 @@ class KkLiveServer @Inject constructor(
             .distinctUntilChanged()
             .filter { it.isNotEmpty() }
             .debounce(4_000)
-            .collect {
+            .collect { key ->
                 runCatching {
                     val playlist = livePrefs.playlists.first().firstOrNull { it.url == KkLiveChannels.PLAYLIST_URL }
                     if (playlist == null && !flags.getBoolean("playlist_added", false)) {
                         liveRepository.addPlaylist(KkLiveChannels.PLAYLIST_NAME, KkLiveChannels.PLAYLIST_URL)
-                        flags.edit().putBoolean("playlist_added", true).apply()
-                    } else if (playlist != null) {
+                        flags.edit().putBoolean("playlist_added", true).putString("addons_key", key).apply()
+                    } else if (playlist != null && flags.getString("addons_key", null) != key) {
+                        // Only when the add-ons actually changed (not on every app start).
+                        flags.edit().putString("addons_key", key).apply()
+                        channels.channels(force = true)
                         liveRepository.refreshPlaylist(playlist.id)
                     }
                 }
