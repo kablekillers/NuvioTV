@@ -75,3 +75,11 @@ CREATE TABLE IF NOT EXISTS qr_logins (
   decided_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_qr_logins_status ON qr_logins(status, created_at DESC);
+
+-- After a Nuvio outage, the device that is sending the outage changes up to Nuvio.
+CREATE TABLE IF NOT EXISTS upload_leases (
+  account_email TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  snapshot_id INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);

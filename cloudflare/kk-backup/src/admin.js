@@ -2,7 +2,7 @@
 // Protected by the ADMIN_PASSWORD secret (browser password prompt; any username).
 
 import {
-  getCurrent, getSnapshot, listDevices, listSnapshots, makeCurrent, setDeviceBlocked, setLocked,
+  getCurrent, getSnapshot, listDevices, listSnapshots, makeCurrent, originOf, setDeviceBlocked, setLocked,
 } from "./store.js";
 import { allowedAccounts, hmacHex, isDeviceId, normalizeEmail, now, safeEqual } from "./util.js";
 
@@ -92,7 +92,8 @@ async function renderDashboard(env) {
     } else {
       html += `<div class="row"><div><strong>In use:</strong> saved ${ago(current.created_at)}
         <span class="muted" title="${iso(current.last_checked_at)}">· last checked against Nuvio ${ago(current.last_checked_at)}</span><br>
-        <span class="muted">${escapeHtml(describe(current.summary))}</span></div><div>
+        <span class="muted">${escapeHtml(describe(current.summary))}</span>
+        ${originOf(current) === "device" ? '<br><span class="pill gold" title="Profile 1 was changed on a device while Nuvio was down. It goes back up to Nuvio from the first device on Profile 1 once Nuvio is back.">Changed while Nuvio was down</span>' : ""}</div><div>
         ${current.locked ? `<span class="pill gold">Locked</span> ${actionForm(csrf, { action: "unlock", account: email }, "Unlock")}`
           : actionForm(csrf, { action: "lock", account: email }, "Lock this copy")}</div></div>
         <p class="muted" style="font-size:13px;margin:8px 0 0">Locking keeps this copy in use even if Nuvio changes. New copies are still saved below.</p>`;
