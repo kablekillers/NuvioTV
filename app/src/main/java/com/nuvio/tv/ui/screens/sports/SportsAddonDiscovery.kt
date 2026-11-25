@@ -49,10 +49,33 @@ class SportsAddonDiscovery @Inject constructor(
         events: List<SportsEvent>,
         replays: Boolean,
         browsingLeague: Boolean,
-    ): DiscoveryResult = withContext(Dispatchers.Default) {
+    ): DiscoveryResult {
         val addons = addonRepository.getInstalledAddons().first().filter { it.enabled }
+        // Keyed by game IDs (not scores), so live score refreshes and re-opening
+        // the same game reuse the last search instead of hitting every add-on again.
+        val key = listOf(
+            league.name, replays.toString(), browsingLeague.toString(),
+            events.map { it.id }.sorted().joinToString(","),
+            addons.map { it.baseUrl }.sorted().joinToString(","),
+        ).joinToString("|")
+        cachedResult(key)?.let { return it }
+        val result = discoverUncached(addons, league, events, replays, browsingLeague)
+        // Don't keep a result where every add-on failed (e.g. network blip).
+        if (result.catalogsChecked == 0 || result.catalogErrors < result.catalogsChecked) {
+            storeResult(key, result)
+        }
+        return result
+    }
+
+    private suspend fun discoverUncached(
+        addons: List<Addon>,
+        league: SportsLeague,
+        events: List<SportsEvent>,
+        replays: Boolean,
+        browsingLeague: Boolean,
+    ): DiscoveryResult = withContext(Dispatchers.Default) {
         val matcher = SportsEventMatcher.Prepared(events)
-        val limit = Semaphore(4)
+        val limit = Semaphore(8)
         val requests = addons.flatMap { addon ->
             SportsAddonCatalogs.routes(addon, league, replays).mapNotNull { route ->
                 val catalog = addon.catalogs.firstOrNull { it.id == route.id && it.apiType == route.type }
@@ -60,12 +83,14 @@ class SportsAddonDiscovery @Inject constructor(
                 val args = catalogArgs(catalog) ?: return@mapNotNull null
                 async {
                     val pages = searchQueries(catalog, league, events).map { query ->
-                        limit.withPermit {
-                            inspectCatalog(addon, catalog,
-                                if (query == null) args else args + ("search" to query),
-                                league, matcher, replays, browsingLeague)
+                        async {
+                            limit.withPermit {
+                                inspectCatalog(addon, catalog,
+                                    if (query == null) args else args + ("search" to query),
+                                    league, matcher, replays, browsingLeague)
+                            }
                         }
-                    }
+                    }.awaitAll()
                     CatalogMatches(
                         matches = pages.flatMap { it.matches },
                         browse = pages.flatMap { it.browse },
@@ -91,9 +116,20 @@ class SportsAddonDiscovery @Inject constructor(
      * This is independent of ESPN fixtures and only returns stream-capable IDs
      * supplied by enabled add-on manifests.
      */
-    suspend fun findNflChannels(): List<SportsCatalogMatch> = withContext(Dispatchers.Default) {
+    /** Last NFL channel list, shown instantly while a fresh search isn't needed. */
+    fun cachedNflChannels(): List<SportsCatalogMatch>? =
+        nflChannelCache?.takeIf { System.currentTimeMillis() - it.first < CACHE_TTL_MILLIS }?.second
+
+    suspend fun findNflChannels(): List<SportsCatalogMatch> {
+        cachedNflChannels()?.let { return it }
+        val found = findNflChannelsUncached()
+        if (found.isNotEmpty()) nflChannelCache = System.currentTimeMillis() to found
+        return found
+    }
+
+    private suspend fun findNflChannelsUncached(): List<SportsCatalogMatch> = withContext(Dispatchers.Default) {
         val addons = addonRepository.getInstalledAddons().first().filter { it.enabled }
-        val limit = Semaphore(4)
+        val limit = Semaphore(8)
         val requests = addons.flatMap { addon ->
             addon.catalogs.filter { catalog ->
                 val label = (catalog.id + " " + catalog.name + " " + addon.id + " " + addon.displayName)
@@ -108,7 +144,7 @@ class SportsAddonDiscovery @Inject constructor(
                         if (catalog.extra.any { it.isRequired && it.name == "search" })
                             listOf("NFL", "NFL Network", "NFL RedZone", "RedZone", "Football")
                         else listOf(null)
-                    queries.flatMap { query ->
+                    queries.map { query -> async {
                         limit.withPermit {
                             try {
                                 val response = withTimeoutOrNull(10_000) {
@@ -138,7 +174,7 @@ class SportsAddonDiscovery @Inject constructor(
                                 emptyList()
                             }
                         }
-                    }
+                    } }.awaitAll().flatten()
                 }
             }
         }
@@ -242,4 +278,28 @@ class SportsAddonDiscovery @Inject constructor(
     }
 
     private fun SportsCatalogMatch.identity() = Triple(addon.baseUrl, contentType, streamId)
+
+    companion object {
+        /** Results stay fresh long enough to cover open stream → back → pick again. */
+        private const val CACHE_TTL_MILLIS = 5 * 60_000L
+        private const val MAX_CACHED_RESULTS = 40
+        private val resultCache = LinkedHashMap<String, Pair<Long, DiscoveryResult>>()
+        @Volatile private var nflChannelCache: Pair<Long, List<SportsCatalogMatch>>? = null
+
+        private fun cachedResult(key: String): DiscoveryResult? = synchronized(resultCache) {
+            val entry = resultCache[key] ?: return null
+            if (System.currentTimeMillis() - entry.first > CACHE_TTL_MILLIS) {
+                resultCache.remove(key)
+                null
+            } else entry.second
+        }
+
+        private fun storeResult(key: String, result: DiscoveryResult) = synchronized(resultCache) {
+            resultCache.remove(key)
+            resultCache[key] = System.currentTimeMillis() to result
+            while (resultCache.size > MAX_CACHED_RESULTS) {
+                resultCache.remove(resultCache.keys.first())
+            }
+        }
+    }
 }

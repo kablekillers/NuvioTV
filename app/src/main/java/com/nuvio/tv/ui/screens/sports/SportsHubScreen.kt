@@ -78,6 +78,9 @@ import com.nuvio.tv.ui.theme.cinemaShine
 import com.nuvio.tv.ui.theme.cinemaSpinRing
 import com.nuvio.tv.ui.theme.rememberCinemaBreath
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -99,10 +102,12 @@ private enum class HubView(val label: String) {
 @Composable
 fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel(), multiviewViewModel: SportsMultiviewViewModel = hiltViewModel()) {
     var selectedLeague by rememberSaveable { mutableStateOf(SportsLeague.NFL) }
-    var board by remember { mutableStateOf<SportsScoreboard?>(null) }
-    var loading by remember { mutableStateOf(true) }
+    var board by remember { mutableStateOf(repository.peek(selectedLeague)) }
+    var loading by remember { mutableStateOf(board == null) }
     var refreshFailed by remember { mutableStateOf(false) }
-    var selectedEventId by remember { mutableStateOf<String?>(null) }
+    // Saveable so pressing Back from the stream picker re-opens the same game
+    // with the streams that were already found.
+    var selectedEventId by rememberSaveable { mutableStateOf<String?>(null) }
     val cardFocus = remember { mutableMapOf<String, FocusRequester>() }
     val lifecycleOwner = LocalLifecycleOwner.current
     var showIntro by rememberSaveable { mutableStateOf(true) }
@@ -187,7 +192,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     var nflChannels by remember { mutableStateOf<List<SportsCatalogMatch>?>(null) }
     LaunchedEffect(view, selectedLeague) {
         if (view == HubView.CHANNELS && selectedLeague == SportsLeague.NFL) {
-            nflChannels = null
+            nflChannels = streamsViewModel.cachedNflChannels()
             nflChannels = try { streamsViewModel.findNflChannels() } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) { emptyList() }
@@ -198,8 +203,10 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     LaunchedEffect(view, prefs.favoriteTeams) {
         if (view != HubView.MY_TEAMS) return@LaunchedEffect
         myTeamGames = null
-        val found = SportsPreferences.favoriteLeagues(prefs).flatMap { lg ->
-            runCatching { repository.scoreboard(lg).events }.getOrDefault(emptyList())
+        val found = coroutineScope {
+            SportsPreferences.favoriteLeagues(prefs).map { lg ->
+                async { runCatching { repository.scoreboard(lg).events }.getOrDefault(emptyList()) }
+            }.awaitAll().flatten()
         }.filter { SportsPreferences.involvesFavorite(it, prefs) }
         myTeamGames = SportsEventSections.live(found) + SportsEventSections.upcoming(found) + SportsEventSections.final(found)
     }
@@ -212,7 +219,9 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Background)) {
-        HubGlows()
+        // Nothing behind the multi-view should animate: every redraw here takes
+        // GPU time away from the video tiles on onn / Google TV sticks.
+        if (!multiviewOpen) HubGlows()
         Column(
             modifier = Modifier.fillMaxSize()
                 .verticalScroll(rememberScrollState())
@@ -233,7 +242,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 if (liveGames.isNotEmpty()) CinemaLivePill("${liveGames.size} LIVE", Modifier.padding(bottom = 4.dp))
             }
 
-            ScoreTicker(events)
+            ScoreTicker(events, animate = !multiviewOpen)
 
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp),
@@ -392,12 +401,14 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             id?.let { cardFocus[it] }?.let { runCatching { it.requestFocus() } }
             Unit
         }
+        val gameListsReady = shownBoard != null && (view != HubView.MY_TEAMS || myTeamGames != null)
         if (selected == null) {
             // Game dropped off the provider's scoreboard (e.g. league switched); just close.
-            LaunchedEffect(Unit) { closeDetails() }
+            // Wait for the lists to load first, e.g. right after returning from a stream.
+            if (gameListsReady) LaunchedEffect(Unit) { closeDetails() }
         } else {
             LaunchedEffect(selected.id) { streamsViewModel.lookup(selected) }
-            GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.browse, streamsViewModel.diagnostics, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> closeDetails(); onOpenStream(match) }, onAddMultiview = { match -> multiviewPending = selected.title; multiviewViewModel.search(match); closeDetails() }, onDismiss = closeDetails)
+            GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.browse, streamsViewModel.diagnostics, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> onOpenStream(match) }, onAddMultiview = { match -> multiviewPending = selected.title; multiviewViewModel.search(match); closeDetails() }, onDismiss = closeDetails)
         }
     }
 
@@ -488,7 +499,7 @@ private fun HubGlows() {
 
 /** Broadcast-style strip of scores that scrolls on its own. */
 @Composable
-private fun ScoreTicker(events: List<SportsEvent>) {
+private fun ScoreTicker(events: List<SportsEvent>, animate: Boolean = true) {
     val scored = events.filter { it.hasScores }
         .sortedBy { if (it.status == SportsEventStatus.LIVE) 0 else 1 }
         .take(16)
@@ -501,7 +512,7 @@ private fun ScoreTicker(events: List<SportsEvent>) {
         contentAlignment = Alignment.CenterStart
     ) {
         Row(
-            Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 800, velocity = 42.dp).padding(start = 16.dp),
+            (if (animate) Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 800, velocity = 42.dp) else Modifier).padding(start = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(36.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

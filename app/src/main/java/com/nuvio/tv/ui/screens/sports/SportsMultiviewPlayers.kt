@@ -40,8 +40,10 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.compose.material3.Text
+import com.nuvio.tv.ui.screens.player.PlayerPlaybackNetworking
 import kotlinx.coroutines.delay
 
 /** One selected direct playable source; never infer a URL from an ESPN event ID. */
@@ -63,9 +65,14 @@ internal fun SportsMultiviewPlayers(
 ) {
     val visible = tiles.take(4)
     if (visible.isEmpty()) return
-    // 4-up tiles are a quarter of the screen, so cap adaptive streams at 720p;
-    // 2-up tiles get up to 1080p. Fewer pixels = steadier decoding on onn sticks.
-    val maxHeight = if (visible.size > 2) 720 else 1080
+    // Each tile is only ~960x540 on screen, so decoding more than that is wasted
+    // work. Cap adaptive streams at 540p in 3/4-up and 720p in 2-up so the onn's
+    // hardware decoder can keep every tile at full frame rate.
+    val maxHeight = when {
+        visible.size > 2 -> 540
+        visible.size == 2 -> 720
+        else -> 1080
+    }
     val initialFocusId = focusedId?.takeIf { id -> visible.any { it.id == id } } ?: visible.first().id
     Layout(
         modifier = modifier,
@@ -192,8 +199,12 @@ internal class MultiviewPlayerHandle private constructor(
                 )
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
+            // Same network stack as the main player (OkHttp, browser user agent,
+            // tolerant of the TLS setups some sports hosts use).
+            val dataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context)
             val player = ExoPlayer.Builder(context)
                 .setLoadControl(loadControl)
+                .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
                 .build()
                 .apply {
                     trackSelectionParameters = trackSelectionParameters
@@ -201,6 +212,9 @@ internal class MultiviewPlayerHandle private constructor(
                         .setMaxVideoSize(maxHeight * 16 / 9, maxHeight)
                         .build()
                     videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+                    // Several tiles at different frame rates (30/59.94/60) would each ask
+                    // the TV to change refresh rate, which causes judder. Leave it alone.
+                    setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
                     setMediaItem(MediaItem.fromUri(url))
                     volume = 0f
                     prepare()

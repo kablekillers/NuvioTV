@@ -24,7 +24,10 @@ class SportsEventRepository(
     private val maxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS
 ) {
     private val mutex = Mutex()
-    private val cache = mutableMapOf<SportsLeague, SportsScoreboard>()
+    private val cache = java.util.concurrent.ConcurrentHashMap<SportsLeague, SportsScoreboard>()
+
+    /** Non-suspending read so the first frame after returning to the hub isn't empty. */
+    fun peek(league: SportsLeague): SportsScoreboard? = cache[league]
 
     suspend fun cached(league: SportsLeague): SportsScoreboard? = mutex.withLock { cache[league] }
 

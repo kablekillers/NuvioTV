@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -25,13 +27,19 @@ class SportsStreamsViewModel @Inject constructor(
     var error by androidx.compose.runtime.mutableStateOf<String?>(null)
         private set
     private var job: Job? = null
+    private var loadedEventId: String? = null
 
     suspend fun browseLeague(league: SportsLeague, events: List<SportsEvent>, replays: Boolean): List<SportsCatalogMatch> =
         discovery.discoverLeague(league, events, replays)
 
     suspend fun findNflChannels(): List<SportsCatalogMatch> = discovery.findNflChannels()
 
+    fun cachedNflChannels(): List<SportsCatalogMatch>? = discovery.cachedNflChannels()
+
     fun lookup(event: SportsEvent) {
+        // Coming back from the stream picker re-opens the same game: keep what we found.
+        if (event.id == loadedEventId && error == null) return
+        loadedEventId = event.id
         job?.cancel()
         matches = emptyList()
         browse = emptyList()
@@ -41,8 +49,15 @@ class SportsStreamsViewModel @Inject constructor(
         job = viewModelScope.launch {
             try {
                 val isFinal = event.status == SportsEventStatus.FINAL || event.kind == SportsContentKind.REPLAY
-                val recordings = if (isFinal) discovery.discover(event, replays = true) else null
-                val result = recordings?.takeIf { it.matches.isNotEmpty() } ?: discovery.discover(event)
+                val result = if (isFinal) {
+                    coroutineScope {
+                        val recordings = async { discovery.discover(event, replays = true) }
+                        val live = async { discovery.discover(event) }
+                        recordings.await().takeIf { it.matches.isNotEmpty() } ?: live.await()
+                    }
+                } else {
+                    discovery.discover(event)
+                }
                 matches = result.matches
                 browse = result.browse
                 diagnostics = "Checked ${result.catalogsChecked} catalogs • ${result.catalogItems} entries • ${result.catalogErrors} errors"
@@ -58,6 +73,7 @@ class SportsStreamsViewModel @Inject constructor(
 
     fun clear() {
         job?.cancel()
+        loadedEventId = null
         matches = emptyList()
         browse = emptyList()
         diagnostics = ""
