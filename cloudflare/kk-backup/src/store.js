@@ -201,3 +201,15 @@ export async function clearPinFailures(db, buckets) {
     await db.prepare("DELETE FROM pin_attempts WHERE bucket = ?").bind(bucket).run();
   }
 }
+
+/** Counts one hit in a fixed window; true once the bucket is over `max` (for QR start rate limits). */
+export async function hitLimit(db, bucket, max, windowSeconds, at = now()) {
+  await db.prepare(
+    `INSERT INTO pin_attempts (bucket, attempts, window_start) VALUES (?, 1, ?)
+     ON CONFLICT(bucket) DO UPDATE SET
+       attempts = CASE WHEN ? - window_start >= ? THEN 1 ELSE attempts + 1 END,
+       window_start = CASE WHEN ? - window_start >= ? THEN ? ELSE window_start END`
+  ).bind(bucket, at, at, windowSeconds, at, windowSeconds, at).run();
+  const row = await db.prepare("SELECT attempts FROM pin_attempts WHERE bucket = ?").bind(bucket).first();
+  return (row?.attempts ?? 0) > max;
+}
