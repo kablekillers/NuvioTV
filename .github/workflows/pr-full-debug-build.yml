@@ -10,6 +10,7 @@ on:
       - watch-party-integration-stage
       - tv-dev/1.1.11-features
       - tv-dev/1.1.13-whatsnew
+      - kk-backup-qr
   workflow_dispatch:
 
 permissions:

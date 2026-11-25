@@ -15,6 +15,9 @@ import com.nuvio.tv.core.logging.rawForLog
 import com.nuvio.tv.core.logging.urlForLog
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.backup.KableKillersBackupQr
+import com.nuvio.tv.core.backup.KableKillersBackupQrStatus
+import com.nuvio.tv.core.backup.KableKillersBackupService
 import com.nuvio.tv.core.qr.QrCodeGenerator
 import com.nuvio.tv.core.sync.AddonSyncService
 import com.nuvio.tv.core.sync.LibrarySyncService
@@ -82,6 +85,7 @@ class AccountViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val authDiagnosticReportRepository: AuthDiagnosticReportRepository,
     private val serverConfiguration: ServerConfiguration,
+    private val kableKillersBackup: KableKillersBackupService,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -92,6 +96,8 @@ class AccountViewModel @Inject constructor(
     private var activeQrLoginDiagnostics: AuthDiagnosticsSession? = null
     private var qrLoginPollAttempt: Int = 0
     private var qrLoginExchangeInFlight: Boolean = false
+    /** Set while the QR on screen comes from the Kable Killers backup (Nuvio was unreachable). */
+    private var backupQr: KableKillersBackupQr? = null
 
     val usesEmailPasswordLogin: Boolean
         get() = serverConfiguration.isCustom && serverConfiguration.capabilities.emailPasswordAuth
@@ -240,6 +246,16 @@ class AccountViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The person chose Sign out: sign out of Nuvio and disconnect this device from the
+     * Kable Killers backup, so getting back in always takes a new QR code.
+     * (Not used for the onboarding "continue without signing in" path.)
+     */
+    fun signOutOfDevice() {
+        kableKillersBackup.forgetDevice()
+        signOut()
+    }
+
     fun loadLinkedDevices() {
         viewModelScope.launch {
             syncRepository.getLinkedDevices().fold(
@@ -286,6 +302,7 @@ class AccountViewModel @Inject constructor(
             activeQrLoginDiagnostics = diagnostics
             qrLoginPollAttempt = 0
             qrLoginExchangeInFlight = false
+            backupQr = null
             val nonce = generateDeviceNonce()
             diagnostics.recordState(
                 "qr_login_start",
@@ -314,7 +331,9 @@ class AccountViewModel @Inject constructor(
                     qrLoginNonce = nonce,
                     qrLoginBitmap = null,
                     qrLoginStatus = context.getString(R.string.qr_login_preparing),
-                    qrLoginExpiresAtMillis = null
+                    qrLoginExpiresAtMillis = null,
+                    qrLoginBackupMode = false,
+                    qrLoginBackupSignedIn = false
                 )
             }
             Log.d(TAG, "QR_LOGIN[$traceId] start_device_login_session call begin")
@@ -361,6 +380,9 @@ class AccountViewModel @Inject constructor(
                     Log.e(TAG, "QR_LOGIN[$traceId] start_device_login_session failed totalElapsedMs=${SystemClock.elapsedRealtime() - startedAtMs} error=${e.diagnosticSummary()}", e)
                     diagnostics.finishFailure("start_device_login_session_failed", QR_ENDPOINT_START, error = e)
                     activeQrLoginDiagnostics = null
+                    if (kableKillersBackup.enabled && activeQrLoginTraceId == traceId && startBackupQr(traceId)) {
+                        return@fold
+                    }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -381,6 +403,7 @@ class AccountViewModel @Inject constructor(
     }
 
     fun exchangeQrLogin() {
+        if (backupQr != null) return
         viewModelScope.launch {
             val current = _uiState.value
             val traceId = activeQrLoginTraceId
@@ -443,8 +466,11 @@ class AccountViewModel @Inject constructor(
         activeQrLoginTraceId = null
         qrLoginPollAttempt = 0
         qrLoginExchangeInFlight = false
+        backupQr = null
         _uiState.update {
             it.copy(
+                qrLoginBackupMode = false,
+                qrLoginBackupSignedIn = false,
                 qrLoginCode = null,
                 qrLoginUserCode = null,
                 qrLoginUrl = null,
@@ -657,6 +683,7 @@ class AccountViewModel @Inject constructor(
     }
 
     private suspend fun pollQrLoginOnce() {
+        backupQr?.let { pollBackupQrOnce(it); return }
         val current = _uiState.value
         val traceId = activeQrLoginTraceId
         val diagnostics = activeQrLoginDiagnostics
@@ -706,6 +733,74 @@ class AccountViewModel @Inject constructor(
                 diagnostics?.finishFailure("poll_tv_login_session_failed", QR_ENDPOINT_POLL, error = e)
                 if (activeQrLoginDiagnostics === diagnostics) activeQrLoginDiagnostics = null
                 _uiState.update { it.copy(error = userFriendlyError(e)) }
+            }
+        )
+    }
+
+    /** Nuvio couldn't start a QR login: show a Kable Killers backup QR instead. Returns false if that failed too. */
+    private suspend fun startBackupQr(traceId: Long): Boolean {
+        Log.w(TAG, "QR_LOGIN[$traceId] Nuvio QR unavailable; trying the Kable Killers backup QR")
+        val qr = kableKillersBackup.startBackupQr().getOrElse { e ->
+            Log.e(TAG, "QR_LOGIN[$traceId] backup QR failed too error=${e.diagnosticSummary()}", e)
+            return false
+        }
+        if (activeQrLoginTraceId != traceId) return true
+        val bitmap = runCatching { QrCodeGenerator.generate(qr.url, 420, margin = 1) }.getOrNull()
+        backupQr = qr
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                error = null,
+                qrLoginBackupMode = true,
+                qrLoginBackupSignedIn = false,
+                qrLoginCode = qr.code,
+                qrLoginUserCode = null,
+                qrLoginUrl = qr.url,
+                qrLoginVerificationUri = null,
+                qrLoginBitmap = bitmap,
+                qrLoginStatus = context.getString(R.string.kk_backup_qr_scan_prompt),
+                qrLoginExpiresAtMillis = System.currentTimeMillis() + qr.expiresInSeconds * 1000L,
+                qrLoginPollIntervalSeconds = qr.pollIntervalSeconds.coerceAtLeast(2)
+            )
+        }
+        startQrLoginPolling()
+        return true
+    }
+
+    private suspend fun pollBackupQrOnce(qr: KableKillersBackupQr) {
+        kableKillersBackup.pollBackupQr(qr).fold(
+            onSuccess = { status ->
+                if (backupQr !== qr) return
+                when (status) {
+                    KableKillersBackupQrStatus.Waiting -> Unit
+                    is KableKillersBackupQrStatus.SignedIn -> {
+                        cancelQrLoginPolling()
+                        loadConnectedStats()
+                        _uiState.update {
+                            it.copy(
+                                qrLoginBackupSignedIn = true,
+                                qrLoginStatus = context.getString(R.string.kk_backup_qr_signed_in)
+                            )
+                        }
+                    }
+                    KableKillersBackupQrStatus.Denied -> {
+                        cancelQrLoginPolling()
+                        _uiState.update { it.copy(qrLoginStatus = null, error = context.getString(R.string.kk_backup_qr_denied)) }
+                    }
+                    KableKillersBackupQrStatus.Expired -> {
+                        // Show a fresh code (tries Nuvio first, in case it's back).
+                        cancelQrLoginPolling()
+                        startQrLogin()
+                    }
+                }
+            },
+            onFailure = { e ->
+                // A dropped connection shouldn't kill the QR; keep polling until it expires.
+                Log.w(TAG, "QR_LOGIN backup poll failed, will retry error=${e.diagnosticSummary()}")
+                if ((_uiState.value.qrLoginExpiresAtMillis ?: 0L) < System.currentTimeMillis()) {
+                    cancelQrLoginPolling()
+                    startQrLogin()
+                }
             }
         )
     }

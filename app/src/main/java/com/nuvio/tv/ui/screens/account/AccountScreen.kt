@@ -191,7 +191,7 @@ fun AccountScreen(
     if (showSignOutConfirmation) {
         AccountSignOutConfirmationDialog(
             onConfirm = {
-                viewModel.signOut()
+                viewModel.signOutOfDevice()
                 showSignOutConfirmation = false
             },
             onDismiss = { showSignOutConfirmation = false }

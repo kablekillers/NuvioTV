@@ -157,6 +157,53 @@ class KableKillersBackupService @Inject constructor(
         store.saveDeviceKey(key, response["account_email"]?.jsonPrimitive?.contentOrNull ?: email.trim().lowercase())
     }
 
+    /** Nuvio can't hand out a QR: ask the backup for one. The owner scans it and approves the device. */
+    suspend fun startBackupQr(): Result<KableKillersBackupQr> = runCatching {
+        val api = client ?: error("Backup isn't set up in this build")
+        val response = api.post(path = "/v1/qr/start", body = deviceBody())
+        KableKillersBackupQr(
+            code = response.string("code") ?: error("Backup server didn't return a QR code"),
+            pollToken = response.string("poll_token") ?: error("Backup server didn't return a QR code"),
+            url = response.string("url") ?: error("Backup server didn't return a QR code"),
+            expiresInSeconds = response.long("expires_in") ?: 1800L,
+            pollIntervalSeconds = (response.long("poll_interval") ?: 3L).toInt()
+        )
+    }
+
+    /**
+     * Checks a backup QR. Once the owner approves it, saves this device's backup key
+     * and fills Profile 1 from the backup, then reports [KableKillersBackupQrStatus.SignedIn].
+     */
+    suspend fun pollBackupQr(qr: KableKillersBackupQr): Result<KableKillersBackupQrStatus> = runCatching {
+        val api = client ?: error("Backup isn't set up in this build")
+        val response = api.post(
+            path = "/v1/qr/poll",
+            body = buildJsonObject {
+                put("code", qr.code)
+                put("poll_token", qr.pollToken)
+            }
+        )
+        when (response.string("status")) {
+            "approved" -> {
+                val key = response.string("device_key") ?: error("Backup server didn't return a device key")
+                store.saveDeviceKey(key, response.string("account_email"))
+                // Signed in either way; the setup can also be restored later from Account settings.
+                val summary = restoreNow()
+                    .onFailure { Log.w(TAG, "Signed in with backup QR, but restore failed: ${it.message}") }
+                    .getOrNull()
+                KableKillersBackupQrStatus.SignedIn(summary)
+            }
+            "denied" -> KableKillersBackupQrStatus.Denied
+            "expired", "used" -> KableKillersBackupQrStatus.Expired
+            else -> KableKillersBackupQrStatus.Waiting
+        }
+    }
+
+    /** The person signed out on this device: forget its backup key so getting back in takes a new QR. */
+    fun forgetDevice() {
+        store.clearDeviceKey()
+    }
+
     suspend fun restoreNow(): Result<KableKillersRestoreSummary> = runCatching {
         restoreMutex.withLock {
             val api = client ?: error("Backup isn't set up in this build")
@@ -273,6 +320,12 @@ class KableKillersBackupService @Inject constructor(
         put("app_version", BuildConfig.VERSION_NAME)
         extra()
     }
+
+    private fun JsonObject.string(key: String): String? =
+        this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+
+    private fun JsonObject.long(key: String): Long? =
+        this[key]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
 
     private fun deviceName(): String =
         runCatching { Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME) }

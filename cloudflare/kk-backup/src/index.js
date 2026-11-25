@@ -7,9 +7,13 @@
 //   POST /v1/ping      device key          -> "still here" (works while Nuvio is down)
 //   GET  /v1/config    device key          -> the copy to restore from
 //   POST /v1/pin-login email + restore PIN -> device key, for a new device while Nuvio is down
+//   POST /v1/qr/start  device info         -> backup QR code for when Nuvio is down
+//   POST /v1/qr/poll   code + poll token   -> waiting / approved (device key) / denied / expired
+// QR link page (owner scans and approves): /link/<code>
 // Owner page: /admin (password = ADMIN_PASSWORD secret)
 
 import { handleAdmin } from "./admin.js";
+import { handleLinkPage, handleQrPoll, handleQrStart } from "./qr.js";
 import { captureProfileOne, NuvioUnauthorized, NuvioUnavailable, verifyNuvioUser } from "./nuvio.js";
 import {
   authenticateDevice, clearPinFailures, getCurrent, pinBlocked, recordPinFailure,
@@ -130,11 +134,14 @@ export default {
       if (route === "GET /health" || route === "GET /") return json({ status: "ok", service: "kable-killers-backup" });
       if (!env.DB) return json({ error: "Backup database is not connected" }, 503);
       if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) return await handleAdmin(request, env, url);
+      if (url.pathname.startsWith("/link/")) return await handleLinkPage(request, env, url);
       switch (route) {
         case "POST /v1/sync": return await handleSync(request, env);
         case "POST /v1/ping": return await handlePing(request, env);
         case "GET /v1/config": return await handleConfig(request, env);
         case "POST /v1/pin-login": return await handlePinLogin(request, env);
+        case "POST /v1/qr/start": return await handleQrStart(request, env, url);
+        case "POST /v1/qr/poll": return await handleQrPoll(request, env);
         default: return json({ error: "Not found" }, 404);
       }
     } catch (error) {

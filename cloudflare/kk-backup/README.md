@@ -21,6 +21,15 @@ device signed in to those logins.
 3. A brand-new device while Nuvio is down: Settings → Account → **Set up from backup**, with
    the login email and the restore PIN.
 
+4. QR sign-in while Nuvio is down: if the app can't get a QR from Nuvio, it shows a backup QR
+   (`POST /v1/qr/start`). The customer sends it to the owner, who scans it. The `/link/<code>`
+   page asks for the owner password once (that phone stays signed in for a year, or until the
+   password changes), then shows the device with **Approve device** and a choice of login
+   (kablekillers6 by default). The app polls `POST /v1/qr/poll`, gets its device key and restores
+   Profile 1 from the backup. A device approved before (or already signed in through Nuvio) goes
+   straight through on later QRs. Signing out on the device forgets its key, so getting back in
+   always takes a new QR. Blocked devices can't get a QR.
+
 Safety: a copy where everything disappeared is kept but never put in use automatically.
 The owner page can lock a known-good copy or switch back to an older one (the last 40 are kept).
 

@@ -52,3 +52,19 @@ data class KableKillersBackupState(
     val lastBackupAtMs: Long = 0L,
     val lastRestoreAtMs: Long = 0L
 )
+
+/** A backup QR shown while Nuvio is down. */
+data class KableKillersBackupQr(
+    val code: String,
+    val pollToken: String,
+    val url: String,
+    val expiresInSeconds: Long,
+    val pollIntervalSeconds: Int
+)
+
+sealed interface KableKillersBackupQrStatus {
+    data object Waiting : KableKillersBackupQrStatus
+    data object Denied : KableKillersBackupQrStatus
+    data object Expired : KableKillersBackupQrStatus
+    data class SignedIn(val summary: KableKillersRestoreSummary?) : KableKillersBackupQrStatus
+}

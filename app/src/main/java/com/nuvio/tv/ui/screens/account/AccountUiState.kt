@@ -52,5 +52,9 @@ data class AccountUiState(
     val qrLoginBitmap: Bitmap? = null,
     val qrLoginStatus: String? = null,
     val qrLoginExpiresAtMillis: Long? = null,
-    val qrLoginPollIntervalSeconds: Int = 3
+    val qrLoginPollIntervalSeconds: Int = 3,
+    /** The QR on screen is a Kable Killers backup QR (Nuvio was unreachable). */
+    val qrLoginBackupMode: Boolean = false,
+    /** The owner approved the backup QR and this device is now signed in with the backup. */
+    val qrLoginBackupSignedIn: Boolean = false
 )
