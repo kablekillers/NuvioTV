@@ -110,6 +110,9 @@ android {
         buildConfigField("String", "LASTFM_SECRET", "\"\"")
         buildConfigField("String", "GOOGLE_DRIVE_CLIENT_ID", "\"\"")
         buildConfigField("String", "GOOGLE_DRIVE_CLIENT_SECRET", "\"\"")
+        // Live TV: Nuvio One's own setup-sync service isn't used.
+        buildConfigField("String", "LIVETV_SYNC_URL", "\"\"")
+        buildConfigField("String", "NUVIO_CHANNEL", "\"stable\"")
         applicationId = "com.kablekillers.tv"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 24
@@ -560,6 +563,10 @@ dependencies {
     implementation(project(":mediaservicecore:youtubeapi"))
     implementation(project(":mediaservicecore:sharedutils"))
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // Live TV (from Nuvio One): VPN routing rules (protection is always off here) and SMB recordings.
+    implementation(project(":vpn-core"))
+    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
+    implementation("org.slf4j:slf4j-android:1.7.30")
     implementation(libs.sentry.android)
 
     // Kotlinx Serialization

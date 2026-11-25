@@ -53,6 +53,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
@@ -1090,6 +1091,7 @@ open class MainActivity : ComponentActivity() {
                         buildSet {
                             add(Screen.Home.route)
                             add(Screen.SportsHub.route)
+                            add(Screen.LiveTv.route)
                             add(Screen.MusicHub.route)
                             add(Screen.YouTubeHub.route)
                             add(Screen.Calendar.route)
@@ -1128,6 +1130,13 @@ open class MainActivity : ComponentActivity() {
                                     route = Screen.SportsHub.route,
                                     label = "Sports Hub",
                                     icon = Icons.Default.Explore
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.LiveTv.route,
+                                    label = "Live TV",
+                                    icon = Icons.Default.LiveTv
                                 )
                             )
                             add(

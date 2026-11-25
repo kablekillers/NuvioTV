@@ -1,0 +1,323 @@
+package com.nuvio.tv.livetv.ui
+
+import android.content.Context
+import android.net.Uri
+import android.widget.Toast
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.R
+import com.nuvio.tv.core.util.withAppLocale
+import com.nuvio.tv.livetv.data.LiveTvPreferences
+import com.nuvio.tv.livetv.data.LiveTvRepository
+import com.nuvio.tv.livetv.data.LiveTvStatus
+import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.CatalogDescriptor
+import com.nuvio.tv.livetv.model.AddonChannelSource
+import com.nuvio.tv.livetv.model.EpgSource
+import com.nuvio.tv.livetv.model.LiveTvGroupTags
+import com.nuvio.tv.livetv.model.LiveTvSettings
+import com.nuvio.tv.livetv.model.LiveUserState
+import com.nuvio.tv.livetv.model.PlaylistSource
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import javax.inject.Inject
+
+@HiltViewModel
+class LiveTvSettingsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val repository: LiveTvRepository,
+    private val prefs: LiveTvPreferences,
+    val driveSync: com.nuvio.tv.livetv.sync.LiveTvDriveSync,
+    val cloudSync: com.nuvio.tv.livetv.sync.LiveTvCloudSync,
+    val onDemand: com.nuvio.tv.livetv.ondemand.OnDemandRepository,
+    private val posterResolver: com.nuvio.tv.livetv.data.LiveTvPosterResolver,
+    private val matcher247: com.nuvio.tv.livetv.data.LiveTv247Matcher,
+    private val addonRepository: com.nuvio.tv.domain.repository.AddonRepository
+) : ViewModel() {
+
+    val playlists: StateFlow<List<PlaylistSource>> =
+        prefs.playlists.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val epgSources: StateFlow<List<EpgSource>> =
+        prefs.epgSources.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val addonChannelSources: StateFlow<List<AddonChannelSource>> =
+        prefs.addonChannelSources.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val installedAddons: StateFlow<List<Addon>> =
+        addonRepository.getInstalledAddons().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val settings: StateFlow<LiveTvSettings> =
+        prefs.settings.stateIn(viewModelScope, SharingStarted.Eagerly, LiveTvSettings())
+    val userState: StateFlow<LiveUserState> =
+        prefs.userState.stateIn(viewModelScope, SharingStarted.Eagerly, LiveUserState())
+    val status: StateFlow<LiveTvStatus> = repository.status
+    /** Expiry and connections per playlist, when the provider gives them. */
+    val accounts: StateFlow<Map<String, com.nuvio.tv.livetv.model.PlaylistAccount>> =
+        prefs.playlistAccounts.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    private val _groupTags = MutableStateFlow<List<LiveTvGroupTags.Tag>>(emptyList())
+    internal val groupTags: StateFlow<List<LiveTvGroupTags.Tag>> = _groupTags.asStateFlow()
+    private val _scanningGroupTags = MutableStateFlow(false)
+    val scanningGroupTags: StateFlow<Boolean> = _scanningGroupTags.asStateFlow()
+    val groupTagChannelCount: StateFlow<Int> = repository.channels
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, repository.channels.value.size)
+
+    init {
+        repository.ensureLoaded()
+        driveSync.start()
+        cloudSync.start()
+    }
+
+    fun update(transform: (LiveTvSettings) -> LiveTvSettings) {
+        viewModelScope.launch { prefs.updateSettings(transform) }
+    }
+
+    /** "Hide Stray Entries": the channel list is made again once the switch is saved. */
+    fun toggleHideStrayEntries() {
+        viewModelScope.launch {
+            prefs.updateSettings { it.copy(hideStrayEntries = !it.hideStrayEntries) }
+            repository.rebuildChannelList()
+        }
+    }
+
+    /** Settings that change which programs are kept need the guide re-read. */
+    fun updateAndReloadEpg(transform: (LiveTvSettings) -> LiveTvSettings) {
+        viewModelScope.launch {
+            prefs.updateSettings(transform)
+            repository.refreshEpgOnly()
+        }
+    }
+
+    /**
+     * Restores a Live TV backup copied from Google Drive (or another TV) as a .json file.
+     * Accepts both the Drive envelope (with `data` inside) and a bare setup object.
+     */
+    fun restoreFromFile(uri: Uri) = viewModelScope.launch {
+        val text = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull()
+        }
+        toast(applyBackupText(text))
+    }
+
+    /** Restores the backup text the phone sent through the QR page. */
+    fun restoreFromBackupText(text: String) = viewModelScope.launch {
+        toast(applyBackupText(text))
+    }
+
+    private suspend fun applyBackupText(text: String?): Int {
+        val clean = text?.trim()?.removePrefix("\uFEFF")
+        val root = runCatching { JSONObject(clean.orEmpty()) }.getOrNull()
+        val data = root?.optJSONObject("data") ?: root
+        return when {
+            clean.isNullOrEmpty() -> R.string.iptv_settings_restore_file_failed
+            root == null || data == null -> R.string.iptv_settings_restore_file_invalid
+            !prefs.syncHasSources(data) -> R.string.iptv_settings_restore_file_empty
+            else -> runCatching { driveSync.applyLocally(data) }
+                .fold({ R.string.iptv_settings_restore_file_done }, { R.string.iptv_settings_restore_file_failed })
+        }
+    }
+
+    private fun toast(@androidx.annotation.StringRes id: Int) {
+        Toast.makeText(context, context.withAppLocale().getString(id), Toast.LENGTH_LONG).show()
+    }
+
+    fun addPlaylist(name: String, url: String, userAgent: String, epgUrl: String = "") =
+        viewModelScope.launch { repository.addPlaylist(name, url, userAgent, epgUrl) }
+
+    fun addXtream(name: String, server: String, user: String, pass: String, importVod: Boolean = true, importLive: Boolean = true, epgUrl: String = "") =
+        viewModelScope.launch {
+            repository.addXtream(name, server, user, pass, importVod, importLive, epgUrl)
+            onDemand.refreshSoon()
+        }
+
+    fun addStalker(name: String, config: com.nuvio.stalker.StalkerConfig, importVod: Boolean = true, importLive: Boolean = true, useEmbeddedEpg: Boolean = true, epgUrl: String = "") =
+        viewModelScope.launch {
+            repository.addStalker(name, config, importVod, importLive, useEmbeddedEpg, epgUrl)
+            onDemand.refreshSoon()
+        }
+
+    /** A playlist's Guides switch for an added guide or another playlist's built-in guide. */
+    fun setPlaylistGuide(playlistId: String, guideKey: String, on: Boolean) =
+        viewModelScope.launch { repository.setPlaylistGuide(playlistId, guideKey, on) }
+
+    fun playlistsWithOwnGuide(playlists: List<PlaylistSource>): Set<String> = repository.playlistsWithOwnGuide(playlists)
+
+    fun savePlaylist(source: PlaylistSource) = viewModelScope.launch {
+        val before = playlists.value.firstOrNull { it.id == source.id }
+        repository.updatePlaylist(source)
+        // Movies & series just switched on: import this provider now, whenever it was last
+        // imported (switched off earlier, it had its titles removed but still counted as
+        // "imported recently", so nothing came back for up to a day).
+        if (source.hasVod && source.importVod && source.enabled && (before?.importVod == false || before?.stalkerConfig != source.stalkerConfig)) onDemand.refreshNow(source.id)
+        else onDemand.refreshSoon()
+    }
+    /**
+     * "Update now" on a playlist. A login with TV channels off only has On Demand to update, so
+     * its movies and series are re-imported straight away (and Live TV isn't touched).
+     */
+    fun updatePlaylistNow(source: PlaylistSource) = viewModelScope.launch {
+        repository.updatePlaylist(source)
+        if (source.hasCatalog && source.importVod && !source.liveEnabled) onDemand.refreshNow(source.id)
+        else onDemand.refreshSoon()
+    }
+    fun removePlaylist(id: String) = viewModelScope.launch {
+        repository.removePlaylist(id)
+        onDemand.refreshSoon() // its movies and series go too
+    }
+    fun setPlaylistCatchupZone(id: String, zone: String) =
+        viewModelScope.launch { repository.setPlaylistCatchupZone(id, zone) }
+
+    fun setPlaylistLogoSource(id: String, logoSource: String) =
+        viewModelScope.launch { repository.setPlaylistLogoSource(id, logoSource) }
+    fun setPlaylistEnabled(id: String, enabled: Boolean) = viewModelScope.launch {
+        repository.setPlaylistEnabled(id, enabled)
+        // Its movies and series go away with it, and come back (imported again) when re-enabled.
+        val pl = playlists.value.firstOrNull { it.id == id }
+        if (enabled && pl != null && pl.hasVod && pl.importVod) onDemand.refreshNow(id) else onDemand.refreshSoon()
+    }
+    fun movePlaylist(id: String, delta: Int) = viewModelScope.launch { repository.movePlaylist(id, delta) }
+    fun setPlaylistGuideShift(id: String, minutes: Int) = viewModelScope.launch { repository.setPlaylistGuideShift(id, minutes) }
+    fun setPlaylistCatchupShift(id: String, minutes: Int) = viewModelScope.launch { repository.setPlaylistCatchupShift(id, minutes) }
+    fun setEpgShift(id: String, minutes: Int) = viewModelScope.launch { repository.setEpgShift(id, minutes) }
+
+    /** Turns one addon's Live TV catalog on or off in the guide. */
+    fun setAddonCatalogEnabled(addon: Addon, catalog: CatalogDescriptor, enabled: Boolean) {
+        val sourceId = "${addon.baseUrl}|${catalog.id}"
+        viewModelScope.launch {
+            prefs.updateAddonChannelSources { list ->
+                val existing = list.firstOrNull { it.id == sourceId }
+                when {
+                    existing != null -> list.map {
+                        if (it.id == sourceId) it.copy(enabled = enabled) else it
+                    }
+                    enabled -> list + AddonChannelSource(
+                        id = sourceId,
+                        addonBaseUrl = addon.baseUrl,
+                        addonName = addon.displayName,
+                        addonLogo = addon.logo,
+                        catalogId = catalog.id,
+                        catalogName = catalog.name
+                    )
+                    else -> list
+                }
+            }
+            repository.refreshAddonChannelsNow()
+        }
+    }
+
+    fun addEpg(name: String, url: String) = viewModelScope.launch { repository.addEpg(name, url) }
+    fun saveEpg(source: EpgSource) = viewModelScope.launch { repository.updateEpg(source) }
+    fun removeEpg(id: String) = viewModelScope.launch { repository.removeEpg(id) }
+    fun setEpgEnabled(id: String, enabled: Boolean) = viewModelScope.launch { repository.setEpgEnabled(id, enabled) }
+
+    fun refreshAll() = repository.refreshAll(force = true)
+
+    fun unhideChannel(key: String) = viewModelScope.launch { prefs.setChannelHidden(key, false) }
+    fun unhideAllChannels() = viewModelScope.launch { prefs.clearHiddenChannels() }
+    fun unhideGroup(id: String) = viewModelScope.launch { prefs.setGroupHidden(id, false) }
+    fun unhideAllGroups() = viewModelScope.launch { prefs.clearHiddenGroups() }
+
+    /** Shows or hides one shared playlist for the active profile. */
+    fun setPlaylistVisible(id: String, visible: Boolean) =
+        viewModelScope.launch { prefs.setPlaylistHidden(id, !visible) }
+
+    /** Manual scan: reads the loaded channel groups and lists the tags they use. */
+    fun scanGroupTags() {
+        if (_scanningGroupTags.value) return
+        _scanningGroupTags.value = true
+        viewModelScope.launch {
+            val channels = repository.channels.value
+            _groupTags.value = withContext(Dispatchers.Default) { LiveTvGroupTags.scan(channels) }
+            _scanningGroupTags.value = false
+        }
+    }
+
+    fun setGroupTagFilter(tag: String, enabled: Boolean) =
+        viewModelScope.launch { prefs.setGroupTagFilter(tag, enabled) }
+
+    fun clearGroupTagFilters() = viewModelScope.launch { prefs.clearGroupTagFilters() }
+    fun clearFavorites() = viewModelScope.launch { prefs.clearFavorites() }
+    fun clearRecent() = viewModelScope.launch { prefs.clearRecent() }
+    fun resetChannelEdits() = viewModelScope.launch { prefs.resetChannelEdits() }
+    fun resetGroupEdits() = viewModelScope.launch { prefs.resetGroupEdits() }
+    fun resetChannelOrder() = viewModelScope.launch { prefs.resetChannelOrder() }
+    fun clearVodHidden() = viewModelScope.launch { prefs.clearVodHiddenCategories() }
+
+    val posterTest = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    /** Settings → "Test poster lookup". */
+    /** Forgets every Live TV poster and show info, so they're fetched again from your addons. */
+    fun clearPosterData() {
+        posterResolver.clearAll() // also empties the saved posters, 24/7 matches included
+        matcher247.clear()
+    }
+
+    fun testPoster(title: String) = viewModelScope.launch {
+        posterTest.value = context.withAppLocale().getString(R.string.iptv_settings_support_poster_searching)
+        posterTest.value = runCatching { posterResolver.diagnose(title) }.getOrElse {
+            context.withAppLocale().getString(R.string.iptv_settings_support_poster_test_failed, it.message ?: it.javaClass.simpleName)
+        }
+    }
+    fun removeReminder(channelKey: String, startMs: Long) = viewModelScope.launch { prefs.removeReminder(channelKey, startMs) }
+    fun clearChannelCopies() = viewModelScope.launch { prefs.clearChannelCopies() }
+    fun resetEpgAssignments() = viewModelScope.launch {
+        prefs.clearEpgOverrides()
+        repository.rematchEpg()
+    }
+    fun deleteCustomGroup(id: String) = viewModelScope.launch { prefs.deleteCustomGroup(id) }
+
+    /** Readable name for a hidden channel key, even if its playlist is currently disabled. */
+    fun channelLabel(key: String): String {
+        repository.channels.value.firstOrNull { it.key == key }?.let { return "${it.number}  ${it.name}" }
+        return key.substringAfterLast('|').substringBefore('#')
+    }
+
+    /** Every group that can go in Quick Channels (see [buildRowGroupOptions]). */
+    fun rowGroupOptions(): List<RowGroupOption> =
+        buildRowGroupOptions(userState.value, playlists.value, repository.channels.value,
+            context.withAppLocale().getString(R.string.iptv_settings_support_playlist_fallback))
+
+    fun groupLabel(id: String): String {
+        userState.value.customGroups.firstOrNull { it.id == id }?.let { return it.name }
+        userState.value.groupNames[id]?.let { return it }
+        repository.channels.value.firstOrNull { it.groupId == id }?.let { return it.group }
+        return id.substringAfter("::")
+    }
+}
+
+/** A group that can be added to Quick Channels: [playlist] is null for your own groups. */
+data class RowGroupOption(val id: String, val name: String, val playlist: String?, val count: Int)
+
+/**
+ * Every group that can go in Quick Channels (the row under the play bar): your own groups first,
+ * then each playlist's groups (in the playlist's order), with the playlist's name and how many
+ * channels. Used by Settings and by the play bar's gear panel.
+ */
+internal fun buildRowGroupOptions(
+    user: LiveUserState,
+    lists: List<PlaylistSource>,
+    channels: List<com.nuvio.tv.livetv.model.LiveChannel>,
+    fallbackPlaylistName: String = "Playlist"
+): List<RowGroupOption> {
+    val names = lists.associate { it.id to it.name }
+    val order = lists.withIndex().associate { (i, p) -> p.id to i }
+    val found = LinkedHashMap<String, Triple<String, String, Int>>()
+    channels.forEach { c ->
+        val cur = found[c.groupId]
+        found[c.groupId] = Triple(cur?.first ?: c.group, cur?.second ?: c.sourceId, (cur?.third ?: 0) + 1)
+    }
+    val playlistGroups = found.entries
+        .sortedBy { order[it.value.second] ?: Int.MAX_VALUE }
+        .map { (id, v) -> RowGroupOption(id, user.groupNames[id] ?: v.first, names[v.second] ?: fallbackPlaylistName, v.third) }
+    return user.customGroups.map { RowGroupOption(it.id, it.name, null, it.channelKeys.size) } + playlistGroups
+}

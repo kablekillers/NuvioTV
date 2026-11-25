@@ -1,0 +1,1135 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
+package com.nuvio.tv.livetv.record
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import coil3.compose.AsyncImage
+import com.nuvio.tv.livetv.ui.LIVE_RED
+import com.nuvio.tv.livetv.ui.LiveText
+import com.nuvio.tv.livetv.ui.liveCorner
+import com.nuvio.tv.livetv.ui.guideBackdrop
+import com.nuvio.tv.ui.theme.NuvioTheme
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import javax.inject.Inject
+
+/** A recording's artwork: the show's backdrop, and its title logo to put over it. */
+data class RecordingArt(val backdrop: String?, val logo: String?)
+
+@HiltViewModel
+class RecordingsViewModel @Inject constructor(
+    val recorder: LiveTvRecorder,
+    val scheduler: LiveTvRecordingScheduler,
+    private val posterResolver: com.nuvio.tv.livetv.data.LiveTvPosterResolver,
+    private val tmdbService: com.nuvio.tv.core.tmdb.TmdbService,
+    private val tmdbMetadataService: com.nuvio.tv.core.tmdb.TmdbMetadataService,
+    private val liveRepository: com.nuvio.tv.livetv.data.LiveTvRepository,
+    private val livePrefs: com.nuvio.tv.livetv.data.LiveTvPreferences
+) : ViewModel() {
+    val recordings = recorder.recordings
+    /** How far a move between drives has got (null when nothing is moving). */
+    val move = recorder.move
+
+    /** New Recording's channel list: favorites, then channels watched recently. */
+    val pickerChannels: kotlinx.coroutines.flow.StateFlow<List<com.nuvio.tv.livetv.model.LiveChannel>> =
+        kotlinx.coroutines.flow.combine(liveRepository.channels, livePrefs.userState) { all, user ->
+            val byKey = all.associateBy { it.key }
+            (user.favorites + user.recent).distinct().mapNotNull { byKey[it] }.take(80)
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Playlist id -> its name, to say which playlist a recording is from (and which it uses). */
+    val playlistNames: kotlinx.coroutines.flow.StateFlow<Map<String, String>> = livePrefs.playlists
+        .map { list -> list.associate { it.id to it.name } }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyMap())
+
+    /** The guide's look (background, panel darkness, highlight style), so this screen matches it. */
+    val look: kotlinx.coroutines.flow.StateFlow<com.nuvio.tv.livetv.model.LiveTvSettings> = livePrefs.settings
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, com.nuvio.tv.livetv.model.LiveTvSettings())
+
+    val use24h: kotlinx.coroutines.flow.StateFlow<Boolean> = livePrefs.settings
+        .map { it.use24HourClock }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+
+    fun scheduleManual(channel: com.nuvio.tv.livetv.model.LiveChannel, title: String, startMs: Long, stopMs: Long, days: Set<Int> = emptySet()) {
+        LiveTvNotice.show(scheduler.addManual(channel, title, startMs, stopMs, days))
+    }
+    val schedules = scheduler.schedules
+    val series = scheduler.series
+    val repeats = scheduler.repeats
+
+    init {
+        // Anything that should have started already (catch-up saves included) starts now.
+        scheduler.fireOverdue()
+    }
+
+    /** "Saving from catch-up at 7:10 PM", "Not ready yet: trying again at 7:40 PM (2 of 3)". */
+    fun catchupNote(s: RecordingSchedule): String {
+        val at = scheduler.startsAt(s)
+        val time = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(at))
+        return when {
+            s.attempts > 0 -> recorder.appContext.getString(R.string.iptv_rec_not_ready, time, s.attempts + 1, LiveTvRecordingScheduler.MAX_TRIES + 1)
+            at <= System.currentTimeMillis() -> recorder.appContext.getString(R.string.iptv_rec_saving_catchup_now)
+            else -> recorder.appContext.getString(R.string.iptv_rec_saved_catchup, time)
+        }
+    }
+
+    private val _posters = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** Recording id -> poster, looked up by title the same way the guide does. */
+    val posters: StateFlow<Map<String, String>> = _posters.asStateFlow()
+    private val tried = HashSet<String>()
+
+    fun loadPosters(list: List<LiveTvRecording>) {
+        val todo = list.filter { tried.add(it.id) }
+        if (todo.isEmpty()) return
+        viewModelScope.launch {
+            for (r in todo) {
+                // Sports recordings: the channel's logo (game titles found random films).
+                if (com.nuvio.tv.livetv.data.LiveTvPosterResolver.isSportsRecording(r.channelName, r.title)) continue
+                val poster = runCatching { posterResolver.posterFor(r.title, null, com.nuvio.tv.livetv.data.LiveTvPosterResolver.Clues(), urgent = false) }.getOrNull()
+                if (poster != null) _posters.value = _posters.value + (r.id to poster)
+            }
+        }
+    }
+
+    // ---- Artwork: the show's backdrop with its logo over it, like Nuvio's landscape cards.
+    private val _art = MutableStateFlow<Map<String, RecordingArt>>(emptyMap())
+    /** Recording id -> backdrop and logo (from TMDB, else your addons). */
+    val art: StateFlow<Map<String, RecordingArt>> = _art.asStateFlow()
+    private val triedArt = HashSet<String>()
+    private val artPrefs = recorder.appContext.getSharedPreferences("livetv_recording_art", android.content.Context.MODE_PRIVATE)
+
+    fun loadArt(list: List<LiveTvRecording>) {
+        val todo = list.filter { triedArt.add(it.id) }
+        if (todo.isEmpty()) return
+        // Found before: straight away, no lookup.
+        val saved = HashMap<String, RecordingArt>()
+        todo.forEach { r ->
+            runCatching { artPrefs.getString(r.id, null) }.getOrNull()?.let { v ->
+                val parts = v.split('\n')
+                saved[r.id] = RecordingArt(parts.getOrNull(0)?.ifBlank { null }, parts.getOrNull(1)?.ifBlank { null })
+            }
+        }
+        if (saved.isNotEmpty()) _art.value = _art.value + saved
+        viewModelScope.launch {
+            for (r in todo) {
+                if (r.id in saved) continue
+                // Sports: no guessed artwork (the card shows the channel's logo).
+                if (com.nuvio.tv.livetv.data.LiveTvPosterResolver.isSportsRecording(r.channelName, r.title)) continue
+                val found = runCatching { findArt(r.title) }.getOrNull() ?: continue
+                _art.value = _art.value + (r.id to found)
+                runCatching { artPrefs.edit().putString(r.id, (found.backdrop ?: "") + "\n" + (found.logo ?: "")).apply() }
+            }
+        }
+    }
+
+    /** The show in your addons' catalogs, then its TMDB backdrop and logo (the addon's own if TMDB has none). */
+    private suspend fun findArt(title: String): RecordingArt? {
+        val hit = posterResolver.titleFor(title) ?: return null
+        val movie = hit.type.equals("movie", ignoreCase = true)
+        val tmdb = runCatching {
+            tmdbService.ensureTmdbId(hit.meta.id, if (movie) "movie" else "series")?.let { id ->
+                tmdbMetadataService.fetchEnrichment(
+                    tmdbId = id,
+                    contentType = if (movie) com.nuvio.tv.domain.model.ContentType.MOVIE else com.nuvio.tv.domain.model.ContentType.SERIES
+                )
+            }
+        }.getOrNull()
+        val backdrop = tmdb?.backdrop ?: hit.meta.background ?: hit.meta.landscapePoster
+        val logo = tmdb?.logo ?: hit.meta.logo
+        if (backdrop == null) return null
+        return RecordingArt(backdrop, logo)
+    }
+
+    fun playUrl(rec: LiveTvRecording): String = recorder.playUrl(rec)
+    /** Where you left off (ms), if partly watched. */
+    fun resume(rec: LiveTvRecording): Long? = RecordingResume.load(recorder.appContext, RecordingResume.contentIdFor(rec.id))?.first
+    fun stop(rec: LiveTvRecording) = recorder.stop(rec.id)
+    fun delete(rec: LiveTvRecording) {
+        recorder.delete(rec.id)
+        runCatching { artPrefs.edit().remove(rec.id).apply() }
+    }
+    fun freeBytes(): Long = recorder.freeBytes()
+    fun isWatched(rec: LiveTvRecording): Boolean = RecordingResume.isWatched(recorder.appContext, rec.id)
+    fun markWatched(recs: List<LiveTvRecording>) = recs.forEach { RecordingResume.markWatched(recorder.appContext, it.id) }
+    fun markUnwatched(recs: List<LiveTvRecording>) = recs.forEach { RecordingResume.clear(recorder.appContext, it.id) }
+    fun moveTo(recs: List<LiveTvRecording>, target: RecordingStorage.Choice) = recorder.moveTo(recs.map { it.id }, target)
+    fun storageIdOf(rec: LiveTvRecording): String? = recorder.storageIdOf(rec)
+}
+
+/**
+ * Recordings: what's recording now across the top, then three columns: Scheduled, Series and
+ * Recorded. OK plays (full screen in Live TV's player, with its seek bar); the menu button or a long press
+ * offers Resume / Play from Beginning, Stop and Delete. Same background as the guide (the
+ * theme's glow at the top), not plain black.
+ */
+@Composable
+fun RecordingsScreen(
+    onPlay: (url: String, title: String, poster: String?, recordingId: String, fromStart: Boolean) -> Unit,
+    viewModel: RecordingsViewModel = hiltViewModel()
+) {
+    val recordings by viewModel.recordings.collectAsStateWithLifecycle()
+    val schedules by viewModel.schedules.collectAsStateWithLifecycle()
+    val seriesRules by viewModel.series.collectAsStateWithLifecycle()
+    val repeatRules by viewModel.repeats.collectAsStateWithLifecycle()
+    val posters by viewModel.posters.collectAsStateWithLifecycle()
+    val art by viewModel.art.collectAsStateWithLifecycle()
+    var scheduleMenu by remember { mutableStateOf<RecordingSchedule?>(null) }
+    // Back from the player: read where you got to again (the progress bars).
+    var resumeTick by remember { mutableStateOf(0) }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumeTick++ }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+    // The clock, for "recording until" bars (moves on every few seconds).
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) { kotlinx.coroutines.delay(5_000); nowMs = System.currentTimeMillis() }
+    }
+    var seriesMenu by remember { mutableStateOf<SeriesRule?>(null) }
+    var seriesKeepMenu by remember { mutableStateOf<SeriesRule?>(null) }
+    var repeatMenu by remember { mutableStateOf<RepeatRule?>(null) }
+    // Which playlist each recording uses: shown on the cards when there's more than one (handy
+    // with a one-connection login: don't watch that playlist while it records).
+    val playlistNames by viewModel.playlistNames.collectAsStateWithLifecycle()
+    fun playlistOf(sourceId: String): String? = playlistNames[sourceId]
+    val showPlaylist = playlistNames.size > 1
+    fun withPlaylist(channelName: String, sourceId: String): String =
+        if (showPlaylist) listOfNotNull(channelName, playlistOf(sourceId)).joinToString(" · ") else channelName
+    LaunchedEffect(recordings) { viewModel.loadPosters(recordings); viewModel.loadArt(recordings) }
+    var menuFor by remember { mutableStateOf<LiveTvRecording?>(null) }
+    var confirmDelete by remember { mutableStateOf<LiveTvRecording?>(null) }
+    var infoFor by remember { mutableStateOf<LiveTvRecording?>(null) }
+    // New Recording: picking the channel, then the time.
+    var pickingChannel by remember { mutableStateOf(false) }
+    var manualFor by remember { mutableStateOf<com.nuvio.tv.livetv.model.LiveChannel?>(null) }
+    val pickerChannels by viewModel.pickerChannels.collectAsStateWithLifecycle()
+    val use24h by viewModel.use24h.collectAsStateWithLifecycle()
+    val newButton = remember { FocusRequester() }
+    val first = remember { FocusRequester() }
+    val colors = NuvioTheme.colors
+    val look by viewModel.look.collectAsStateWithLifecycle()
+
+    val now = recordings.filter { it.isRecording }
+    val done = recordings.filter { !it.isRecording }
+    val entries = remember(done) { groupRecorded(done) }
+    val recContext = androidx.compose.ui.platform.LocalContext.current
+    // A folder that's open, a move being chosen, and a whole folder being deleted.
+    // Kept while a recording plays (Recordings leaves the screen), so Back returns to the folder.
+    var openShowKey by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val openShow = entries.firstOrNull { it.key == openShowKey } as? RecordedShow
+    LaunchedEffect(openShow == null) {
+        if (openShow == null) {
+            openShowKey = null
+            // Back from a folder: the highlight returns to the top of the Recorded list.
+            kotlinx.coroutines.delay(120)
+            runCatching { first.requestFocus() }
+        }
+    }
+    var movePick by remember { mutableStateOf<List<LiveTvRecording>?>(null) }
+    var confirmDeleteShow by remember { mutableStateOf<RecordedShow?>(null) }
+    val moving by viewModel.move.collectAsStateWithLifecycle()
+    val playNow: (LiveTvRecording) -> Unit = { rec ->
+        // Nothing saved yet (it's still connecting): say so instead of an error.
+        if (rec.durationSec <= 0) LiveTvNotice.show(
+            "\"${rec.title}\" hasn't recorded anything yet" + (rec.problem?.let { ": $it" } ?: ". Give it a few seconds.")
+        )
+        else onPlay(viewModel.playUrl(rec), rec.title, posters[rec.id], rec.id, false)
+    }
+    // Which item gets the highlight first: the top of the first section that has anything.
+    val firstNowId = now.firstOrNull()?.id
+    val firstScheduleId = if (now.isEmpty()) schedules.firstOrNull()?.id else null
+    val firstSeriesId = if (now.isEmpty() && schedules.isEmpty()) (seriesRules.firstOrNull()?.id ?: repeatRules.firstOrNull()?.id) else null
+    val firstDoneId = if (now.isEmpty() && schedules.isEmpty() && seriesRules.isEmpty() && repeatRules.isEmpty()) entries.firstOrNull()?.key else null
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.nuvio.tv.livetv.ui.LocalLiveSolidHighlight provides look.solidHighlight,
+        com.nuvio.tv.livetv.ui.LocalGuideDarkness provides look.guideInfoBackground
+    ) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // The same background as the guide and Sports (Settings → Live TV → Guide & Sports Background).
+            .guideBackdrop(look.guideBackdrop)
+    ) {
+        // The guide's background: the theme's glow behind the top of the screen.
+        com.nuvio.tv.livetv.ui.ThemeGlow(Modifier.fillMaxWidth().height(260.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                // While a folder is open on top, nothing underneath can take the highlight.
+                .then(if (openShow != null) Modifier.focusProperties { canFocus = false } else Modifier)
+                .padding(start = 56.dp, end = 48.dp, top = 32.dp)
+        ) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                LiveText(stringResource(R.string.iptv_guide_recordings), size = 30.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                LiveText(
+                    "${sizeLabel(viewModel.freeBytes())} free",
+                    size = 15.sp,
+                    color = colors.TextSecondary
+                )
+                Spacer(Modifier.width(18.dp))
+                // Record a time you pick, on a channel with no listings (PPV events…).
+                PillButton(
+                    stringResource(R.string.iptv_rec_new_recording),
+                    primary = false,
+                    modifier = Modifier.focusRequester(newButton),
+                    onFocus = {},
+                    onClick = { pickingChannel = true },
+                    onMenu = { pickingChannel = true }
+                )
+            }
+            Spacer(Modifier.height(20.dp))
+            if (recordings.isEmpty() && schedules.isEmpty() && seriesRules.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        LiveText(stringResource(R.string.iptv_rec_empty_title), size = 20.sp, weight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        LiveText(
+                            stringResource(R.string.iptv_rec_empty_help),
+                            size = 14.sp, color = colors.TextSecondary, maxLines = 3
+                        )
+                    }
+                }
+                return@Column
+            }
+
+            // ---- Recording now: a wide card each, across the top.
+            if (now.isNotEmpty()) {
+                SectionTitle(stringResource(R.string.iptv_rec_recording_now), color = LIVE_RED)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    now.take(2).forEach { rec ->
+                        RecordingNowCard(
+                            rec = rec,
+                            art = art[rec.id],
+                            nowMs = nowMs,
+                            watchModifier = if (rec.id == firstNowId) Modifier.focusRequester(first) else Modifier,
+                            onWatch = { playNow(rec) },
+                            onStop = { viewModel.stop(rec) },
+                            onMenu = { menuFor = rec }
+                        )
+                    }
+                    if (now.size > 2) {
+                        LiveText(stringResource(R.string.iptv_rec_more_now, now.size - 2), size = 14.sp, color = colors.TextSecondary)
+                    }
+                }
+                Spacer(Modifier.height(22.dp))
+            }
+
+            // ---- Scheduled · Series · Recorded, side by side.
+            Row(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
+                    SectionTitle(stringResource(R.string.iptv_rec_scheduled))
+                    if (schedules.isEmpty()) EmptyNote(stringResource(R.string.iptv_rec_nothing_scheduled))
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(bottom = 40.dp)
+                    ) {
+                        items(schedules, key = { it.id }) { s ->
+                            InfoCard(
+                                title = s.title + (s.episode?.let { "  ·  $it" } ?: ""),
+                                line = withPlaylist(s.channel.name, s.channel.sourceId) + " · " + dateLabel(androidx.compose.ui.platform.LocalContext.current, s.startMs),
+                                note = if (s.useCatchup) viewModel.catchupNote(s) else null,
+                                modifier = if (s.id == firstScheduleId) Modifier.focusRequester(first) else Modifier,
+                                onClick = { scheduleMenu = s }
+                            )
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f)) {
+                    SectionTitle(stringResource(R.string.iptv_rec_series))
+                    if (seriesRules.isEmpty() && repeatRules.isEmpty()) EmptyNote(stringResource(R.string.iptv_rec_no_series))
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(bottom = 40.dp)
+                    ) {
+                        items(seriesRules, key = { it.id }) { r ->
+                            InfoCard(
+                                title = r.title,
+                                line = withPlaylist(r.channel.name, r.channel.sourceId) + " · " +
+                                    (if (r.newOnly) stringResource(R.string.iptv_rec_new_episodes) + " · " else "") +
+                                    (if (r.keepLast > 0) stringResource(R.string.iptv_rec_keep_last, r.keepLast)
+                                    else stringResource(R.string.iptv_rec_keep_all)),
+                                note = null,
+                                modifier = if (r.id == firstSeriesId) Modifier.focusRequester(first) else Modifier,
+                                onClick = { seriesMenu = r }
+                            )
+                        }
+                        items(repeatRules, key = { it.id }) { r ->
+                            InfoCard(
+                                title = r.title,
+                                line = withPlaylist(r.channel.name, r.channel.sourceId) + " · " + RepeatRule.daysLabel(r.days) + " " + repeatTime(r.minuteOfDay, use24h),
+                                note = null,
+                                modifier = if (r.id == firstSeriesId) Modifier.focusRequester(first) else Modifier,
+                                onClick = { repeatMenu = r }
+                            )
+                        }
+                    }
+                }
+                Column(Modifier.weight(1.4f)) {
+                    SectionTitle(stringResource(R.string.iptv_rec_recorded))
+                    if (done.isEmpty()) EmptyNote(stringResource(R.string.iptv_rec_nothing_recorded))
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 40.dp)
+                    ) {
+                        gridItems(entries, key = { it.key }) { entry ->
+                            when (entry) {
+                                is RecordedShow -> {
+                                    val counts = remember(entry, resumeTick) {
+                                        val st = entry.episodes.map { viewModel.isWatched(it) to viewModel.resume(it) }
+                                        st.count { it.first } to st.count { !it.first && it.second == null }
+                                    }
+                                    RecordedFolderCard(
+                                        show = entry,
+                                        art = entry.episodes.maxByOrNull { it.startedAtMs }?.let { art[it.id] },
+                                        watched = counts.first,
+                                        fresh = counts.second,
+                                        modifier = if (entry.key == firstDoneId) Modifier.focusRequester(first) else Modifier,
+                                        onClick = { openShowKey = entry.key },
+                                        onMenu = { openShowKey = entry.key }
+                                    )
+                                }
+                                is SingleRecording -> {
+                                    val rec = entry.rec
+                                    RecordedCard(
+                                        rec = rec,
+                                        art = art[rec.id],
+                                        watched = resumeTick.let { viewModel.isWatched(rec) },
+                                        resumeFraction = resumeTick.let { viewModel.resume(rec) }?.let { ms ->
+                                            if (rec.durationSec > 0) (ms / 1000.0 / rec.durationSec).toFloat().coerceIn(0f, 1f) else null
+                                        },
+                                        modifier = if (rec.id == firstDoneId) Modifier.focusRequester(first) else Modifier,
+                                        onClick = {
+                                            if (rec.status != RecordingStatus.FAILED) onPlay(viewModel.playUrl(rec), rec.title, posters[rec.id], rec.id, false)
+                                            else menuFor = rec
+                                        },
+                                        onMenu = { menuFor = rec }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // An open folder: the show's page, over the three columns.
+        openShow?.let { show ->
+            RecordedShowPage(
+                show = show,
+                art = art,
+                resumeTick = resumeTick,
+                resumeOf = { viewModel.resume(it) },
+                isWatched = { viewModel.isWatched(it) },
+                onPlay = { playNow(it) },
+                onMenu = { menuFor = it },
+                onMarkAllWatched = { viewModel.markWatched(show.episodes); resumeTick++ },
+                onMoveAll = if (RecordingStorage.choices(recContext).size > 1) ({ movePick = show.episodes }) else null,
+                onDeleteAll = { confirmDeleteShow = show },
+                onClose = { openShowKey = null },
+                backdrop = look.guideBackdrop
+            )
+        }
+        // A move between drives: what's moving and how far along.
+        moving?.let { m ->
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 48.dp, bottom = 28.dp)
+                    .width(340.dp)
+                    .clip(RoundedCornerShape(liveCorner()))
+                    .background(com.nuvio.tv.livetv.ui.guideSurface())
+                    .border(1.dp, com.nuvio.tv.livetv.ui.GuideGlassEdge, RoundedCornerShape(liveCorner()))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                LiveText(
+                    if (m.count > 1) stringResource(R.string.iptv_rec_moving_progress, m.index, m.count)
+                    else stringResource(R.string.iptv_rec_moving),
+                    size = 14.sp, weight = FontWeight.Bold
+                )
+                LiveText(m.title, size = 13.sp, color = colors.TextSecondary)
+                ProgressLine(if (m.totalBytes > 0) m.doneBytes.toFloat() / m.totalBytes else 0f, colors.Secondary, Modifier.fillMaxWidth())
+                LiveText(stringResource(R.string.iptv_rec_progress, sizeLabel(m.doneBytes), sizeLabel(m.totalBytes)), size = 12.sp, color = colors.TextTertiary)
+            }
+        }
+    }
+    }
+    val anything = recordings.isNotEmpty() || schedules.isNotEmpty() || seriesRules.isNotEmpty() || repeatRules.isNotEmpty()
+    LaunchedEffect(anything) {
+        kotlinx.coroutines.delay(120)
+        // Nothing yet: start on New Recording.
+        runCatching { if (anything) first.requestFocus() else newButton.requestFocus() }
+    }
+    scheduleMenu?.let { s ->
+        RecordingActionDialog(
+            title = s.title,
+            detail = s.channel.name + " · " + dateLabel(androidx.compose.ui.platform.LocalContext.current, s.startMs) +
+                (playlistOf(s.channel.sourceId)?.let { "\n" + stringResource(R.string.iptv_rec_recording_from_playlist, it) } ?: ""),
+            actions = listOf(
+                stringResource(R.string.iptv_rec_cancel_recording) to { scheduleMenu = null; viewModel.scheduler.cancel(s.id) },
+                stringResource(R.string.action_close) to { scheduleMenu = null }
+            ),
+            onDismiss = { scheduleMenu = null }
+        )
+    }
+    // A series: stop it, or choose how many episodes to keep (its own list, so Stop is never
+    // pushed off the bottom by the keep choices).
+    seriesMenu?.let { r ->
+        RecordingActionDialog(
+            title = r.title,
+            detail = (playlistOf(r.channel.sourceId)?.let { stringResource(R.string.iptv_rec_recording_from_playlist, it) + "\n" } ?: "") +
+                stringResource(
+                    if (r.newOnly) R.string.iptv_rec_series_detail_new_only else R.string.iptv_rec_series_detail_all,
+                    r.channel.name
+                ),
+            actions = listOf(
+                stringResource(R.string.iptv_rec_stop_series) to { seriesMenu = null; viewModel.scheduler.removeSeries(r.id) },
+                stringResource(if (r.newOnly) R.string.iptv_rec_record_all else R.string.iptv_rec_record_new_only) to {
+                    seriesMenu = null; viewModel.scheduler.setNewOnly(r.id, !r.newOnly)
+                },
+                stringResource(
+                    R.string.iptv_rec_episodes_to_keep_value,
+                    if (r.keepLast == 0) stringResource(R.string.iptv_rec_keep_all)
+                    else stringResource(R.string.iptv_rec_keep_last, r.keepLast)
+                ) to { seriesMenu = null; seriesKeepMenu = r },
+                stringResource(R.string.action_close) to { seriesMenu = null }
+            ),
+            onDismiss = { seriesMenu = null }
+        )
+    }
+    repeatMenu?.let { r ->
+        RecordingActionDialog(
+            title = r.title,
+            detail = (playlistOf(r.channel.sourceId)?.let { stringResource(R.string.iptv_rec_recording_from_playlist, it) + "\n" } ?: "") +
+                stringResource(R.string.iptv_rec_repeat_detail, r.channel.name, RepeatRule.daysLabel(r.days), repeatTime(r.minuteOfDay, use24h)),
+            actions = listOf(
+                stringResource(R.string.iptv_rec_stop_repeating) to { repeatMenu = null; viewModel.scheduler.removeRepeat(r.id) },
+                stringResource(R.string.action_close) to { repeatMenu = null }
+            ),
+            onDismiss = { repeatMenu = null }
+        )
+    }
+    seriesKeepMenu?.let { r ->
+        RecordingActionDialog(
+            title = stringResource(R.string.iptv_rec_episodes_to_keep),
+            detail = stringResource(R.string.iptv_rec_keep_detail, r.title),
+            actions = listOf(0, 1, 3, 5, 10).map { n ->
+                val label = (if (n == 0) stringResource(R.string.iptv_rec_keep_all_episodes)
+                else stringResource(R.string.iptv_rec_keep_last_n, n)) + if (r.keepLast == n) "  ✓" else ""
+                label to { seriesKeepMenu = null; viewModel.scheduler.setKeep(r.id, n) }
+            },
+            onDismiss = { seriesKeepMenu = null }
+        )
+    }
+
+    menuFor?.let { rec ->
+        val actions = buildList<Pair<String, () -> Unit>> {
+            if (rec.status != RecordingStatus.FAILED) {
+                val resumeAt = viewModel.resume(rec)
+                add((if (resumeAt != null) stringResource(R.string.iptv_rec_resume_short) else stringResource(R.string.iptv_rec_play_short)) to { menuFor = null; onPlay(viewModel.playUrl(rec), rec.title, posters[rec.id], rec.id, false) })
+                if (resumeAt != null) add(stringResource(R.string.iptv_rec_play_from_beginning) to { menuFor = null; onPlay(viewModel.playUrl(rec), rec.title, posters[rec.id], rec.id, true) })
+            }
+            if (rec.isRecording) add(stringResource(R.string.iptv_ge_stop_recording) to { menuFor = null; viewModel.stop(rec) })
+            if (!rec.isRecording && rec.status != RecordingStatus.FAILED) {
+                if (viewModel.isWatched(rec)) add(stringResource(R.string.iptv_rec_mark_unwatched) to { menuFor = null; viewModel.markUnwatched(listOf(rec)); resumeTick++ })
+                else add(stringResource(R.string.iptv_rec_mark_watched) to { menuFor = null; viewModel.markWatched(listOf(rec)); resumeTick++ })
+                if (RecordingStorage.choices(recContext).size > 1) add(stringResource(R.string.iptv_rec_move_to) to { menuFor = null; movePick = listOf(rec) })
+            }
+            add(stringResource(R.string.iptv_rec_information) to { menuFor = null; infoFor = rec })
+            add(stringResource(R.string.action_delete) to { menuFor = null; confirmDelete = rec })
+        }
+        RecordingActionDialog(title = rec.title, detail = rec.problem, actions = actions, onDismiss = { menuFor = null })
+    }
+    movePick?.let { recs ->
+        val here = recs.mapNotNull { viewModel.storageIdOf(it) }.distinct()
+        val places = RecordingStorage.choices(recContext).filter { c -> recs.any { viewModel.storageIdOf(it) != c.id } }
+        RecordingActionDialog(
+            title = if (recs.size == 1) stringResource(R.string.iptv_rec_move_named, recs.first().title) else stringResource(R.string.iptv_rec_move_count, recs.size),
+            detail = stringResource(R.string.iptv_rec_move_detail),
+            actions = places.map { c ->
+                val label = c.label + " · " + RecordingStorage.sizeLabel(c.freeBytes) + " free" +
+                    if (here.size == 1 && here.first() == c.id) "  (already here)" else ""
+                label to { movePick = null; viewModel.moveTo(recs, c) }
+            } + listOf(stringResource(R.string.action_cancel) to { movePick = null }),
+            onDismiss = { movePick = null }
+        )
+    }
+    confirmDeleteShow?.let { show ->
+        RecordingActionDialog(
+            title = stringResource(R.string.iptv_rec_delete_show, show.title),
+            detail = stringResource(R.string.iptv_rec_delete_show_detail, show.episodes.size),
+            actions = listOf(
+                stringResource(R.string.action_cancel) to { confirmDeleteShow = null },
+                stringResource(R.string.iptv_rec_delete_all) to { confirmDeleteShow = null; show.episodes.forEach { viewModel.delete(it) } }
+            ),
+            onDismiss = { confirmDeleteShow = null }
+        )
+    }
+    if (pickingChannel) ManualRecordingChannelPicker(
+        channels = pickerChannels,
+        onPick = { ch -> pickingChannel = false; manualFor = ch },
+        onDismiss = { pickingChannel = false }
+    )
+    manualFor?.let { ch ->
+        ManualRecordingDialog(
+            channel = ch,
+            use24h = use24h,
+            onSchedule = { title, start, stop, days -> manualFor = null; viewModel.scheduleManual(ch, title, start, stop, days) },
+            onDismiss = { manualFor = null }
+        )
+    }
+    infoFor?.let { picked ->
+        // Live: a recording still going keeps its size and length up to date.
+        val rec = recordings.firstOrNull { it.id == picked.id } ?: picked
+        val context = androidx.compose.ui.platform.LocalContext.current
+        RecordingInfoDialog(rec, savedOnLabel(context, rec.dir), playlistOf(rec.channelKey.substringBefore('|')), onDismiss = { infoFor = null })
+    }
+    confirmDelete?.let { rec ->
+        RecordingActionDialog(
+            title = stringResource(R.string.iptv_rec_delete_named, rec.title),
+            detail = if (rec.isRecording) stringResource(R.string.iptv_rec_delete_recording_detail) else stringResource(R.string.iptv_rec_delete_detail),
+            actions = listOf(
+                stringResource(R.string.action_cancel) to { confirmDelete = null },
+                stringResource(R.string.action_delete) to { confirmDelete = null; viewModel.delete(rec) }
+            ),
+            onDismiss = { confirmDelete = null }
+        )
+    }
+}
+
+@Composable
+internal fun SectionTitle(text: String, color: Color = NuvioTheme.colors.TextSecondary) {
+    LiveText(
+        text.uppercase(),
+        size = 13.sp,
+        weight = FontWeight.Bold,
+        color = color,
+        modifier = Modifier.padding(bottom = 10.dp)
+    )
+}
+
+@Composable
+private fun EmptyNote(text: String) {
+    LiveText(text, size = 14.sp, color = NuvioTheme.colors.TextTertiary, modifier = Modifier.padding(top = 4.dp))
+}
+
+/** A card's look: the guide's tile color, the theme's focus color and ring when highlighted. */
+@Composable
+internal fun cardColors(focused: Boolean): Pair<Color, Color> {
+    val colors = NuvioTheme.colors
+    return (if (focused) colors.FocusBackground else com.nuvio.tv.livetv.ui.guideSurface()) to
+        (if (focused) colors.FocusRing else com.nuvio.tv.livetv.ui.GuideGlassEdge)
+}
+
+/**
+ * A recording's picture, like Nuvio's landscape cards: the show's backdrop with its title logo
+ * over the bottom (or the title in text when there's no logo). With no backdrop found, the
+ * channel's logo on the tile color, with the title under it.
+ */
+@Composable
+internal fun ArtThumb(
+    art: RecordingArt?,
+    channelLogo: String?,
+    title: String,
+    modifier: Modifier,
+    /** Smaller title and logo (the Recording Now card). */
+    compact: Boolean = false,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit = {}
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(liveCorner()))
+            .background(com.nuvio.tv.livetv.ui.guideSurfaceVariant())
+    ) {
+        if (art?.backdrop != null) {
+            AsyncImage(
+                model = art.backdrop,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            // Darker toward the bottom, so the logo and the progress bar stand out.
+            Box(
+                Modifier.fillMaxSize().background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.45f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.8f)
+                    )
+                )
+            )
+            if (art.logo != null) {
+                AsyncImage(
+                    model = art.logo,
+                    contentDescription = title,
+                    contentScale = ContentScale.Fit,
+                    alignment = Alignment.BottomStart,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 12.dp, end = 12.dp, bottom = if (compact) 10.dp else 16.dp)
+                        .fillMaxWidth(if (compact) 0.75f else 0.6f)
+                        .fillMaxHeight(0.36f)
+                )
+            } else {
+                LiveText(
+                    title,
+                    size = if (compact) 13.sp else 17.sp,
+                    weight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 2,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 12.dp, end = 12.dp, bottom = if (compact) 10.dp else 16.dp)
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                if (channelLogo != null) {
+                    AsyncImage(
+                        model = channelLogo,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxWidth(0.5f).height(if (compact) 36.dp else 52.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                LiveText(
+                    title,
+                    size = if (compact) 13.sp else 15.sp,
+                    weight = FontWeight.SemiBold,
+                    color = NuvioTheme.colors.TextSecondary,
+                    maxLines = 2,
+                    align = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
+        content()
+    }
+}
+
+@Composable
+private fun RecTag() {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(5.dp))
+            .background(LIVE_RED)
+            .padding(horizontal = 7.dp, vertical = 2.dp)
+    ) {
+        LiveText("REC", size = 12.sp, weight = FontWeight.Bold, color = Color.White)
+    }
+}
+
+@Composable
+internal fun ProgressLine(fraction: Float, color: Color, modifier: Modifier) {
+    Box(modifier.height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.18f))) {
+        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(color))
+    }
+}
+
+/** What's recording now: art, REC, title, channel and times, how far along, Watch and Stop. */
+@Composable
+private fun RecordingNowCard(
+    rec: LiveTvRecording,
+    art: RecordingArt?,
+    nowMs: Long,
+    watchModifier: Modifier,
+    onWatch: () -> Unit,
+    onStop: () -> Unit,
+    onMenu: () -> Unit
+) {
+    val colors = NuvioTheme.colors
+    val shape = RoundedCornerShape(liveCorner())
+    var watchFocused by remember { mutableStateOf(false) }
+    var stopFocused by remember { mutableStateOf(false) }
+    val (bg, ring) = cardColors(watchFocused || stopFocused)
+    val time = SimpleDateFormat("h:mm a", Locale.getDefault())
+    val from = rec.programStartMs.takeIf { it > 0 } ?: rec.startedAtMs
+    val to = rec.programStopMs.takeIf { it > 0 } ?: rec.stopAtMs
+    // Catch-up downloads come faster than the show and have a long time limit: go by how much
+    // is saved against the show's length (show plus extra time when known), not the time limit.
+    val catchupLenSec = if (rec.fromCatchup) rec.expectedSec.takeIf { it > 0 } ?: (rec.programStopMs - rec.programStartMs).takeIf { it > 0 }?.div(1000.0) else null
+    val fraction = when {
+        catchupLenSec != null -> (rec.durationSec / catchupLenSec).toFloat().coerceIn(0f, 1f)
+        rec.stopAtMs > rec.startedAtMs -> ((nowMs - rec.startedAtMs).toFloat() / (rec.stopAtMs - rec.startedAtMs))
+        else -> 0f
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(112.dp)
+            .clip(shape)
+            .background(bg)
+            .border(2.dp, ring, shape)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ArtThumb(art, rec.channelLogo, rec.title, Modifier.width(156.dp).fillMaxHeight(), compact = true)
+        Spacer(Modifier.width(18.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RecTag()
+                Spacer(Modifier.width(10.dp))
+                LiveText(rec.title, size = 20.sp, weight = FontWeight.Bold, marquee = watchFocused || stopFocused, modifier = Modifier.weight(1f, fill = false))
+            }
+            val status = when {
+                rec.durationSec <= 0 -> stringResource(R.string.iptv_rec_starting) + (rec.problem?.let { " ($it)" } ?: "")
+                else -> durationLabel(rec.durationSec) + " " + stringResource(R.string.iptv_rec_recorded) +
+                    (if (rec.sizeBytes > 0) " · " + sizeLabel(rec.sizeBytes) else "") +
+                    (rec.problem?.let { " · $it" } ?: "")
+            }
+            LiveText(
+                listOf(rec.channelName, time.format(Date(from)) + " – " + time.format(Date(to)), status).joinToString(" · "),
+                size = 14.sp,
+                color = colors.TextSecondary
+            )
+            ProgressLine(fraction, LIVE_RED, Modifier.fillMaxWidth(0.9f))
+        }
+        Spacer(Modifier.width(16.dp))
+        PillButton(stringResource(R.string.iptv_rec_watch), primary = true, modifier = watchModifier, onFocus = { watchFocused = it }, onClick = onWatch, onMenu = onMenu)
+        Spacer(Modifier.width(10.dp))
+        PillButton(stringResource(R.string.iptv_rec_stop), primary = false, onFocus = { stopFocused = it }, onClick = onStop, onMenu = onMenu)
+    }
+}
+
+@Composable
+internal fun PillButton(
+    label: String,
+    primary: Boolean,
+    modifier: Modifier = Modifier,
+    onFocus: (Boolean) -> Unit,
+    onClick: () -> Unit,
+    onMenu: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val colors = NuvioTheme.colors
+    val shape = RoundedCornerShape(50)
+    val bg = when {
+        focused -> colors.TextPrimary
+        primary -> colors.TextPrimary.copy(alpha = 0.85f)
+        else -> com.nuvio.tv.livetv.ui.guideSurfaceVariant()
+    }
+    val fg = if (focused || primary) colors.Background else colors.TextPrimary
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clip(shape)
+            .background(bg)
+            .border(2.dp, if (focused) colors.FocusRing else com.nuvio.tv.livetv.ui.GuideGlassEdge, shape)
+            .onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) }
+            .onPreviewKeyEvent { e ->
+                if (e.type == KeyEventType.KeyDown && e.key == Key.Menu) { onMenu(); true } else false
+            }
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+                onLongClick = onMenu
+            )
+            .padding(horizontal = 22.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        LiveText(label, size = 16.sp, weight = FontWeight.SemiBold, color = fg)
+    }
+}
+
+/** A scheduled show or a series: title, and a line under it. */
+@Composable
+private fun InfoCard(
+    title: String,
+    line: String,
+    note: String?,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val colors = NuvioTheme.colors
+    val shape = RoundedCornerShape(liveCorner())
+    val (bg, ring) = cardColors(focused)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(bg)
+            .border(2.dp, ring, shape)
+            .onFocusChanged { focused = it.isFocused }
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+                onLongClick = onClick
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        LiveText(title, size = 17.sp, weight = FontWeight.SemiBold, marquee = focused)
+        LiveText(line, size = 14.sp, color = colors.TextSecondary)
+        note?.let { LiveText(it, size = 12.sp, color = colors.TextTertiary) }
+    }
+}
+
+/** A finished recording: art with how much you've watched, then title, day and length. */
+@Composable
+internal fun RecordedCard(
+    rec: LiveTvRecording,
+    art: RecordingArt?,
+    resumeFraction: Float?,
+    modifier: Modifier,
+    /** Watched to the end (or marked watched): a tick on the picture, as in a show's folder. */
+    watched: Boolean = false,
+    onClick: () -> Unit,
+    onMenu: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val colors = NuvioTheme.colors
+    val shape = RoundedCornerShape(liveCorner())
+    val failed = rec.status == RecordingStatus.FAILED
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .onPreviewKeyEvent { e ->
+                if (e.type == KeyEventType.KeyDown && e.key == Key.Menu) { onMenu(); true } else false
+            }
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+                onLongClick = onMenu
+            ),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        ArtThumb(
+            art, rec.channelLogo, rec.title,
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .border(2.dp, if (focused) colors.FocusRing else Color.Transparent, shape)
+        ) {
+            resumeFraction?.let { f ->
+                ProgressLine(
+                    f, colors.Secondary,
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp)
+                )
+            }
+            if (watched) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(8.dp).clip(RoundedCornerShape(50))
+                        .background(colors.Secondary).padding(horizontal = 8.dp, vertical = 2.dp)
+                ) { LiveText("✓", size = 13.sp, weight = FontWeight.Bold, color = colors.Background) }
+            }
+        }
+        LiveText(
+            rec.title + (rec.episode?.let { " · $it" } ?: ""),
+            size = 15.sp,
+            weight = FontWeight.SemiBold,
+            color = if (focused) colors.TextPrimary else colors.TextPrimary.copy(alpha = 0.9f),
+            marquee = focused
+        )
+        LiveText(
+            if (failed) rec.problem ?: stringResource(R.string.iptv_rec_couldnt_record)
+            else listOfNotNull(
+                shortDayLabel(context, rec.programStartMs.takeIf { it > 0 } ?: rec.startedAtMs),
+                durationLabel(rec.durationSec).takeIf { rec.durationSec > 0 },
+                sizeLabel(rec.sizeBytes).takeIf { rec.sizeBytes > 0 }
+            ).joinToString(" · ") + (rec.problem?.let { " · $it" } ?: ""),
+            size = 13.sp,
+            color = if (failed) colors.Error else colors.TextSecondary
+        )
+    }
+}
+
+@Composable
+internal fun RecordingActionDialog(
+    title: String,
+    detail: String?,
+    actions: List<Pair<String, () -> Unit>>,
+    onDismiss: () -> Unit
+) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(80); runCatching { first.requestFocus() } }
+    // The same dark glass menu as the guide's.
+    com.nuvio.tv.livetv.ui.LiveDialog(onDismiss = onDismiss, width = 480.dp) {
+        LiveText(title, size = 20.sp, weight = FontWeight.Bold, maxLines = 2)
+        if (!detail.isNullOrBlank()) {
+            Spacer(Modifier.height(4.dp))
+            LiveText(detail, size = 13.sp, color = NuvioTheme.colors.TextSecondary, maxLines = 6)
+        }
+        Spacer(Modifier.height(14.dp))
+        // Scrolls when the choices don't all fit (the last ones used to sit off the bottom of
+        // the screen, out of reach).
+        Column(
+            modifier = Modifier
+                .heightIn(max = 340.dp)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            actions.forEachIndexed { i, (label, action) ->
+                com.nuvio.tv.livetv.ui.MenuItem(label, if (i == 0) Modifier.focusRequester(first) else Modifier, action)
+            }
+        }
+    }
+}
+
+/** Hold OK → Information: what a recording is, how big it is and where it's kept. */
+@Composable
+private fun RecordingInfoDialog(rec: LiveTvRecording, savedOn: String, playlist: String?, onDismiss: () -> Unit) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(80); runCatching { first.requestFocus() } }
+    val day = SimpleDateFormat("EEE d MMM", Locale.getDefault())
+    val time = SimpleDateFormat("h:mm a", Locale.getDefault())
+    val aired = if (rec.programStartMs > 0 && rec.programStopMs > rec.programStartMs)
+        day.format(Date(rec.programStartMs)) + ", " + time.format(Date(rec.programStartMs)) + " – " + time.format(Date(rec.programStopMs))
+    else day.format(Date(rec.startedAtMs)) + ", " + time.format(Date(rec.startedAtMs))
+    val rows = buildList {
+        add(stringResource(R.string.iptv_rec_channel) to rec.channelName)
+        playlist?.let { add(stringResource(R.string.iptv_ge_playlist) to it) }
+        rec.episode?.let { add(stringResource(R.string.iptv_rec_episodes) to it) }
+        add(stringResource(R.string.iptv_rec_aired) to aired)
+        add(stringResource(R.string.iptv_rec_length) to if (rec.durationSec > 0) durationLabel(rec.durationSec) + (if (rec.isRecording) stringResource(R.string.iptv_rec_so_far) else "") else "—")
+        add(stringResource(R.string.iptv_rec_size) to if (rec.sizeBytes > 0) sizeLabel(rec.sizeBytes) + (if (rec.isRecording) stringResource(R.string.iptv_rec_so_far) else "") else "—")
+        add(stringResource(R.string.iptv_rec_recorded) to when {
+            rec.isRecording && rec.fromCatchup -> stringResource(R.string.iptv_rec_saving_catchup_now)
+            rec.isRecording -> stringResource(R.string.iptv_rec_recording_now)
+            rec.fromCatchup -> stringResource(R.string.iptv_rec_from_catchup)
+            else -> stringResource(R.string.iptv_rec_live_as_aired)
+        })
+        add(stringResource(R.string.iptv_rec_saved_on) to savedOn)
+        rec.problem?.let { add(stringResource(R.string.iptv_rec_note) to it) }
+    }
+    com.nuvio.tv.livetv.ui.LiveDialog(onDismiss = onDismiss, width = 520.dp) {
+        LiveText(rec.title, size = 20.sp, weight = FontWeight.Bold, maxLines = 2)
+        Spacer(Modifier.height(10.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            rows.forEach { (k, v) ->
+                Row(modifier = Modifier.padding(vertical = 3.dp)) {
+                    LiveText(k, color = NuvioTheme.colors.TextSecondary, size = 14.sp, modifier = Modifier.width(110.dp))
+                    LiveText(v, size = 14.sp, maxLines = 2, modifier = Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            com.nuvio.tv.livetv.ui.MenuItem(stringResource(R.string.action_close), Modifier.focusRequester(first), onDismiss)
+        }
+    }
+}
+
+/** "This Device" or the drive's name, for the folder a recording is in. */
+private fun savedOnLabel(context: android.content.Context, dir: String): String {
+    val choice = runCatching { RecordingStorage.choices(context) }.getOrDefault(emptyList())
+        .filter { dir.startsWith(it.dir.absolutePath) }
+        .maxByOrNull { it.dir.absolutePath.length }
+    return choice?.label ?: if (dir.startsWith("/storage/emulated") || dir.startsWith("/data/")) context.getString(R.string.iptv_rec_this_device) else context.getString(R.string.iptv_rec_drive_unplugged)
+}
+
+internal fun dateLabel(context: android.content.Context, ms: Long): String {
+    val day = shortDayLabel(context, ms)
+    return day + ", " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ms))
+}
+
+/** "Today", "Tomorrow", "Yesterday", the weekday within a week, else the date. */
+internal fun shortDayLabel(context: android.content.Context, ms: Long): String {
+    val cal = java.util.Calendar.getInstance()
+    fun dayIndex(t: Long): Long {
+        cal.timeInMillis = t
+        return cal.get(java.util.Calendar.YEAR) * 400L + cal.get(java.util.Calendar.DAY_OF_YEAR)
+    }
+    val diff = dayIndex(ms) - dayIndex(System.currentTimeMillis())
+    return when {
+        diff == 0L -> context.getString(R.string.iptv_guide_today)
+        diff == 1L -> context.getString(R.string.iptv_guide_tomorrow)
+        diff == -1L -> context.getString(R.string.iptv_guide_yesterday)
+        diff in -6L..6L -> SimpleDateFormat("EEE", Locale.getDefault()).format(Date(ms))
+        else -> SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(ms))
+    }
+}
+
+internal fun durationLabel(sec: Double): String {
+    val m = (sec / 60).toInt()
+    return if (m >= 60) "${m / 60} h ${m % 60} min" else "$m min"
+}
+
+internal fun sizeLabel(bytes: Long): String = when {
+    bytes >= 1024L * 1024 * 1024 -> String.format(Locale.US, "%.1f GB", bytes / (1024.0 * 1024 * 1024))
+    bytes >= 1024L * 1024 -> String.format(Locale.US, "%.0f MB", bytes / (1024.0 * 1024))
+    else -> "${bytes / 1024} KB"
+}
+
+private fun repeatTime(minuteOfDay: Int, use24h: Boolean): String {
+    val c = java.util.Calendar.getInstance().apply {
+        set(java.util.Calendar.HOUR_OF_DAY, minuteOfDay / 60); set(java.util.Calendar.MINUTE, minuteOfDay % 60)
+    }
+    return java.text.SimpleDateFormat(if (use24h) "HH:mm" else "h:mm a", java.util.Locale.getDefault()).format(c.time)
+}

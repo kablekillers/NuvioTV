@@ -71,6 +71,10 @@ fun NuvioNavHost(
     PlaybackAvailabilityProvider {
         PlaybackNavHost(navController, startDestination, hideBuiltInHeaders)
     }
+    // Live TV (from Nuvio One): "Remind me" messages, on top of whatever screen is open.
+    com.nuvio.tv.livetv.reminders.LiveTvReminderHost(navController)
+    // Live TV: "Loading channels…" while playlists download.
+    com.nuvio.tv.livetv.ui.LiveTvLoadingHost(navController)
 }
 
 @Composable
@@ -199,6 +203,74 @@ private fun PlaybackNavHost(
             com.nuvio.tv.ui.screens.calendar.CalendarScreen(onOpenShow = { ep ->
                 navController.navigate(Screen.Detail.createRoute(itemId = ep.showId, itemType = ep.showType))
             })
+        }
+        composable(Screen.LiveTv.route) {
+            // Live TV (from Nuvio One): the guide; full screen grows inside it.
+            com.nuvio.tv.livetv.ui.LiveTvGuideScreen(
+                onOpenFullscreen = {
+                    navController.navigate(Screen.LiveTvPlayer.route) { launchSingleTop = true }
+                },
+                onOpenSettings = { navController.navigate(Screen.LiveTvSettings.route) },
+                onOpenRecordings = { navController.navigate(Screen.Recordings.route) { launchSingleTop = true } },
+                onOpenMultiview = { navController.navigate(Screen.LiveTvMultiview.route) { launchSingleTop = true } },
+                onOpenSportsMultiview = { panes, channelKey ->
+                    com.nuvio.tv.livetv.sports.SportsWatchLaunch.request(panes, channelKey)
+                    navController.navigate(Screen.LiveTvSportsMultiview.route) { launchSingleTop = true }
+                },
+                onFindInNuvio = { navController.navigate(Screen.Search.route) { launchSingleTop = true } },
+                // Live TV's sports links go to the Kable Killers Sports Hub.
+                onReturnToSports = { navController.navigate(Screen.SportsHub.route) { launchSingleTop = true } },
+                onReturnTo = { route ->
+                    if (!navController.popBackStack(route, inclusive = false)) {
+                        navController.navigate(route) { launchSingleTop = true }
+                    }
+                }
+            )
+        }
+        composable(Screen.Recordings.route) {
+            com.nuvio.tv.livetv.record.RecordingsScreen(
+                onPlay = { _, _, _, recordingId, fromStart ->
+                    com.nuvio.tv.livetv.record.RecordingLaunch.open(recordingId, fromStart, Screen.Recordings.route)
+                    navController.navigate(Screen.LiveTvPlayer.route) { launchSingleTop = true }
+                }
+            )
+        }
+        composable(Screen.LiveTvPlayer.route) {
+            // Full screen happens inside the guide (one video view that grows).
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                com.nuvio.tv.livetv.ui.LiveTvFullscreen.request()
+                if (!navController.popBackStack(Screen.LiveTv.route, inclusive = false)) {
+                    navController.navigate(Screen.LiveTv.route) {
+                        popUpTo(Screen.LiveTvPlayer.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+        composable(Screen.LiveTvMultiview.route) {
+            com.nuvio.tv.livetv.multiview.MultiviewScreen(
+                onBack = { navController.popBackStack() },
+                onSingle = {
+                    if (!navController.popBackStack(Screen.LiveTv.route, inclusive = false)) {
+                        navController.navigate(Screen.LiveTv.route) { launchSingleTop = true }
+                    }
+                },
+            )
+        }
+        composable(Screen.LiveTvSportsMultiview.route) {
+            com.nuvio.tv.livetv.multiview.MultiviewScreen(
+                onBack = { navController.popBackStack() },
+                startOnSports = true,
+                returnToSingle = true,
+                onSingle = {
+                    if (!navController.popBackStack(Screen.LiveTv.route, inclusive = false)) {
+                        navController.navigate(Screen.LiveTv.route) { launchSingleTop = true }
+                    }
+                },
+            )
+        }
+        composable(Screen.LiveTvSettings.route) {
+            com.nuvio.tv.ui.screens.settings.LiveTvSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable(Screen.MusicHub.route) {
             // Kable Killers Music: Nuvio One's Music section (YouTube Music browsing,

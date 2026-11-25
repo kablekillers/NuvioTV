@@ -26,6 +26,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- Live TV (from Nuvio One): recordings and reminders start on time. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
 
     <uses-feature
         android:name="android.hardware.touchscreen"
@@ -50,6 +53,33 @@
         android:supportsRtl="true"
         android:localeConfig="@xml/locale_config"
         android:theme="@style/Theme.MyApplication">
+
+        <!-- Live TV (from Nuvio One): keeps the launcher's home screen rows up to date. -->
+        <receiver
+            android:name=".livetv.home.LauncherRowsReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.nuvio.tv.livetv.LAUNCHER_ROWS" />
+            </intent-filter>
+        </receiver>
+        <provider
+            android:name=".livetv.home.LauncherImageProvider"
+            android:authorities="${applicationId}.launcherimg"
+            android:exported="true" />
+        <!-- Live TV: wakes the app for scheduled recordings, and sets them again after a restart. -->
+        <receiver
+            android:name=".livetv.record.RecordingAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.nuvio.tv.livetv.RECORD" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".livetv.record.LiveTvRecordingService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
 
         <!-- Kable Killers Music (from Nuvio One): keeps audio playing while the music screens are closed. -->
         <service

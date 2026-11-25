@@ -78,6 +78,9 @@ internal object LiveLinkChecker {
         }
     }
 
+    /** One quick check of a link: false = clearly dead, true = works, null = can't tell. */
+    suspend fun probeOnce(url: String, headers: Map<String, String>): Boolean? = probe(url, headers)
+
     private val htmlStart = Regex("""^\s*(<!doctype html|<html|<head|<body)""", RegexOption.IGNORE_CASE)
     private val mediaPath = Regex("""\.(m3u8|mp4|mkv|ts|mpd)(\?|$)""", RegexOption.IGNORE_CASE)
 

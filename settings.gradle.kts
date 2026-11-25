@@ -30,6 +30,8 @@ include(":ffmpeg-decoder-downmix")
 
 // SmartTube's YouTube engine (MediaServiceCore, MIT), used by Kable Killers Music
 // (ported from Nuvio One, GPL-3.0). See mediaservicecore/LICENSE-*.
+// Nuvio One's VPN routing rules (plain Java), used by the ported Live TV.
+include(":vpn-core")
 include(":mediaservicecore:mediaserviceinterfaces")
 include(":mediaservicecore:youtubeapi")
 include(":mediaservicecore:sharedutils")
