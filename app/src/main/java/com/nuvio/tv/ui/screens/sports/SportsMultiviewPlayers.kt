@@ -1,7 +1,9 @@
 package com.nuvio.tv.ui.screens.sports
 
 import android.content.Context
+import android.view.LayoutInflater
 import android.view.ViewGroup
+import com.nuvio.tv.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -287,11 +289,9 @@ private fun TvMultiviewPlayer(
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
+                (LayoutInflater.from(ctx).inflate(R.layout.multiview_player_view, null) as PlayerView).apply {
                     // Stop Google TV's screensaver/ambient mode while watching.
                     keepScreenOn = true
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                     setKeepContentOnPlayerReset(true)
                     isFocusable = false
                     isFocusableInTouchMode = false
