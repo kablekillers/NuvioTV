@@ -6,7 +6,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.repository.StreamRepository
+import com.nuvio.tv.ui.screens.stream.LiveLinkChecker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -17,6 +19,8 @@ data class TvMultiviewChoice(
     val label: String,
     val addon: String,
     val url: String,
+    /** The add-on stream, kept so its link can be tested before it's offered. */
+    val stream: Stream? = null,
 )
 
 /** Resolve catalog-owned IDs through all enabled add-ons, preserving each provider's link. */
@@ -53,9 +57,14 @@ class SportsMultiviewViewModel @Inject constructor(
                                         label = stream.getDisplayName(),
                                         addon = stream.addonName,
                                         url = url,
+                                        stream = stream,
                                     )
                                 }
                             }.distinctBy { it.id }
+                                // Premium sports add-ons first, same as Mobile.
+                                .sortedBy { SportsAddonPriority.rank(it.addon, it.stream?.sourceAddonId) }
+                            // Test every link (same checker as the stream list); dead ones aren't offered.
+                            LiveLinkChecker.check(choices.mapNotNull { it.stream })
                             loading = false
                         }
                         is NetworkResult.Error -> {

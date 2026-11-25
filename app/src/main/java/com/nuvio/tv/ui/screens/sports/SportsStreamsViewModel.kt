@@ -14,7 +14,9 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SportsStreamsViewModel @Inject constructor(
-    private val discovery: SportsAddonDiscovery
+    private val discovery: SportsAddonDiscovery,
+    private val liveTv: SportsLiveTv,
+    private val hubSearch: SportsHubSearch,
 ) : ViewModel() {
     var matches by androidx.compose.runtime.mutableStateOf<List<SportsCatalogMatch>>(emptyList())
         private set
@@ -35,6 +37,12 @@ class SportsStreamsViewModel @Inject constructor(
     suspend fun findNflChannels(): List<SportsCatalogMatch> = discovery.findNflChannels()
 
     fun cachedNflChannels(): List<SportsCatalogMatch>? = discovery.cachedNflChannels()
+
+    fun cachedUsChannels(): List<SportsTvChannel>? = liveTv.peekChannels()
+    suspend fun usChannels(): List<SportsTvChannel> = liveTv.usChannels()
+    fun cachedLiveEvents(): List<SportsLiveEvent>? = liveTv.peekEvents()
+    suspend fun liveEvents(): List<SportsLiveEvent> = liveTv.liveEvents()
+    suspend fun searchAddons(query: String): List<SportsCatalogMatch> = hubSearch.addons(query)
 
     fun lookup(event: SportsEvent) {
         // Coming back from the stream picker re-opens the same game: keep what we found.

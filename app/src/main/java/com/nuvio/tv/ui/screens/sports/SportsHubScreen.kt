@@ -1,5 +1,15 @@
 package com.nuvio.tv.ui.screens.sports
 
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import com.nuvio.tv.ui.screens.stream.LinkHealth
+import com.nuvio.tv.ui.screens.stream.LiveLinkChecker
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -96,7 +106,8 @@ private val Muted = Color(0xFF9E998F)
 private val Soft = Color(0xFFCFC9BE)
 
 private enum class HubView(val label: String) {
-    ALL("All games"), CHANNELS("NFL Channels"), STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams")
+    ALL("All games"), LIVE_EVENTS("Live Events"), US_CHANNELS("US Channels"), CHANNELS("NFL Channels"),
+    STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams"), SEARCH("🔍 Search")
 }
 
 @Composable
@@ -117,6 +128,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     var multiviewFocus by remember { mutableStateOf<String?>(null) }
     var multiviewPending by remember { mutableStateOf<String?>(null) }
     var multiviewHelp by remember { mutableStateOf(false) }
+    // Games opened from search results (any league), so their details can be shown.
+    var searchGames by remember { mutableStateOf<List<SportsEvent>>(emptyList()) }
 
     LaunchedEffect(selectedLeague, lifecycleOwner) {
         board = repository.cached(selectedLeague)
@@ -197,6 +210,57 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 throw cancelled
             } catch (_: Exception) { emptyList() }
         }
+    }
+
+    // Every add-on's live events and US sports channels (same for any league tab), as on Mobile.
+    var liveEvents by remember { mutableStateOf(streamsViewModel.cachedLiveEvents()) }
+    var usChannels by remember { mutableStateOf(streamsViewModel.cachedUsChannels()) }
+    LaunchedEffect(view) {
+        try {
+            when (view) {
+                HubView.LIVE_EVENTS -> liveEvents = streamsViewModel.liveEvents()
+                HubView.US_CHANNELS -> usChannels = streamsViewModel.usChannels()
+                else -> Unit
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            if (view == HubView.LIVE_EVENTS && liveEvents == null) liveEvents = emptyList()
+            if (view == HubView.US_CHANNELS && usChannels == null) usChannels = emptyList()
+        }
+    }
+
+    // Search: teams ("packers", "brewers"), channels ("espn2"), events ("ufc").
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val searchText = searchQuery.trim()
+    val searchActive = view == HubView.SEARCH && searchText.length >= 2
+    var searchBoards by remember { mutableStateOf<List<SportsScoreboard>>(emptyList()) }
+    var searchAddonResults by remember { mutableStateOf<List<SportsCatalogMatch>?>(null) }
+    LaunchedEffect(searchActive) {
+        if (!searchActive) return@LaunchedEffect
+        // Today's games in every league (cached first, then fresh), plus channels and events.
+        val leagues = SportsLeague.entries.filter { it.scoreboardPath != null }
+        val boards = leagues.mapNotNull { repository.peek(it) }.toMutableList()
+        searchBoards = boards.toList()
+        coroutineScope {
+            launch { if (usChannels == null) usChannels = runCatching { streamsViewModel.usChannels() }.getOrNull() }
+            launch { if (liveEvents == null) liveEvents = runCatching { streamsViewModel.liveEvents() }.getOrNull() }
+            leagues.filter { lg -> boards.none { it.league == lg } }.map { lg ->
+                async { runCatching { repository.scoreboard(lg) }.getOrNull() }
+            }.awaitAll().filterNotNull().let { fresh -> searchBoards = boards + fresh }
+        }
+    }
+    LaunchedEffect(searchText, view) {
+        searchAddonResults = null
+        if (view != HubView.SEARCH || searchText.length < 2) return@LaunchedEffect
+        delay(600) // wait for typing to pause
+        searchAddonResults = try { streamsViewModel.searchAddons(searchText) } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { emptyList() }
+    }
+    val addToMultiview: (SportsCatalogMatch) -> Unit = { match ->
+        multiviewPending = match.title
+        multiviewViewModel.search(match)
     }
 
     var myTeamGames by remember { mutableStateOf<List<SportsEvent>?>(null) }
@@ -291,6 +355,72 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             }
 
             when {
+                view == HubView.LIVE_EVENTS -> {
+                    InfoPanel("Live events from all your add-ons · the same event from several add-ons is grouped")
+                    val list = liveEvents
+                    when {
+                        list == null -> InfoPanel("Searching your add-ons for live events…")
+                        list.isEmpty() -> InfoPanel("No live events found right now in your enabled add-ons.")
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            list.groupBy { it.sport }.forEach { (sport, inSport) ->
+                                SectionTitle("${sport.uppercase()} · ${inSport.size}", live = false)
+                                inSport.forEach { event ->
+                                    GroupedSources(event.title, event.sources, onOpenStream, addToMultiview)
+                                }
+                            }
+                        }
+                    }
+                }
+                view == HubView.US_CHANNELS -> {
+                    InfoPanel("US sports channels (ESPN, ESPN2, FS1, NFL Network…) from all your add-ons · foreign feeds left out")
+                    val list = usChannels
+                    when {
+                        list == null -> InfoPanel("Searching your add-ons for US sports channels…")
+                        list.isEmpty() -> InfoPanel("No US sports channels found in your enabled add-ons.")
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            list.forEach { channel ->
+                                GroupedSources(channel.name, channel.sources, onOpenStream, addToMultiview)
+                            }
+                        }
+                    }
+                }
+                view == HubView.SEARCH -> {
+                    SportsSearchField(searchQuery, onChange = { searchQuery = it })
+                    if (searchText.length < 2) {
+                        InfoPanel("Type a team (Packers, Brewers), a channel (ESPN2) or an event (UFC).")
+                    } else {
+                        val games = SportsHubSearch.games(searchText, searchBoards.flatMap { it.events } + events)
+                        val channels = usChannels?.let { SportsHubSearch.channels(searchText, it) }
+                        val foundEvents = liveEvents?.let { SportsHubSearch.events(searchText, it) }
+                        if (games.isNotEmpty()) {
+                            SectionTitle("GAMES · ${games.size}", live = false)
+                            games.take(30).forEach { event ->
+                                val requester = cardFocus.getOrPut(event.id) { FocusRequester() }
+                                GameCard(event, requester) { searchGames = games; selectedEventId = event.id }
+                            }
+                        }
+                        if (!channels.isNullOrEmpty()) {
+                            SectionTitle("CHANNELS · ${channels.size}", live = false)
+                            channels.forEach { GroupedSources(it.name, it.sources, onOpenStream, addToMultiview) }
+                        }
+                        if (!foundEvents.isNullOrEmpty()) {
+                            SectionTitle("LIVE EVENTS · ${foundEvents.size}", live = false)
+                            foundEvents.forEach { GroupedSources(it.title, it.sources, onOpenStream, addToMultiview) }
+                        }
+                        SectionTitle("FROM YOUR ADD-ONS" + (searchAddonResults?.let { " · ${it.size}" } ?: ""), live = false)
+                        val addonResults = searchAddonResults
+                        when {
+                            addonResults == null -> InfoPanel("Searching your add-ons for \"$searchText\"…")
+                            addonResults.isEmpty() -> InfoPanel("No add-on results for \"$searchText\".")
+                            else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                addonResults.forEach { match ->
+                                    SourceRow(match, verified = true) { onOpenStream(match) }
+                                    PanelButton("＋ Add to Multi-View", active = false) { addToMultiview(match) }
+                                }
+                            }
+                        }
+                    }
+                }
                 view == HubView.CHANNELS -> {
                     when {
                         nflChannels == null -> InfoPanel("Searching installed add-ons for NFL Network and RedZone…")
@@ -298,6 +428,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             nflChannels!!.forEach { match ->
                                 SourceRow(match, verified = true) { onOpenStream(match) }
+                                PanelButton("＋ Add to Multi-View", active = false) { addToMultiview(match) }
                             }
                         }
                     }
@@ -392,6 +523,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
 
     val selected = selectedEventId?.let { id ->
         events.firstOrNull { it.id == id } ?: myTeamGames?.firstOrNull { it.id == id }
+            ?: searchGames.firstOrNull { it.id == id }
     }
     if (selectedEventId != null) {
         val closeDetails = {
@@ -401,7 +533,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             id?.let { cardFocus[it] }?.let { runCatching { it.requestFocus() } }
             Unit
         }
-        val gameListsReady = shownBoard != null && (view != HubView.MY_TEAMS || myTeamGames != null)
+        val gameListsReady = shownBoard != null && (view != HubView.MY_TEAMS || myTeamGames != null) &&
+            (view != HubView.SEARCH || searchBoards.isNotEmpty())
         if (selected == null) {
             // Game dropped off the provider's scoreboard (e.g. league switched); just close.
             // Wait for the lists to load first, e.g. right after returning from a stream.
@@ -439,9 +572,26 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 if (!multiviewViewModel.loading && multiviewViewModel.choices.isEmpty()) {
                     InfoPanel("No direct playable links found. Try another source.")
                 }
+                // Same as Mobile: only links that answered the test are offered.
+                val allChoices = multiviewViewModel.choices
+                val health = allChoices.associate { it.id to (it.stream?.let(LiveLinkChecker::health) ?: LinkHealth.Ok) }
+                val working = allChoices.filter { health[it.id] == LinkHealth.Ok }
+                val testing = allChoices.count { health[it.id] == LinkHealth.Checking }
+                val dead = allChoices.count { health[it.id] == LinkHealth.Dead }
+                if (allChoices.isNotEmpty()) {
+                    Text(
+                        buildString {
+                            append(if (working.isEmpty() && testing > 0) "Testing links…" else "Pick a link · ${working.size} working")
+                            if (testing > 0 && working.isNotEmpty()) append(" · testing $testing more")
+                            if (dead > 0) append(" · $dead hidden (not working)")
+                        },
+                        color = Muted, fontSize = 14.sp,
+                    )
+                    if (working.isEmpty() && testing == 0) InfoPanel("None of these links are working right now. Try another stream.")
+                }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    multiviewViewModel.choices.forEach { choice ->
+                    working.forEach { choice ->
                         PanelButton(choice.addon + " · " + choice.label, active = false) {
                             val tile = TvMultiviewTile(choice.id, multiviewPending.orEmpty(), choice.url)
                             if (multiviewTiles.size == 4) multiviewTiles.removeAt(0)
@@ -919,6 +1069,26 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                                     }
                                 }
                             }
+                            event.status == SportsEventStatus.FINAL -> {
+                                // Same as Mobile: full games first, then the short highlight clips.
+                                val full = matches.filter { it.kind != SportsContentKind.HIGHLIGHT }
+                                val clips = matches.filter { it.kind == SportsContentKind.HIGHLIGHT }
+                                if (full.isNotEmpty()) {
+                                    Text("FULL GAME REPLAYS", color = CinemaGold.Base, fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold, letterSpacing = 1.8.sp)
+                                    full.take(12).forEach { match ->
+                                        SourceRow(match, verified = true) { onOpenStream(match) }
+                                    }
+                                }
+                                if (clips.isNotEmpty()) {
+                                    Text("HIGHLIGHTS", color = CinemaGold.Base, fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold, letterSpacing = 1.8.sp,
+                                        modifier = Modifier.padding(top = 6.dp))
+                                    clips.take(12).forEach { match ->
+                                        SourceRow(match, verified = true) { onOpenStream(match) }
+                                    }
+                                }
+                            }
                             else -> matches.take(12).forEach { match ->
                                 SourceRow(match, verified = true) { onOpenStream(match) }
                                 PanelButton("＋ Add to Multi-View", active = false) { onAddMultiview(match) }
@@ -1058,6 +1228,93 @@ private fun SourceRow(match: SportsCatalogMatch, verified: Boolean, onClick: () 
             Text(match.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(match.addon.displayName, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
+    }
+}
+
+/** A channel or event with one or more add-on links; more than one folds open on OK. */
+@Composable
+private fun GroupedSources(
+    title: String,
+    sources: List<SportsCatalogMatch>,
+    onOpenStream: (SportsCatalogMatch) -> Unit,
+    onAddToMultiview: (SportsCatalogMatch) -> Unit,
+) {
+    if (sources.size == 1) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SourceRow(sources.first().copy(title = title.takeIf { it.isNotBlank() } ?: sources.first().title), verified = true) {
+                onOpenStream(sources.first())
+            }
+            PanelButton("＋ Add to Multi-View", active = false) { onAddToMultiview(sources.first()) }
+        }
+        return
+    }
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(18.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth()
+                .focusGrow(focused, 1.03f)
+                .clip(shape)
+                .background(if (focused) CardFocused else Card)
+                .border(if (focused) 3.dp else 1.dp, if (focused) CinemaGold.Soft else CardBorder, shape)
+                .cinemaFocusShine(focused, strength = 0.14f)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${sources.size} links · " + sources.map { it.addon.displayName }.distinct().joinToString(),
+                    color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(if (expanded) "Hide ▲" else "Show ▼", color = CinemaGold.Base, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+        }
+        if (expanded) {
+            Column(Modifier.padding(start = 28.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                sources.forEach { source ->
+                    SourceRow(source, verified = true) { onOpenStream(source) }
+                    PanelButton("＋ Add to Multi-View", active = false) { onAddToMultiview(source) }
+                }
+            }
+        }
+    }
+}
+
+/** Search box: OK on the remote opens the TV keyboard; results update as you type. */
+@Composable
+private fun SportsSearchField(query: String, onChange: (String) -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(shape)
+            .background(if (focused) CardFocused else Card)
+            .border(if (focused) 3.dp else 1.dp, if (focused) CinemaGold.Soft else CardBorder, shape)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("🔍", fontSize = 18.sp)
+        Box(Modifier.weight(1f)) {
+            if (query.isEmpty()) Text("Search teams, channels, events…", color = Muted, fontSize = 17.sp)
+            BasicTextField(
+                value = query,
+                onValueChange = onChange,
+                singleLine = true,
+                textStyle = TextStyle(color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold),
+                cursorBrush = SolidColor(CinemaGold.Base),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+            )
+        }
+        if (query.isNotEmpty()) PanelButton("Clear", active = false) { onChange("") }
     }
 }
 

@@ -3,13 +3,13 @@ package com.nuvio.tv.ui.screens.sports
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.CatalogRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
@@ -76,40 +76,177 @@ class SportsAddonDiscovery @Inject constructor(
     ): DiscoveryResult = withContext(Dispatchers.Default) {
         val matcher = SportsEventMatcher.Prepared(events)
         val limit = Semaphore(8)
+        val useRecordingMetadata = replays && SportsRecordingClassifier.appliesTo(league)
+        // Live channels (CNCBridge etc.) carrying these games: their items are channel names, not game titles.
+        val channelTerms = if (replays) emptySet() else SportsChannelMatcher.terms(league, events)
+        val channelQueries = if (replays) emptyList() else SportsChannelMatcher.searchQueries(league, events)
+        val deepQueries = deepSearchQueries(league, events)
         val requests = addons.flatMap { addon ->
-            SportsAddonCatalogs.routes(addon, league, replays).mapNotNull { route ->
-                val catalog = addon.catalogs.firstOrNull { it.id == route.id && it.apiType == route.type }
-                    ?: return@mapNotNull null
-                val args = catalogArgs(catalog) ?: return@mapNotNull null
+            val listed = SportsAddonCatalogs.isListedProvider(addon)
+            SportsAddonCatalogs.routes(addon, league, replays).mapNotNull { catalog ->
+                val required = catalog.extra.filter { it.isRequired }
+                if (required.any { it.name !in setOf("search", "genre", "skip") }) return@mapNotNull null
+                val genres = SportsAddonCatalogs.genreValues(catalog, league)
+                if (genres.isEmpty()) return@mapNotNull null
+                val searchRequired = required.any { it.name == "search" }
+                val searchTerms: List<String?> = if (searchRequired) {
+                    // Unlisted live TV add-ons are only asked for the networks, not every team.
+                    if (listed) (deepQueries + channelQueries).distinct() else channelQueries
+                } else listOf(null)
+                if (searchTerms.isEmpty()) return@mapNotNull null
+                val skipRequired = required.any { it.name == "skip" }
                 async {
-                    val pages = searchQueries(catalog, league, events).map { query ->
+                    val firstPages = genres.flatMap { genre -> searchTerms.map { genre to it } }.map { (genre, term) ->
                         async {
                             limit.withPermit {
-                                inspectCatalog(addon, catalog,
-                                    if (query == null) args else args + ("search" to query),
-                                    league, matcher, replays, browsingLeague)
+                                fetchItems(addon, catalog, catalogArgs(genre, term, if (skipRequired) 0 else null))
                             }
                         }
                     }.awaitAll()
+                    val loaded = firstPages.filterNotNull()
+                    // Long live lists (hundreds of events) page with "skip": read a few more
+                    // pages so games further down the list aren't missed.
+                    val morePages = if (!searchRequired && catalog.extra.any { it.name == "skip" } &&
+                        loaded.size == 1 && loaded.first().size >= 20
+                    ) {
+                        buildList {
+                            var skip = loaded.first().size
+                            repeat(3) {
+                                val page = limit.withPermit {
+                                    fetchItems(addon, catalog, catalogArgs(genres.first(), null, skip))
+                                } ?: return@buildList
+                                add(page)
+                                if (page.size < 20) return@buildList
+                                skip += page.size
+                            }
+                        }
+                    } else emptyList()
+                    val items = (loaded + morePages).flatten().distinctBy { it.apiType to it.id }
+                    val unscoredAllowed = if (league.scoreboardPath == null) {
+                        SportsAddonCatalogs.isScopedCatalog(catalog, league)
+                    } else {
+                        (replays && isLeagueCatalog(catalog.id, league)) ||
+                            (!replays && SportsAddonCatalogs.isCncBridgeScopedCatalog(addon, catalog, league))
+                    }
+                    val scoped = SportsAddonCatalogs.isScopedCatalog(catalog, league)
+                    val found = mutableListOf<SportsCatalogMatch>()
+                    val browse = mutableListOf<SportsCatalogMatch>()
+                    for (item in items) {
+                        ensureActive()
+                        if (!SportsAddonCatalogs.supportsStream(addon, item.apiType, item.id)) continue
+                        // Replays: drop recordings labelled for another sport (MLB "Kansas City" in NFL).
+                        if (replays && !useRecordingMetadata && SportsAddonCatalogs.namesOtherSport(
+                                (item.genres + item.id.replace('_', ' ') + item.name +
+                                    catalog.id.replace('_', ' ') + catalog.name).joinToString(" "),
+                                league,
+                            )
+                        ) continue
+                        val gameScore = matcher.score(item.name)
+                        // A channel showing the game ranks after real game matches.
+                        val score = if (gameScore == 0 && SportsChannelMatcher.matches(item.name, channelTerms)) 1 else gameScore
+                        val kind = if (replays) SportsRecordingClassifier.kind(addon.id, catalog, item) else SportsContentKind.EVENT
+                        val candidate = SportsCatalogMatch(addon, catalog.id, item.apiType, item.id, item.name, score, kind)
+                        if (useRecordingMetadata) {
+                            if (SportsRecordingClassifier.accepts(addon.id, catalog, item, league, score)) found += candidate
+                        } else if (score > 0 || unscoredAllowed) {
+                            found += candidate
+                        } else if (!browsingLeague && scoped) {
+                            browse += candidate
+                        }
+                    }
                     CatalogMatches(
-                        matches = pages.flatMap { it.matches },
-                        browse = pages.flatMap { it.browse },
-                        itemCount = pages.sumOf { it.itemCount },
-                        failed = pages.isNotEmpty() && pages.all { it.failed },
+                        matches = found,
+                        browse = browse,
+                        itemCount = items.size,
+                        failed = firstPages.isNotEmpty() && loaded.isEmpty(),
                     )
                 }
             }
         }
         val pages = requests.awaitAll()
-        val matches = pages.flatMap { it.matches }.sortedByDescending { it.score }.distinctBy { it.identity() }
+        // Premium add-ons first (Sports Streams, Flix-Streams, StremVerse, Nebula), best match first within each.
+        val matches = pages.flatMap { it.matches }
+            .sortedWith(compareBy({ it.priority() }, { -it.score }))
+            .distinctBy { it.identity() }
         DiscoveryResult(
-            matches = if (browsingLeague) matches.groupBy { it.kind }.values.flatMap { it.take(40) } else matches,
-            browse = pages.flatMap { it.browse }.distinctBy { it.identity() }.take(20),
+            matches = if (useRecordingMetadata) matches.groupBy { it.kind }.values.flatMap { it.take(40) } else matches.take(40),
+            browse = pages.flatMap { it.browse }.sortedBy { it.priority() }.distinctBy { it.identity() }.take(20),
             catalogsChecked = pages.size,
             catalogItems = pages.sumOf { it.itemCount },
             catalogErrors = pages.count { it.failed },
         )
     }
+
+    /** One catalog page, or null when the add-on failed or timed out. */
+    private suspend fun fetchItems(
+        addon: Addon,
+        catalog: CatalogDescriptor,
+        args: Map<String, String>,
+    ): List<MetaPreview>? = try {
+        val response = withTimeoutOrNull(15_000) {
+            catalogRepository.getCatalog(
+                addonBaseUrl = addon.baseUrl,
+                addonId = addon.id,
+                addonName = addon.displayName,
+                catalogId = catalog.id,
+                catalogName = catalog.name,
+                type = catalog.apiType,
+                extraArgs = args,
+            ).first { it !is NetworkResult.Loading }
+        }
+        (response as? NetworkResult.Success)?.data?.items
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun catalogArgs(genre: String?, search: String?, skip: Int?): Map<String, String> = buildMap {
+        genre?.let { put("genre", it) }
+        search?.let { put("search", it) }
+        skip?.let { put("skip", it.toString()) }
+    }
+
+    /**
+     * Broader provider searches: a game may be indexed by its matchup, one team,
+     * an abbreviated team name, or its competition rather than ESPN's title.
+     * Returned items still require stream support and league/event filtering.
+     */
+    internal fun deepSearchQueries(league: SportsLeague, events: List<SportsEvent>): List<String> {
+        val competition = when (league) {
+            SportsLeague.COLLEGE_FOOTBALL -> listOf("College Football", "NCAA Football")
+            SportsLeague.NCAA_MEN -> listOf("NCAA Basketball", "College Basketball")
+            SportsLeague.NCAA_WOMEN -> listOf("Women's College Basketball")
+            SportsLeague.NFL -> listOf("NFL")
+            SportsLeague.NBA -> listOf("NBA")
+            SportsLeague.MLB -> listOf("MLB")
+            SportsLeague.NHL -> listOf("NHL")
+            SportsLeague.UFC -> listOf("UFC")
+            else -> listOf(league.label)
+        }
+        val liveFirst = events.sortedBy {
+            when (it.status) {
+                SportsEventStatus.LIVE -> 0
+                SportsEventStatus.SCHEDULED -> 1
+                else -> 2
+            }
+        }
+        val matches = liveFirst.flatMap { event ->
+            listOf(event.title, event.catalogMatchTitle.orEmpty()) +
+                event.competitors.flatMap { listOf(it.name, it.abbreviation.orEmpty()) }
+        }
+        return (matches + competition).map { it.trim() }
+            .filter { it.length >= 3 }.distinct().take(18)
+    }
+
+    private fun isLeagueCatalog(id: String, league: SportsLeague): Boolean = when (league) {
+        SportsLeague.NBA -> id.endsWith("_basketball")
+        SportsLeague.MLB -> id.endsWith("_baseball")
+        SportsLeague.NHL -> id.endsWith("_hockey")
+        else -> false
+    }
+
+    private fun SportsCatalogMatch.priority() = SportsAddonPriority.rank(addon.displayName, addon.name, addon.id)
 
     /**
      * Dedicated continuous NFL channel discovery, matching the Mobile 0.9.1 flow.
@@ -132,35 +269,26 @@ class SportsAddonDiscovery @Inject constructor(
         val limit = Semaphore(8)
         val requests = addons.flatMap { addon ->
             addon.catalogs.filter { catalog ->
-                val label = (catalog.id + " " + catalog.name + " " + addon.id + " " + addon.displayName)
+                val label = "${catalog.id} ${catalog.name}"
                 catalog.apiType in setOf("tv", "sport", "sports", "channel", "livetv", "live-tv", "live_tv") &&
                     !Regex("replays?|highlights?|recaps?", RegexOption.IGNORE_CASE).containsMatchIn(label) &&
-                    Regex("nfl|sport|live|channel|tv|cncbridge|cncverse|plavio", RegexOption.IGNORE_CASE)
-                        .containsMatchIn(label)
+                    (Regex("nfl|sport|live|channel|tv", RegexOption.IGNORE_CASE).containsMatchIn(label) ||
+                        Regex("sport|nfl|live|cncbridge|cncverse|ustv|usatv|plavio|flix", RegexOption.IGNORE_CASE)
+                            .containsMatchIn(addon.id + " " + addon.name))
             }.take(10).mapNotNull { catalog ->
-                val args = catalogArgs(catalog) ?: return@mapNotNull null
+                val required = catalog.extra.filter { it.isRequired }
+                if (required.any { it.name !in setOf("search", "genre", "skip") }) return@mapNotNull null
+                val genres = SportsAddonCatalogs.genreValues(catalog, SportsLeague.NFL)
+                if (genres.isEmpty()) return@mapNotNull null
+                val queries: List<String?> = if (required.any { it.name == "search" }) {
+                    listOf("NFL", "NFL Network", "NFL RedZone", "RedZone", "Football")
+                } else listOf(null)
+                val skip = if (required.any { it.name == "skip" }) 0 else null
                 async {
-                    val queries: List<String?> =
-                        if (catalog.extra.any { it.isRequired && it.name == "search" })
-                            listOf("NFL", "NFL Network", "NFL RedZone", "RedZone", "Football")
-                        else listOf(null)
-                    queries.map { query -> async {
-                        limit.withPermit {
-                            try {
-                                val response = withTimeoutOrNull(10_000) {
-                                    catalogRepository.getCatalog(
-                                        addonBaseUrl = addon.baseUrl,
-                                        addonId = addon.id,
-                                        addonName = addon.displayName,
-                                        catalogId = catalog.id,
-                                        catalogName = catalog.name,
-                                        type = catalog.apiType,
-                                        extraArgs = if (query == null) args else args + ("search" to query),
-                                    ).first { it !is NetworkResult.Loading }
-                                }
-                                if (response !is NetworkResult.Success) emptyList()
-                                else response.data.items.mapNotNull { item ->
-                                    ensureActive()
+                    genres.flatMap { genre -> queries.map { genre to it } }.map { (genre, query) ->
+                        async {
+                            limit.withPermit { fetchItems(addon, catalog, catalogArgs(genre, query, skip)) }.orEmpty()
+                                .mapNotNull { item ->
                                     if (nflChannelLabel(item.name) == null ||
                                         !SportsAddonCatalogs.supportsStream(addon, item.apiType, item.id)
                                     ) null else SportsCatalogMatch(
@@ -168,18 +296,17 @@ class SportsAddonDiscovery @Inject constructor(
                                         100, SportsContentKind.EVENT
                                     )
                                 }
-                            } catch (cancel: CancellationException) {
-                                throw cancel
-                            } catch (_: Exception) {
-                                emptyList()
-                            }
                         }
-                    } }.awaitAll().flatten()
+                    }.awaitAll().flatten()
                 }
             }
         }
         requests.awaitAll().flatten().distinctBy { it.identity() }
-            .sortedWith(compareBy({ if (nflChannelLabel(it.title) == "NFL RedZone") 0 else 1 }, { it.addon.displayName }))
+            .sortedWith(compareBy(
+                { if (nflChannelLabel(it.title) == "NFL RedZone") 0 else 1 },
+                { it.priority() },
+                { it.addon.displayName },
+            ))
             .take(20)
     }
 
@@ -191,90 +318,6 @@ class SportsAddonDiscovery @Inject constructor(
             "nflnetwork" in normalized || "nflchannel" in normalized -> "NFL Network"
             else -> null
         }
-    }
-
-    private suspend fun inspectCatalog(
-        addon: Addon,
-        catalog: CatalogDescriptor,
-        args: Map<String, String>,
-        league: SportsLeague,
-        matcher: SportsEventMatcher.Prepared,
-        replays: Boolean,
-        browsingLeague: Boolean,
-    ): CatalogMatches = coroutineScope {
-        try {
-            val response = withTimeoutOrNull(10_000) {
-                catalogRepository.getCatalog(
-                    addonBaseUrl = addon.baseUrl,
-                    addonId = addon.id,
-                    addonName = addon.displayName,
-                    catalogId = catalog.id,
-                    catalogName = catalog.name,
-                    type = catalog.apiType,
-                    extraArgs = args,
-                ).first { it !is NetworkResult.Loading }
-            }
-            if (response !is NetworkResult.Success) return@coroutineScope CatalogMatches(failed = true)
-            val scoped = SportsAddonCatalogs.isScopedCatalog(catalog, league)
-            val useRecordingMetadata = replays && SportsRecordingClassifier.appliesTo(league)
-            val found = mutableListOf<SportsCatalogMatch>()
-            val browse = mutableListOf<SportsCatalogMatch>()
-            for (item in response.data.items) {
-                ensureActive()
-                if (!SportsAddonCatalogs.supportsStream(addon, item.apiType, item.id)) continue
-                val score = matcher.score(item.name)
-                if (useRecordingMetadata && !SportsRecordingClassifier.accepts(addon.id, catalog, item, league, score)) continue
-                val kind = if (replays) SportsRecordingClassifier.kind(addon.id, catalog, item) else SportsContentKind.EVENT
-                val candidate = SportsCatalogMatch(addon, catalog.id, item.apiType, item.id, item.name, score, kind)
-                when {
-                    score > 0 || browsingLeague && (useRecordingMetadata || scoped || channelCatalog(catalog, item.name)) -> found += candidate
-                    !browsingLeague && scoped -> browse += candidate
-                }
-            }
-            CatalogMatches(found, browse, response.data.items.size)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            CatalogMatches(failed = true)
-        }
-    }
-
-    private fun channelCatalog(catalog: CatalogDescriptor, title: String): Boolean =
-        Regex("""(?i)channel|live.?tv|nfl.?network|red.?zone|espn|sports.?tv""")
-            .containsMatchIn(catalog.id + " " + catalog.name + " " + title)
-
-    private fun catalogArgs(catalog: CatalogDescriptor): Map<String, String>? {
-        val required = catalog.extra.filter { it.isRequired }
-        if (required.any { it.name !in setOf("genre", "skip", "search") }) return null
-        val genre = required.firstOrNull { it.name == "genre" }
-        val genreValue = genre?.options?.firstOrNull { it.equals("all", ignoreCase = true) }
-        if (genre != null && genreValue == null) return null
-        return buildMap {
-            genreValue?.let { put("genre", it) }
-            if (required.any { it.name == "skip" }) put("skip", "0")
-        }
-    }
-
-    /** Search-only sports catalogs need real game and league queries. */
-    private fun searchQueries(
-        catalog: CatalogDescriptor,
-        league: SportsLeague,
-        events: List<SportsEvent>,
-    ): List<String?> {
-        if (catalog.extra.none { it.isRequired && it.name == "search" }) return listOf(null)
-        val leagueTerms = when (league) {
-            SportsLeague.NFL -> listOf("NFL", "NFL Network", "NFL RedZone")
-            SportsLeague.COLLEGE_FOOTBALL -> listOf("College Football", "NCAA Football", "Wisconsin Badgers")
-            SportsLeague.NBA -> listOf("NBA")
-            SportsLeague.MLB -> listOf("MLB")
-            SportsLeague.NHL -> listOf("NHL")
-            SportsLeague.UFC -> listOf("UFC")
-            else -> listOf(league.label)
-        }
-        return (events.take(3).flatMap { event ->
-            listOf(event.title) + event.competitors.map { it.name }
-        } + leagueTerms).map { it.trim() }.filter { it.isNotEmpty() }
-            .distinct().take(8)
     }
 
     private fun SportsCatalogMatch.identity() = Triple(addon.baseUrl, contentType, streamId)

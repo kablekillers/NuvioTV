@@ -1,6 +1,5 @@
 package com.nuvio.tv.ui.screens.sports
 
-import com.nuvio.tv.data.remote.dto.MetaPreviewDto
 import com.nuvio.tv.domain.model.Addon
 import java.text.Normalizer
 import java.util.Locale
@@ -96,22 +95,4 @@ internal object SportsEventMatcher {
     }
 
     fun score(event: SportsEvent, catalogTitle: String): Int = Prepared(listOf(event)).score(catalogTitle)
-    fun matches(
-        event: SportsEvent,
-        addon: Addon,
-        route: SportsAddonCatalogs.CatalogRoute,
-        entries: List<MetaPreviewDto>
-    ): List<SportsCatalogMatch> {
-        if (!addon.enabled) return emptyList()
-        return entries.mapNotNull { entry ->
-            val id = entry.id?.trim().orEmpty()
-            val title = entry.name?.trim().orEmpty()
-            val type = entry.type?.takeIf { it.isNotBlank() } ?: route.type
-            if (title.isEmpty() || type != route.type ||
-                !SportsAddonCatalogs.supportsStream(addon, type, id)
-            ) return@mapNotNull null
-            val confidence = score(event, title)
-            if (confidence == 0) null else SportsCatalogMatch(addon, route.id, type, id, title, confidence)
-        }.sortedByDescending { it.score }
-    }
 }
