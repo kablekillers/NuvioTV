@@ -910,6 +910,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                             }
                             else -> matches.take(12).forEach { match ->
                                 SourceRow(match, verified = true) { onOpenStream(match) }
+                                PanelButton("＋ Add to Multi-View", active = false) { onAddMultiview(match) }
                             }
                         }
                     }
