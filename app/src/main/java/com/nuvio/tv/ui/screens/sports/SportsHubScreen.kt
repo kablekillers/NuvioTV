@@ -833,6 +833,35 @@ private fun statusLine(board: SportsScoreboard?, refreshFailed: Boolean, league:
     else "$base • Updated $time"
 }
 
+/** First tab in the sports row: every sport, Live Events and US Channels. */
+@Composable
+private fun AllSportsTab(active: Boolean, modifier: Modifier = Modifier, onSelect: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(50)
+    val textColor by animateColorAsState(if (focused || active) CinemaGold.Soft else Soft, label = "all_text")
+    Row(
+        modifier = modifier
+            .focusGrow(focused, 1.07f)
+            .border(
+                if (focused) 3.dp else 1.dp,
+                if (focused) CinemaGold.Soft else if (active) CinemaGold.Base.copy(alpha = 0.7f) else CardBorder,
+                shape
+            )
+            .background(if (focused || active) CardFocused else Card, shape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onSelect)
+            .padding(start = 8.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier.size(46.dp).cinemaSpinRing(active).padding(4.dp).clip(CircleShape).background(Color(0xFF141317)),
+            contentAlignment = Alignment.Center
+        ) { Text("★", color = CinemaGold.Base, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold) }
+        Text("All", color = textColor, fontSize = 15.sp, fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold)
+    }
+}
+
 @Composable
 private fun LeagueTab(league: SportsLeague, active: Boolean, modifier: Modifier = Modifier, onSelect: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
