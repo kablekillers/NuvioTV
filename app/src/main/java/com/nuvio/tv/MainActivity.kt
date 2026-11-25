@@ -429,6 +429,28 @@ open class MainActivity : ComponentActivity() {
                 }
             }
 
+            // On Android TV the activity usually stays alive in the background, so
+            // "reopening" the app resumes this same composition. If the account is
+            // signed out (Settings sign-out, revoked or expired session) after the
+            // QR step was already passed this session, reset the per-session gates
+            // so the QR sign-in screen comes back and, after signing in again,
+            // profile selection / PIN entry is not skipped.
+            var lastResolvedAuthWasAccount by remember { mutableStateOf<Boolean?>(null) }
+            LaunchedEffect(authState) {
+                when (authState) {
+                    is AuthState.FullAccount -> lastResolvedAuthWasAccount = true
+                    AuthState.SignedOut -> {
+                        if (lastResolvedAuthWasAccount == true) {
+                            onboardingCompletedThisSession = false
+                            hasSelectedProfileThisSession = false
+                            splashTriggered = false
+                        }
+                        lastResolvedAuthWasAccount = false
+                    }
+                    AuthState.Loading -> Unit
+                }
+            }
+
             LaunchedEffect(hasSeenAuthQrOnFirstLaunch, authState) {
                 if (hasSeenAuthQrOnFirstLaunch == false && authState is AuthState.FullAccount) {
                     appOnboardingDataStore.setHasSeenAuthQrOnFirstLaunch(true)
