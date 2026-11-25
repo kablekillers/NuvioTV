@@ -45,8 +45,15 @@ object KableKillersAccountPolicy {
         authState: AuthState,
         cloudLocks: Map<Int, Boolean>,
         cloudLocksConfirmed: Boolean,
-        householdLocks: Map<Int, Boolean> = emptyMap()
+        householdLocks: Map<Int, Boolean> = emptyMap(),
+        backupOnlyCustomer: Boolean = false
     ): Map<Int, Boolean> {
+        // A device signed in to the customer login only through the Kable Killers backup
+        // (Nuvio was down) follows the customer rules too, with Profile 1 always locked:
+        // it opens with the owner's restore PIN.
+        if (backupOnlyCustomer) {
+            return householdLocks.filterKeys { it != PRIMARY_PROFILE_ID } + (PRIMARY_PROFILE_ID to true)
+        }
         if (!isCustomerAccount(authState)) return cloudLocks
         val primaryLocked = cloudLocks[PRIMARY_PROFILE_ID] == true || !cloudLocksConfirmed
         return householdLocks.filterKeys { it != PRIMARY_PROFILE_ID } + (PRIMARY_PROFILE_ID to primaryLocked)
@@ -65,6 +72,6 @@ object KableKillersAccountPolicy {
         profileId == PRIMARY_PROFILE_ID || cloudProfilesEnabled(authState)
 
     /** PINs for this profile are saved on the device instead of the cloud. */
-    fun usesDevicePin(authState: AuthState, profileId: Int): Boolean =
-        profileId != PRIMARY_PROFILE_ID && isCustomerAccount(authState)
+    fun usesDevicePin(authState: AuthState, profileId: Int, backupOnlyCustomer: Boolean = false): Boolean =
+        profileId != PRIMARY_PROFILE_ID && (isCustomerAccount(authState) || backupOnlyCustomer)
 }

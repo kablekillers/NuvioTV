@@ -308,6 +308,9 @@ open class MainActivity : ComponentActivity() {
     lateinit var householdPinStore: com.nuvio.tv.data.local.HouseholdPinStore
 
     @Inject
+    lateinit var kableKillersBackupService: com.nuvio.tv.core.backup.KableKillersBackupService
+
+    @Inject
     lateinit var deviceSessionRegistration: DeviceSessionRegistration
 
     @Inject
@@ -454,12 +457,14 @@ open class MainActivity : ComponentActivity() {
             // profile counts as locked so a parent's lock is never skipped at startup.
             val householdPinStates by householdPinStore.lockedProfiles
                 .collectAsState(initial = null as Map<Int, Boolean>?)
-            val profilePinStates = remember(authState, cachedPinStates, pinStatesConfirmed, householdPinStates, profiles) {
+            val kkBackupState by kableKillersBackupService.state.collectAsState()
+            val profilePinStates = remember(authState, cachedPinStates, pinStatesConfirmed, householdPinStates, profiles, kkBackupState) {
                 com.nuvio.tv.core.sync.KableKillersAccountPolicy.enforcedPinLocks(
                     authState,
                     cachedPinStates,
                     pinStatesConfirmed,
-                    householdPinStates ?: profiles.associate { it.id to true }
+                    householdPinStates ?: profiles.associate { it.id to true },
+                    backupOnlyCustomer = kableKillersBackupService.isBackupOnlyCustomerDevice()
                 )
             }
 

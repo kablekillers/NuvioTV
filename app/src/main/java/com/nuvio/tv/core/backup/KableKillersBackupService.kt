@@ -26,22 +26,29 @@ import io.github.jan.supabase.auth.Auth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "KableKillersBackup"
 private const val SYNC_MIN_INTERVAL_MS = 10 * 60_000L
 private const val AUTO_RESTORE_MIN_INTERVAL_MS = 60 * 60_000L
+private const val FOLLOW_INTERVAL_MS = 2 * 60_000L
+private const val SEND_CHECK_INTERVAL_MS = 30_000L
 
 /**
  * Keeps this login's Profile 1 setup copied to the Kable Killers backup on
@@ -68,6 +75,7 @@ class KableKillersBackupService @Inject constructor(
     private val addonPreferences: AddonPreferences,
     private val addonRepository: AddonRepositoryImpl,
     private val pluginManager: PluginManager,
+    private val pluginSyncService: com.nuvio.tv.core.sync.PluginSyncService,
     private val collectionsDataStore: CollectionsDataStore,
     private val collectionSyncService: CollectionSyncService,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
@@ -81,6 +89,9 @@ class KableKillersBackupService @Inject constructor(
 
     @Volatile private var lastSyncAttemptMs = 0L
     @Volatile private var lastAutoRestoreMs = 0L
+    /** Nuvio's last sync failed, so the backup is the source of truth until it works again. */
+    @Volatile private var nuvioUnreachable = false
+    @Volatile private var loopsStarted = false
 
     val enabled: Boolean get() = client != null
     val state = store.state
@@ -90,9 +101,198 @@ class KableKillersBackupService @Inject constructor(
     fun onAppStart() {
         if (!enabled) return
         scope.launch { runCatching { ping() }.onFailure { Log.w(TAG, "Backup check-in failed: ${it.message}") } }
+        startLoops()
+    }
+
+    /**
+     * While Nuvio is down (or this device signed in through the backup), act like Nuvio:
+     * - every couple of minutes, apply any newer copy of Profile 1 from the backup (household
+     *   profiles read Profile 1's add-ons, plugins and rows, so they follow too);
+     * - when Profile 1 was changed on this device and this device may change it (owner login, or
+     *   unlocked with the restore PIN on the customer login), send the change to the backup.
+     */
+    private fun startLoops() {
+        if (loopsStarted) return
+        loopsStarted = true
+        scope.launch {
+            while (true) {
+                if (backupIsSourceOfTruth()) {
+                    runCatching { followBackup() }.onFailure { Log.w(TAG, "Following the backup failed: ${it.message}") }
+                }
+                delay(FOLLOW_INTERVAL_MS)
+            }
+        }
+        scope.launch {
+            while (true) {
+                delay(SEND_CHECK_INTERVAL_MS)
+                if (backupIsSourceOfTruth() && canChangeProfileOne()) {
+                    runCatching { sendProfileOneIfChanged() }.onFailure { Log.w(TAG, "Sending Profile 1 to the backup failed: ${it.message}") }
+                }
+            }
+        }
+    }
+
+    private fun backupIsSourceOfTruth(): Boolean =
+        enabled && store.deviceKey() != null &&
+            (nuvioUnreachable || authManager.authState.value !is AuthState.FullAccount)
+
+    /** The account this device belongs to on the backup (its Nuvio login, or the one it was approved for). */
+    fun backupAccountEmail(): String? =
+        (authManager.authState.value as? AuthState.FullAccount)?.email?.lowercase() ?: store.state.value.accountEmail?.lowercase()
+
+    /** On the customer login, Profile 1 needs the restore PIN while Nuvio is down; the owner's own login doesn't. */
+    fun canChangeProfileOne(): Boolean {
+        val email = backupAccountEmail() ?: return false
+        if (!email.equals(KableKillersAccountPolicy.SHARED_CUSTOMER_EMAIL, ignoreCase = true)) return true
+        return store.editToken() != null
+    }
+
+    /** Device signed in only through the backup (no Nuvio sign-in) on the customer login. */
+    fun isBackupOnlyCustomerDevice(): Boolean =
+        enabled && store.deviceKey() != null && authManager.authState.value !is AuthState.FullAccount &&
+            store.state.value.accountEmail.equals(KableKillersAccountPolicy.SHARED_CUSTOMER_EMAIL, ignoreCase = true)
+
+    /** Restore PIN unlock for Profile 1 while Nuvio can't check its own PIN. */
+    suspend fun unlockWithRestorePin(pin: String): Result<Unit> = runCatching {
+        val api = client ?: error("Backup isn't set up in this build")
+        val key = store.deviceKey() ?: error("This device isn't connected to the backup yet")
+        val response = api.post("/v1/unlock", buildJsonObject { put("pin", pin.trim()) }, bearer = key, deviceId = store.deviceId)
+        val token = response.string("edit_token") ?: error("Backup server didn't return an unlock")
+        store.saveEditToken(token, response.long("expires_at") ?: (System.currentTimeMillis() / 1000 + 3600))
+    }
+
+    /** Applies the backup's copy if it's newer than what this device has. */
+    private suspend fun followBackup() {
+        val api = client ?: return
+        val key = store.deviceKey() ?: return
+        val response = try {
+            api.post("/v1/ping", deviceBody(), bearer = key, deviceId = store.deviceId)
+        } catch (e: KableKillersBackupHttpException) {
+            if (e.status == 401) store.clearDeviceKey()
+            throw e
+        }
+        val latest = response.long("snapshot_id") ?: return
+        if (latest != store.lastAppliedSnapshotId) applyLatest()
+    }
+
+    private suspend fun applyLatest(): KableKillersRestoreSummary = restoreMutex.withLock {
+        val api = client ?: error("Backup isn't set up in this build")
+        val key = store.deviceKey() ?: error("This device isn't connected to the backup yet")
+        val text = try {
+            api.get("/v1/config", bearer = key, deviceId = store.deviceId)
+        } catch (e: KableKillersBackupHttpException) {
+            if (e.status == 401) store.clearDeviceKey()
+            throw e
+        }
+        val payload = json.decodeFromString(KableKillersBackupPayload.serializer(), text)
+        check(payload.schema == "kk-backup-v1") { "Unknown backup format" }
+        val signedInEmail = (authManager.authState.value as? AuthState.FullAccount)?.email
+        if (signedInEmail != null && !signedInEmail.equals(payload.accountEmail, ignoreCase = true)) {
+            error("This backup belongs to ${payload.accountEmail}, not $signedInEmail")
+        }
+        val summary = apply(payload)
+        payload.snapshotId?.let { store.lastAppliedSnapshotId = it }
+        store.localBaseline = runCatching { fingerprint(localProfileOneSurfaces()) }.getOrNull()
+        store.markRestore()
+        Log.i(TAG, "Applied backup copy ${payload.snapshotId}: $summary")
+        summary
+    }
+
+    /** Builds Profile 1's setup from this device, in the same shape Nuvio stores it. */
+    private suspend fun localProfileOneSurfaces(): JsonObject {
+        val urls = addonPreferences.installedAddonUrls.first()
+        val names = addonPreferences.userSetNames.first()
+        val enabledStates = addonPreferences.addonEnabledStates.first()
+        val repos = pluginManager.repositories.first()
+        val collectionsJson = collectionsDataStore.exportCurrentProfileJson()
+        val home = homeCatalogSettingsSyncService.localPayloadForBackup()
+        val settings = profileSettingsSyncService.exportProfileOneForBackup()
+        return buildJsonObject {
+            put("addons", buildJsonArray {
+                urls.forEachIndexed { index, url ->
+                    val canonical = canonicalAddonUrl(url)
+                    addJsonObject {
+                        put("url", url)
+                        put("sort_order", index)
+                        put("enabled", enabledStates[canonical] ?: true)
+                        (names[canonical] ?: names[url])?.takeIf { it.isNotBlank() }?.let { put("name", it) }
+                    }
+                }
+            })
+            put("plugins", buildJsonArray {
+                repos.forEachIndexed { index, repo ->
+                    addJsonObject {
+                        put("url", repo.url)
+                        put("name", repo.name)
+                        put("enabled", repo.enabled)
+                        put("sort_order", index)
+                        put("repo_type", repo.type.name)
+                    }
+                }
+            })
+            put("collections", buildJsonArray {
+                addJsonObject {
+                    put("profile_id", 1)
+                    put("collections_json", collectionsJson?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } ?: JsonArray(emptyList()))
+                }
+            })
+            put("home_catalog_settings", buildJsonArray {
+                addJsonObject {
+                    put("profile_id", 1)
+                    put("settings_json", json.encodeToJsonElement(SyncHomeCatalogPayload.serializer(), home))
+                }
+            })
+            put("profile_settings_tv", buildJsonArray {
+                addJsonObject {
+                    put("profile_id", 1)
+                    put("settings_json", settings)
+                }
+            })
+        }
+    }
+
+    private fun fingerprint(surfaces: JsonObject): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(surfaces.toString().toByteArray())
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun canonicalAddonUrl(url: String): String {
+        val trimmed = url.trim().trimEnd('/')
+        return if (trimmed.endsWith("/manifest.json", ignoreCase = true)) trimmed.dropLast("/manifest.json".length) else trimmed
+    }
+
+    /** Owner changed Profile 1 on this device while Nuvio is down: send it to the backup. */
+    private suspend fun sendProfileOneIfChanged() {
+        if (profileManager.activeProfileId.value != KableKillersAccountPolicy.PRIMARY_PROFILE_ID) return
+        val api = client ?: return
+        val key = store.deviceKey() ?: return
+        if (restoreMutex.isLocked) return
+        val surfaces = localProfileOneSurfaces()
+        val print = fingerprint(surfaces)
+        val baseline = store.localBaseline
+        if (baseline == null) {
+            // Nothing to compare with yet (first run on this version): just remember where we are.
+            store.localBaseline = print
+            return
+        }
+        if (print == baseline) return
+        val response = api.post(
+            path = "/v1/push",
+            body = buildJsonObject {
+                put("surfaces", surfaces)
+                store.editToken()?.let { put("edit_token", it) }
+            },
+            bearer = key,
+            deviceId = store.deviceId
+        )
+        store.localBaseline = print
+        response.long("snapshot_id")?.let { store.lastAppliedSnapshotId = it }
+        store.markBackup()
+        Log.i(TAG, "Sent Profile 1 changes to the backup (held_back=${response["held_back"]})")
     }
 
     fun onNuvioSyncSucceeded() {
+        nuvioUnreachable = false
         if (!enabled) return
         val now = System.currentTimeMillis()
         if (now - lastSyncAttemptMs < SYNC_MIN_INTERVAL_MS) return
@@ -102,6 +302,7 @@ class KableKillersBackupService @Inject constructor(
 
     /** Nuvio couldn't be reached at all. If Profile 1 is empty on this device, fill it from the backup. */
     fun onNuvioSyncFailed() {
+        nuvioUnreachable = true
         if (!enabled) return
         scope.launch {
             runCatching { autoRestoreIfEmpty() }.onFailure { Log.w(TAG, "Automatic restore failed: ${it.message}") }
@@ -121,6 +322,8 @@ class KableKillersBackupService @Inject constructor(
             body = deviceBody {
                 store.deviceKey()?.let { put("device_key", it) }
                 if (force) put("force", true)
+                put("applied_snapshot_id", store.lastAppliedSnapshotId)
+                put("can_upload", profileManager.activeProfileId.value == KableKillersAccountPolicy.PRIMARY_PROFILE_ID)
             },
             bearer = token
         )
@@ -129,6 +332,37 @@ class KableKillersBackupService @Inject constructor(
         } ?: store.saveAccount(account.email)
         store.markBackup()
         Log.d(TAG, "Backup saved (skipped=${response["skipped"]}, changed=${response["changed"]})")
+        handleOutageChanges(response, token)
+    }
+
+    /**
+     * Nuvio is back, but Profile 1 was changed on the backup while it was down, so Nuvio's copy is old
+     * (and this device's Nuvio pull just brought the old setup back). Put the backup's copy back on this
+     * device; if the backup picked this device, send it up to Nuvio too.
+     */
+    private suspend fun handleOutageChanges(response: JsonObject, token: String) {
+        val outage = response["outage_changes"] as? JsonObject ?: return
+        val snapshotId = outage.long("snapshot_id") ?: return
+        applyLatest()
+        if (outage["upload"]?.jsonPrimitive?.contentOrNull != "true") return
+        if (profileManager.activeProfileId.value != KableKillersAccountPolicy.PRIMARY_PROFILE_ID) return
+        Log.i(TAG, "Sending Profile 1 changes made during the Nuvio outage up to Nuvio")
+        addonSyncService.pushToRemote().getOrThrow()
+        pluginSyncService.pushToRemote().getOrThrow()
+        collectionSyncService.pushToRemote().getOrThrow()
+        homeCatalogSettingsSyncService.pushToRemote("kk-backup-outage-changes").getOrThrow()
+        profileSettingsSyncService.pushCurrentProfileToRemote().getOrThrow()
+        val api = client ?: return
+        api.post(
+            path = "/v1/sync",
+            body = deviceBody {
+                store.deviceKey()?.let { put("device_key", it) }
+                put("force", true)
+                put("uploaded_snapshot_id", snapshotId)
+            },
+            bearer = token
+        )
+        Log.i(TAG, "Nuvio has the outage changes again")
     }
 
     suspend fun ping() {
@@ -188,7 +422,7 @@ class KableKillersBackupService @Inject constructor(
                 val key = response.string("device_key") ?: error("Backup server didn't return a device key")
                 store.saveDeviceKey(key, response.string("account_email"))
                 // Signed in either way; the setup can also be restored later from Account settings.
-                val summary = restoreNow()
+                val summary = runCatching { applyLatest() }
                     .onFailure { Log.w(TAG, "Signed in with backup QR, but restore failed: ${it.message}") }
                     .getOrNull()
                 KableKillersBackupQrStatus.SignedIn(summary)
@@ -223,6 +457,8 @@ class KableKillersBackupService @Inject constructor(
                 error("This backup belongs to ${payload.accountEmail}, not $signedInEmail")
             }
             apply(payload).also {
+                payload.snapshotId?.let { id -> store.lastAppliedSnapshotId = id }
+                store.localBaseline = runCatching { fingerprint(localProfileOneSurfaces()) }.getOrNull()
                 store.markRestore()
                 Log.i(TAG, "Restored Profile 1 from backup: $it")
             }
