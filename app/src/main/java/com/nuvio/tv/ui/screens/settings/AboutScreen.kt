@@ -132,7 +132,8 @@ fun AboutSettingsContent(
                             )
 
                             Text(
-                                text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME),
+                                text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME) +
+                                    BuildConfig.TEST_BUILD_ID.takeIf { it.isNotBlank() }?.let { " · test $it" }.orEmpty(),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = NuvioTheme.colors.TextSecondary,
                                 textAlign = TextAlign.Center

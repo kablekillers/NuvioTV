@@ -211,6 +211,8 @@ android {
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
             buildConfigField("String", "SENTRY_ENVIRONMENT", buildConfigString("debug"))
+            // Test-build stamp shown in Settings > About so testers can tell builds apart.
+            buildConfigField("String", "TEST_BUILD_ID", buildConfigString((System.getenv("GITHUB_SHA") ?: "local").take(7)))
 
             // Dev environment (from local.dev.properties)
             buildConfigField("String", "SUPABASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_URL")))
@@ -246,6 +248,7 @@ android {
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
             buildConfigField("String", "SENTRY_ENVIRONMENT", buildConfigString("production"))
+            buildConfigField("String", "TEST_BUILD_ID", "\"\"")
 
             // Production environment (from local.properties)
             buildConfigField("String", "SUPABASE_URL", buildConfigString(localProperties.getProperty("NUVIO_SUPABASE_URL", "")))
@@ -278,6 +281,7 @@ android {
             )
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
             buildConfigField("String", "SENTRY_ENVIRONMENT", buildConfigString("benchmark"))
+            buildConfigField("String", "TEST_BUILD_ID", "\"\"")
             applicationIdSuffix = ".debug"
             matchingFallbacks += "release"
         }
