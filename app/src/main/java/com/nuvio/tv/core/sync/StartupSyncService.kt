@@ -634,7 +634,7 @@ class StartupSyncService @Inject constructor(
                 try {
                     homeCatalogSettingsSyncService.pullFromRemote()
                         .onSuccess { applied ->
-                            Log.d(TAG, "Home catalog settings pull completed for profile $profileId (applied=$applied)")
+                            Log.w(TAG, "Home catalog settings pull completed for profile $profileId (applied=$applied)")
                         }
                         .onFailure { e ->
                             Log.e(TAG, "Failed to pull home catalog settings from remote, keeping local", e)
