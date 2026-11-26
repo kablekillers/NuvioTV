@@ -44,8 +44,18 @@ class KkLiveServer @Inject constructor(
         val file = File(context.filesDir, "livetv/kk_channels.json")
         channels.save = { text -> file.parentFile?.mkdirs(); file.writeText(text) }
         channels.load = { file.takeIf { it.exists() }?.readText() }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        // When the links are found (first scan, or a refresh), Live TV re-reads the playlist.
+        channels.onScanned = {
+            scope.launch {
+                runCatching {
+                    livePrefs.playlists.first().firstOrNull { it.url == KkLiveChannels.PLAYLIST_URL }
+                        ?.let { liveRepository.refreshPlaylist(it.id) }
+                }
+            }
+        }
         server = runCatching { Server().also { it.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true) } }.getOrNull()
-        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch { followAddons() }
+        scope.launch { followAddons() }
     }
 
     /**
@@ -69,8 +79,8 @@ class KkLiveServer @Inject constructor(
                     } else if (playlist != null && flags.getString("addons_key", null) != key) {
                         // Only when the add-ons actually changed (not on every app start).
                         flags.edit().putString("addons_key", key).apply()
+                        // Live TV re-reads the playlist when this scan finishes (onScanned).
                         channels.channels(force = true)
-                        liveRepository.refreshPlaylist(playlist.id)
                     }
                 }
             }

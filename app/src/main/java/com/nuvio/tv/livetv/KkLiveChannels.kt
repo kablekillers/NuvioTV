@@ -74,7 +74,8 @@ class KkLiveChannels @Inject constructor(
 
     private suspend fun activeAddons(): List<Addon> = addonRepository.getInstalledAddons().first().filter { it.enabled }
 
-    fun addonsKey(addons: List<Addon>): String = addons.filter { it.enabled }.map { it.baseUrl }.sorted().joinToString(",")
+    fun addonsKey(addons: List<Addon>): String =
+        LINEUP_VERSION + addons.filter { it.enabled }.map { it.baseUrl }.sorted().joinToString(",")
 
     private fun liveCatalogs(addon: Addon): List<CatalogDescriptor> =
         addon.catalogs.filter { catalog ->
@@ -138,23 +139,23 @@ class KkLiveChannels @Inject constructor(
                         usGenres.isNotEmpty() -> usGenres.take(4).map { it to true }
                         genreExtra?.isRequired == true -> genreExtra.options.orEmpty()
                             .filterNot { otherCountry.containsMatchIn(it) }
-                            .take(14).map { it to false }
+                            .take(8).map { it to false }
                         else -> listOf(null to false)
                     }
                     asks.flatMap { (genre, genreIsUs) ->
-                        pages(addon, catalog, genre, maxPages = 12)
+                        pages(addon, catalog, genre, maxPages = 6)
                             .filter { SportsAddonCatalogs.supportsStream(addon, it.apiType, it.id) }
                             .mapNotNull { item ->
                                 val (name, nameSaysUs) = clean(item.name) ?: return@mapNotNull null
                                 if (otherCountry.containsMatchIn(name)) return@mapNotNull null
-                                val known = SportsLiveTv.usChannelName(item.name)
+                                // Only the classic cable lineup is kept.
+                                val core = KkCoreLineup.match(name) ?: return@mapNotNull null
                                 val itemGenresUs = item.genres.any { usLabel.containsMatchIn(it) && !otherCountry.containsMatchIn(it) }
                                 val itemGenresForeign = item.genres.any { otherCountry.containsMatchIn(it) } && !itemGenresUs
                                 val isUs = !itemGenresForeign &&
-                                    (nameSaysUs || known != null || itemGenresUs || genreIsUs || catalogIsUs || addonIsUs)
+                                    (nameSaysUs || itemGenresUs || genreIsUs || catalogIsUs || addonIsUs || !otherCountry.containsMatchIn(catalogText))
                                 if (!isUs) return@mapNotNull null
-                                val display = known ?: name
-                                Found(addon, item, display, groupOf(display, item.genres, genre))
+                                Found(addon, item, core.name, core.group)
                             }
                     }
                 }
@@ -209,8 +210,30 @@ class KkLiveChannels @Inject constructor(
         return entry
     }
 
-    /** The full scan of every add-on's live TV lists (about two minutes with many add-ons). */
+    private var running: kotlinx.coroutines.Deferred<List<KkLiveChannel>>? = null
+    private var runningKey: String? = null
+    /** Told when a scan finished with channels (the server refreshes Live TV's playlist). */
+    var onScanned: (() -> Unit)? = null
+
+    /** One scan at a time: callers asking while one runs for the same add-ons wait for it. */
     private suspend fun scan(addons: List<Addon>, key: String): List<KkLiveChannel> {
+        val job = lock.withLock {
+            running?.takeIf { it.isActive && runningKey == key }
+                ?: refreshScope.async { scanNow(addons, key) }.also { running = it; runningKey = key }
+        }
+        return job.await()
+    }
+
+    /** True when a channel list for the current add-ons is in memory or on disk. */
+    private suspend fun haveListFor(key: String) = lock.withLock { cache?.first == key } || savedFor(key) != null
+
+    /** The lineup with no links yet, so Live TV shows channels at once while the first scan runs. */
+    private fun lineupOnly(): List<KkLiveChannel> = KkCoreLineup.channels.map {
+        KkLiveChannel(slug = slugOfName(it.name), name = it.name, group = it.group, sources = emptyList())
+    }
+
+    /** The scan of every add-on's live TV lists for the lineup's channels. */
+    private suspend fun scanNow(addons: List<Addon>, key: String): List<KkLiveChannel> {
         val found = sweep(addons)
         val channels = found.groupBy { mergeKey(it.name) }
             .filterKeys { it.length >= 2 }
@@ -226,7 +249,7 @@ class KkLiveChannels @Inject constructor(
                         .distinctBy { Triple(it.addonBaseUrl, it.type, it.id) },
                 )
             }
-            .sortedWith(compareBy({ groupOrder.indexOf(it.group).let { i -> if (i < 0) groupOrder.size else i } }, { it.name.lowercase() }))
+            .sortedBy { c -> KkCoreLineup.channels.indexOfFirst { it.name == c.name }.let { if (it < 0) Int.MAX_VALUE else it } }
         // Slugs that stay the same from one refresh to the next (Live TV keys favorites by link).
         val used = HashSet<String>()
         val withSlugs = channels.map { channel ->
@@ -239,6 +262,7 @@ class KkLiveChannels @Inject constructor(
             val now = System.currentTimeMillis()
             lock.withLock { cache = Triple(key, now, withSlugs) }
             runCatching { save?.invoke(json.encodeToString(KkSavedChannels(key, now, withSlugs))) }
+            runCatching { onScanned?.invoke() }
         }
         // A sweep that came back empty (network hiccup): the last good list.
         return withSlugs.ifEmpty { cachedOrSaved().orEmpty() }
@@ -253,7 +277,15 @@ class KkLiveChannels @Inject constructor(
 
     /** The playlist Live TV reads. Fails when nothing was found, so Live TV tries again later. */
     suspend fun playlist(force: Boolean = false): String {
-        val list = channels(force)
+        val addons = activeAddons()
+        val key = addonsKey(addons)
+        // First time with these add-ons: the lineup right away, links found in the background.
+        val list = if (!force && !haveListFor(key)) {
+            refreshInBackground()
+            lineupOnly()
+        } else {
+            channels(force)
+        }
         if (list.isEmpty()) error("No US channels found in your add-ons yet")
         return buildString {
             append("#EXTM3U\n")
@@ -272,8 +304,10 @@ class KkLiveChannels @Inject constructor(
      * that are clearly dead, working ones first.
      */
     suspend fun resolve(slug: String): List<AddonStreamSource> = withContext(Dispatchers.Default) {
-        val channel = (cachedOrSaved() ?: channels()).firstOrNull { it.slug == slug }
-            ?: channels(force = true).firstOrNull { it.slug == slug }
+        val addonsNow = activeAddons()
+        val keyNow = addonsKey(addonsNow)
+        val known = if (haveListFor(keyNow)) channels() else scan(addonsNow, keyNow)
+        val channel = known.firstOrNull { it.slug == slug && it.sources.isNotEmpty() }
             ?: return@withContext emptyList()
         val addons = activeAddons().associateBy { it.baseUrl.trimEnd('/') }
         val candidates = coroutineScope {
@@ -314,6 +348,8 @@ class KkLiveChannels @Inject constructor(
         private const val CHANNEL_PREFIX = "$BASE/ch/"
         /** How old the channel list can get before it's scanned again in the background. */
         private const val TTL_MILLIS = 6 * 60 * 60_000L
+        /** Bumped when the lineup rules change, so lists saved under the old rules are rebuilt. */
+        private const val LINEUP_VERSION = "core1|"
 
         fun channelUrl(slug: String) = CHANNEL_PREFIX + slug
 
@@ -385,4 +421,135 @@ class KkLiveChannels @Inject constructor(
             return "Entertainment"
         }
     }
+}
+
+/** One channel of the classic cable lineup and the names add-ons use for it. */
+internal class KkCoreChannel(val name: String, val group: String, vararg aliases: String) {
+    val keys: Set<String> = (aliases.toList() + name).map { kkKey(it) }.toSet()
+}
+
+internal fun kkKey(name: String) = name.lowercase().replace("&", "and").replace("+", "plus").replace(Regex("[^a-z0-9]+"), "")
+
+/**
+ * The Kable Killers lineup: the core channels of a normal cable package from about ten years
+ * ago. Only these are kept from the add-ons, so the list stays short and loads fast.
+ */
+internal object KkCoreLineup {
+    val channels: List<KkCoreChannel> = listOf(
+        // Local networks
+        KkCoreChannel("ABC", "Local", "ABC East", "ABC West"),
+        KkCoreChannel("CBS", "Local", "CBS East", "CBS West"),
+        KkCoreChannel("NBC", "Local", "NBC East", "NBC West"),
+        KkCoreChannel("FOX", "Local", "FOX East", "FOX West", "FOX Network"),
+        KkCoreChannel("PBS", "Local"),
+        KkCoreChannel("The CW", "Local", "CW"),
+        // Sports
+        KkCoreChannel("ESPN", "Sports"),
+        KkCoreChannel("ESPN2", "Sports", "ESPN 2"),
+        KkCoreChannel("ESPNU", "Sports", "ESPN U"),
+        KkCoreChannel("ESPNews", "Sports", "ESPN News"),
+        KkCoreChannel("FS1", "Sports", "Fox Sports 1"),
+        KkCoreChannel("FS2", "Sports", "Fox Sports 2"),
+        KkCoreChannel("NFL Network", "Sports", "NFL Net"),
+        KkCoreChannel("NFL RedZone", "Sports", "RedZone", "NFL Red Zone"),
+        KkCoreChannel("NBA TV", "Sports"),
+        KkCoreChannel("MLB Network", "Sports", "MLB Net"),
+        KkCoreChannel("NHL Network", "Sports", "NHL Net"),
+        KkCoreChannel("Golf Channel", "Sports", "Golf"),
+        KkCoreChannel("Tennis Channel", "Sports", "Tennis"),
+        KkCoreChannel("CBS Sports Network", "Sports", "CBS Sports", "CBSSN"),
+        KkCoreChannel("SEC Network", "Sports", "SECN"),
+        KkCoreChannel("Big Ten Network", "Sports", "BTN", "Big Ten"),
+        KkCoreChannel("ACC Network", "Sports", "ACCN"),
+        // News
+        KkCoreChannel("CNN", "News", "CNN USA"),
+        KkCoreChannel("HLN", "News", "Headline News"),
+        KkCoreChannel("Fox News", "News", "Fox News Channel", "FNC"),
+        KkCoreChannel("MSNBC", "News", "MS NOW"),
+        KkCoreChannel("CNBC", "News"),
+        KkCoreChannel("Fox Business", "News", "Fox Business Network", "FBN"),
+        KkCoreChannel("Bloomberg", "News", "Bloomberg TV", "Bloomberg Television"),
+        KkCoreChannel("The Weather Channel", "News", "Weather Channel", "TWC"),
+        KkCoreChannel("C-SPAN", "News", "CSPAN", "C-SPAN 1"),
+        // Entertainment
+        KkCoreChannel("TBS", "Entertainment"),
+        KkCoreChannel("TNT", "Entertainment"),
+        KkCoreChannel("USA Network", "Entertainment", "USA"),
+        KkCoreChannel("FX", "Entertainment"),
+        KkCoreChannel("FXX", "Entertainment"),
+        KkCoreChannel("AMC", "Entertainment"),
+        KkCoreChannel("A&E", "Entertainment", "A and E", "AE", "A&E Network"),
+        KkCoreChannel("Bravo", "Entertainment"),
+        KkCoreChannel("E!", "Entertainment", "E Entertainment", "E! Entertainment"),
+        KkCoreChannel("Syfy", "Entertainment", "Sci Fi"),
+        KkCoreChannel("Comedy Central", "Entertainment"),
+        KkCoreChannel("Paramount Network", "Entertainment", "Spike", "Spike TV"),
+        KkCoreChannel("TLC", "Entertainment"),
+        KkCoreChannel("Discovery Channel", "Entertainment", "Discovery"),
+        KkCoreChannel("History", "Entertainment", "History Channel"),
+        KkCoreChannel("Lifetime", "Entertainment"),
+        KkCoreChannel("Hallmark Channel", "Entertainment", "Hallmark"),
+        KkCoreChannel("Food Network", "Entertainment", "Food"),
+        KkCoreChannel("HGTV", "Entertainment"),
+        KkCoreChannel("Travel Channel", "Entertainment", "Travel"),
+        KkCoreChannel("Animal Planet", "Entertainment"),
+        KkCoreChannel("National Geographic", "Entertainment", "Nat Geo", "National Geographic Channel"),
+        KkCoreChannel("truTV", "Entertainment", "Tru TV"),
+        KkCoreChannel("Freeform", "Entertainment", "ABC Family"),
+        KkCoreChannel("Investigation Discovery", "Entertainment", "ID", "Investigation Discovery ID"),
+        KkCoreChannel("OWN", "Entertainment", "Oprah Winfrey Network"),
+        KkCoreChannel("Oxygen", "Entertainment", "Oxygen True Crime"),
+        KkCoreChannel("WE tv", "Entertainment", "WE"),
+        KkCoreChannel("TV Land", "Entertainment"),
+        KkCoreChannel("Game Show Network", "Entertainment", "GSN"),
+        KkCoreChannel("Science Channel", "Entertainment", "Science"),
+        KkCoreChannel("Sundance TV", "Entertainment", "SundanceTV", "Sundance"),
+        KkCoreChannel("IFC", "Entertainment"),
+        // Movies
+        KkCoreChannel("HBO", "Movies", "HBO East"),
+        KkCoreChannel("Cinemax", "Movies", "Cinemax East"),
+        KkCoreChannel("Showtime", "Movies", "Showtime East", "SHO"),
+        KkCoreChannel("Starz", "Movies", "Starz East"),
+        KkCoreChannel("TCM", "Movies", "Turner Classic Movies"),
+        KkCoreChannel("FXM", "Movies", "FX Movie Channel"),
+        KkCoreChannel("Hallmark Movies & Mysteries", "Movies", "Hallmark Movies and Mysteries", "HMM"),
+        KkCoreChannel("Lifetime Movies", "Movies", "LMN", "Lifetime Movie Network"),
+        // Kids
+        KkCoreChannel("Disney Channel", "Kids", "Disney", "Disney East"),
+        KkCoreChannel("Disney Junior", "Kids", "Disney Jr"),
+        KkCoreChannel("Disney XD", "Kids"),
+        KkCoreChannel("Nickelodeon", "Kids", "Nick", "Nickelodeon East"),
+        KkCoreChannel("Nick Jr.", "Kids", "Nick Jr", "Nick Junior"),
+        KkCoreChannel("Nicktoons", "Kids"),
+        KkCoreChannel("Cartoon Network", "Kids", "Cartoon Network East"),
+        KkCoreChannel("Boomerang", "Kids"),
+        KkCoreChannel("Discovery Family", "Kids"),
+        // Music
+        KkCoreChannel("MTV", "Music", "MTV East"),
+        KkCoreChannel("MTV2", "Music", "MTV 2"),
+        KkCoreChannel("VH1", "Music"),
+        KkCoreChannel("CMT", "Music", "Country Music Television"),
+        KkCoreChannel("BET", "Music", "Black Entertainment Television"),
+    )
+
+    private val byKey: Map<String, KkCoreChannel> = buildMap { channels.forEach { c -> c.keys.forEach { putIfAbsent(it, c) } } }
+    private val suffixes = listOf("east", "west", "usa", "us", "hd", "channel", "network", "tv", "eastern", "pacific")
+    private val localNetwork = Regex("""^\s*(abc|cbs|nbc|fox|pbs|cw)\b(?!\s*(news|sports?|business|kids|life|soul|weather|deportes|family|movies?))""", RegexOption.IGNORE_CASE)
+
+    /** The lineup channel a (cleaned) add-on name stands for, or null when it isn't in the lineup. */
+    fun match(name: String): KkCoreChannel? {
+        var key = kkKey(name)
+        byKey[key]?.let { return it }
+        // "ESPN HD", "TBS East", "History Channel US"…: drop trailing feed words one at a time.
+        repeat(3) {
+            val suffix = suffixes.firstOrNull { key.endsWith(it) && key.length > it.length + 1 } ?: return@repeat
+            key = key.removeSuffix(suffix)
+            byKey[key]?.let { return it }
+        }
+        // Local affiliates ("ABC 7 New York", "NBC (WNBC)") all count as that network.
+        localNetwork.find(name)?.let { m -> return byKey[kkKey(m.groupValues[1])] }
+        return null
+    }
+
+    fun groupRank(group: String) = listOf("Local", "Sports", "News", "Entertainment", "Movies", "Kids", "Music").indexOf(group)
 }
