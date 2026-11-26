@@ -22,7 +22,7 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 private const val COMING_UP_MAX_SHOWS = 40
-private const val COMING_UP_DAYS_AHEAD = 30L
+private const val COMING_UP_DAYS_AHEAD = 60L
 private const val COMING_UP_REFRESH_MS = 6 * 60 * 60 * 1000L
 
 /**
@@ -34,9 +34,14 @@ private const val COMING_UP_REFRESH_MS = 6 * 60 * 60 * 1000L
 internal fun HomeViewModel.observeLibraryComingUp() {
     viewModelScope.launch {
         // Keyed to the profile so a switch always rebuilds from that profile's Library.
-        libraryRepository.libraryItems
-            .map { items ->
-                profileManager.activeProfileId.value to items
+        // Combined with the profile so a profile picked after the Library loaded still rebuilds
+        // (the profile switch clears the row; before, nothing refilled it).
+        kotlinx.coroutines.flow.combine(
+            libraryRepository.libraryItems,
+            profileManager.activeProfileId
+        ) { items, profileId -> profileId to items }
+            .map { (profileId, items) ->
+                profileId to items
                     .filter { it.type.equals("series", true) || it.type.equals("tv", true) }
                     .map { Triple(it.id, it.type, it.name) }
                     .distinct()
