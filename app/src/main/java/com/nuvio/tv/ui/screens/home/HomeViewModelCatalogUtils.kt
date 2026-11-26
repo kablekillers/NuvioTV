@@ -364,6 +364,10 @@ internal fun CatalogDescriptor.isSearchOnlyCatalog(): Boolean {
 
 internal fun CatalogDescriptor.shouldShowOnHome(): Boolean {
     if (isSearchOnlyCatalog()) return false
+    // Same rule as Kable Killers Mobile: a list that needs a required extra (genre, league,
+    // ids…) is never a Home row. Mobile never shows these, so they can't be hidden there,
+    // and the TV showed them on every profile.
+    if (extra.any { it.isRequired }) return false
     return !hasExplicitShowInHome || showInHome
 }
 
