@@ -233,6 +233,20 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                 .map { catalog -> addon to catalog }
         }
 
+        // Tester diagnostics: are the saved hidden-row keys matching this TV's catalogs?
+        runCatching {
+            val homeCatalogs = addons.flatMap { a -> a.catalogs.filter { it.shouldShowOnHome() }.map { a to it } }
+            val tvKeys = homeCatalogs.map { (a, c) -> catalogKey(addonId = a.id, type = c.apiType, catalogId = c.id) }.toSet()
+            val matched = disabledHomeCatalogKeys.count { it in tvKeys }
+            android.util.Log.w(
+                "HomeHiddenRows",
+                "addons=${addons.size} homeCatalogs=${homeCatalogs.size} loading=${catalogsToLoad.size} " +
+                    "hiddenSaved=${disabledHomeCatalogKeys.size} hiddenMatched=$matched " +
+                    "tvSample=${tvKeys.take(12)} hiddenSample=${disabledHomeCatalogKeys.filterNot { it in tvKeys }.take(12)} " +
+                    "addonIds=${addons.map { it.id }.take(40)}"
+            )
+        }
+
         // Load hero-selected catalogs even if disabled from home rows —
         // the hero has its own catalog source independent of home rows.
         val alreadyLoadingKeys = catalogsToLoad.map { (addon, catalog) ->
