@@ -82,8 +82,26 @@ internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.disabledHomeCatalogKeys.collectLatest { keys ->
             val newKeys = keys.toSet()
-            if (newKeys == disabledHomeCatalogKeys) return@collectLatest
+            if (newKeys == disabledHomeCatalogKeys) {
+                disabledHomeCatalogKeysReady.complete(Unit)
+                return@collectLatest
+            }
             disabledHomeCatalogKeys = newKeys
+            disabledHomeCatalogKeysReady.complete(Unit)
+            // Rows already on screen that are now hidden (e.g. hidden rows synced from the phone
+            // after Home started loading) are taken off; before, they stayed until a restart.
+            synchronized(catalogStateLock) {
+                val hiddenKeys = catalogsMap.filterValues { row ->
+                    isCatalogDisabled(
+                        addonBaseUrl = row.addonBaseUrl,
+                        addonId = row.addonId,
+                        type = row.apiType,
+                        catalogId = row.catalogId,
+                        catalogName = row.catalogName
+                    )
+                }.keys.toList()
+                hiddenKeys.forEach { catalogsMap.remove(it) }
+            }
             rebuildCatalogOrder(addonsCache)
             if (addonsCache.isNotEmpty()) {
                 loadAllCatalogsPipeline(addonsCache)
@@ -144,6 +162,8 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     addons: List<Addon>,
     forceReload: Boolean = false
 ) {
+    // Never load before the saved hidden rows are known (otherwise hidden rows show up first).
+    kotlinx.coroutines.withTimeoutOrNull(4_000L) { disabledHomeCatalogKeysReady.await() }
     val signature = buildHomeCatalogLoadSignature(addons)
     val hasActiveLoads = synchronized(activeCatalogLoadJobs) { activeCatalogLoadJobs.any { it.isActive } }
     if (!forceReload &&
@@ -231,20 +251,6 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                     )
                 }
                 .map { catalog -> addon to catalog }
-        }
-
-        // Tester diagnostics: are the saved hidden-row keys matching this TV's catalogs?
-        runCatching {
-            val homeCatalogs = addons.flatMap { a -> a.catalogs.filter { it.shouldShowOnHome() }.map { a to it } }
-            val tvKeys = homeCatalogs.map { (a, c) -> catalogKey(addonId = a.id, type = c.apiType, catalogId = c.id) }.toSet()
-            val matched = disabledHomeCatalogKeys.count { it in tvKeys }
-            android.util.Log.w(
-                "HomeHiddenRows",
-                "addons=${addons.size} homeCatalogs=${homeCatalogs.size} loading=${catalogsToLoad.size} " +
-                    "hiddenSaved=${disabledHomeCatalogKeys.size} hiddenMatched=$matched " +
-                    "tvSample=${tvKeys.take(12)} hiddenSample=${disabledHomeCatalogKeys.filterNot { it in tvKeys }.take(12)} " +
-                    "addonIds=${addons.map { it.id }.take(40)}"
-            )
         }
 
         // Load hero-selected catalogs even if disabled from home rows —
