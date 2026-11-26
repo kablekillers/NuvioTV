@@ -325,7 +325,8 @@ final class OkHttpCommons {
             if (enableProfiler) {
                 addProfiler(okBuilder);
             }
-            addLogger(okBuilder);
+            // Kable Killers: BODY logging copied whole YouTube player scripts (several MB) into
+            // memory on every request and pushed 1 GB Fire Sticks out of heap mid-playback.
         }
     }
 
