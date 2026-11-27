@@ -57,14 +57,18 @@ class SportsStreamsViewModel @Inject constructor(
         job = viewModelScope.launch {
             try {
                 val isFinal = event.status == SportsEventStatus.FINAL || event.kind == SportsContentKind.REPLAY
+                // Links appear as each add-on answers instead of after the slowest one.
+                val showPartial: (List<SportsCatalogMatch>) -> Unit = { partial ->
+                    viewModelScope.launch { if (loading && partial.size >= matches.size) matches = partial }
+                }
                 val result = if (isFinal) {
                     coroutineScope {
-                        val recordings = async { discovery.discover(event, replays = true) }
+                        val recordings = async { discovery.discover(event, replays = true, onPartial = showPartial) }
                         val live = async { discovery.discover(event) }
                         recordings.await().takeIf { it.matches.isNotEmpty() } ?: live.await()
                     }
                 } else {
-                    discovery.discover(event)
+                    discovery.discover(event, onPartial = showPartial)
                 }
                 matches = result.matches
                 browse = result.browse

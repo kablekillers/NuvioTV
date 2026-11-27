@@ -287,6 +287,7 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                     }
                 }
                 reportServerPlayback()
+                trackLinkMemory()
                 delay(500)
                 continue
             }
@@ -374,6 +375,7 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                 }
             }
             reportServerPlayback()
+            trackLinkMemory()
             delay(500)
         }
     }

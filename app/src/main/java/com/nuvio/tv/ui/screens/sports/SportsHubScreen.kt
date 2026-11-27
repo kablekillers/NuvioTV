@@ -1183,7 +1183,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                     Column(Modifier.weight(0.45f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         DetailHeading("WATCH GAME")
                         when {
-                            loading -> InfoPanel("Searching installed sports add-ons…")
+                            loading && matches.isEmpty() -> InfoPanel("Searching installed sports add-ons…")
                             error != null -> InfoPanel(error)
                             matches.isEmpty() -> {
                                 InfoPanel("No exact game match found in installed add-ons.")
@@ -1221,6 +1221,9 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                                 SourceRow(match, verified = true) { onOpenStream(match) }
                                 PanelButton("＋ Add to Multi-View", active = false) { onAddMultiview(match) }
                             }
+                        }
+                        if (loading && matches.isNotEmpty()) {
+                            Text("Still checking more add-ons…", color = Muted, fontSize = 12.sp)
                         }
                     }
                     Column(Modifier.weight(0.55f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1380,7 +1383,14 @@ private fun SourceRow(match: SportsCatalogMatch, verified: Boolean, onClick: () 
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(match.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(match.addon.displayName, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            val worked = remember(match) {
+                com.nuvio.tv.core.links.LinkMemory.workedBefore(match.streamId, match.title, match.addon.displayName)
+            }
+            Text(
+                if (worked) "${match.addon.displayName}  ·  ✓ Worked last time" else match.addon.displayName,
+                color = if (worked) CinemaGold.Soft else Muted,
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
+            )
         }
     }
 }

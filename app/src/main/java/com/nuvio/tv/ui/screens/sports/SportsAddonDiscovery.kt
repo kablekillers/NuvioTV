@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -38,8 +39,12 @@ class SportsAddonDiscovery @Inject constructor(
         val failed: Boolean = false,
     )
 
-    suspend fun discover(event: SportsEvent, replays: Boolean = false): DiscoveryResult =
-        discover(event.league, listOf(event), replays, browsingLeague = false)
+    suspend fun discover(
+        event: SportsEvent,
+        replays: Boolean = false,
+        onPartial: ((List<SportsCatalogMatch>) -> Unit)? = null,
+    ): DiscoveryResult =
+        discover(event.league, listOf(event), replays, browsingLeague = false, onPartial = onPartial)
 
     suspend fun discoverLeague(league: SportsLeague, events: List<SportsEvent>, replays: Boolean): List<SportsCatalogMatch> =
         discover(league, events, replays, browsingLeague = true).matches
@@ -49,6 +54,7 @@ class SportsAddonDiscovery @Inject constructor(
         events: List<SportsEvent>,
         replays: Boolean,
         browsingLeague: Boolean,
+        onPartial: ((List<SportsCatalogMatch>) -> Unit)? = null,
     ): DiscoveryResult {
         val addons = addonRepository.getInstalledAddons().first().filter { it.enabled }
         // Keyed by game IDs (not scores), so live score refreshes and re-opening
@@ -59,7 +65,7 @@ class SportsAddonDiscovery @Inject constructor(
             addons.map { it.baseUrl }.sorted().joinToString(","),
         ).joinToString("|")
         cachedResult(key)?.let { return it }
-        val result = discoverUncached(addons, league, events, replays, browsingLeague)
+        val result = discoverUncached(addons, league, events, replays, browsingLeague, onPartial)
         // Don't keep a result where every add-on failed (e.g. network blip).
         if (result.catalogsChecked == 0 || result.catalogErrors < result.catalogsChecked) {
             storeResult(key, result)
@@ -73,6 +79,7 @@ class SportsAddonDiscovery @Inject constructor(
         events: List<SportsEvent>,
         replays: Boolean,
         browsingLeague: Boolean,
+        onPartial: ((List<SportsCatalogMatch>) -> Unit)? = null,
     ): DiscoveryResult = withContext(Dispatchers.Default) {
         val matcher = SportsEventMatcher.Prepared(events)
         val limit = Semaphore(8)
@@ -164,11 +171,20 @@ class SportsAddonDiscovery @Inject constructor(
                 }
             }
         }
+        // Faster links (like Mobile): show what each add-on found as soon as it answers.
+        if (onPartial != null) {
+            val answered = java.util.concurrent.ConcurrentLinkedQueue<CatalogMatches>()
+            requests.forEach { request ->
+                launch {
+                    val page = runCatching { request.await() }.getOrNull() ?: return@launch
+                    if (page.matches.isEmpty()) return@launch
+                    answered += page
+                    runCatching { onPartial(ranked(answered.flatMap { it.matches }).take(40)) }
+                }
+            }
+        }
         val pages = requests.awaitAll()
-        // Premium add-ons first (Sports Streams, Flix-Streams, StremVerse, Nebula), best match first within each.
-        val matches = pages.flatMap { it.matches }
-            .sortedWith(compareBy({ it.priority() }, { -it.score }))
-            .distinctBy { it.identity() }
+        val matches = ranked(pages.flatMap { it.matches })
         DiscoveryResult(
             matches = if (useRecordingMetadata) matches.groupBy { it.kind }.values.flatMap { it.take(40) } else matches.take(40),
             browse = pages.flatMap { it.browse }.sortedBy { it.priority() }.distinctBy { it.identity() }.take(20),
@@ -177,6 +193,15 @@ class SportsAddonDiscovery @Inject constructor(
             catalogErrors = pages.count { it.failed },
         )
     }
+
+    /**
+     * Premium add-ons first (Sports Streams, Flix-Streams, StremVerse, Nebula), best match first
+     * within each; then links that worked here before move to the top (Remember what works).
+     */
+    private fun ranked(matches: List<SportsCatalogMatch>): List<SportsCatalogMatch> =
+        matches.sortedWith(compareBy({ it.priority() }, { -it.score }))
+            .distinctBy { it.identity() }
+            .sortedByDescending { com.nuvio.tv.core.links.LinkMemory.score(it.streamId, it.title, it.addon.displayName) }
 
     /** One catalog page, or null when the add-on failed or timed out. */
     private suspend fun fetchItems(

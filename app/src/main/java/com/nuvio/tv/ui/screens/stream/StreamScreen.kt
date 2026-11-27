@@ -432,6 +432,10 @@ fun StreamScreen(
             val shownStreams = if (!liveCheck) uiState.filteredStreams else uiState.filteredStreams
                 .filter { !hideDead || LiveLinkChecker.health(it) != LinkHealth.Dead }
                 .sortedBy { SportsAddonPriority.rank(it.addonName, it.sourceAddonId) }
+                // Remember what works: links that played here before go first.
+                .sortedByDescending {
+                    com.nuvio.tv.core.links.LinkMemory.score(uiState.videoId, uiState.title, it.addonName, it.name ?: it.addonName)
+                }
             // Content overlay
             Row(
                 modifier = Modifier.fillMaxSize()
