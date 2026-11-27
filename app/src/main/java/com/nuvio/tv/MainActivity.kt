@@ -1776,6 +1776,7 @@ private fun LegacySidebarScaffold(
                     hideBuiltInHeaders = hideBuiltInHeaders
                 )
                 com.nuvio.tv.ui.components.TvWhatsNewHost()
+                com.nuvio.tv.ui.components.TvMessageBoardHost()
             }
         }
     }
@@ -2187,6 +2188,7 @@ private fun ModernSidebarScaffold(
                     hideBuiltInHeaders = hideBuiltInHeaders
                 )
                 com.nuvio.tv.ui.components.TvWhatsNewHost()
+                com.nuvio.tv.ui.components.TvMessageBoardHost()
             }
         }
 
