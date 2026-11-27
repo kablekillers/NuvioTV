@@ -83,6 +83,21 @@ class SportsStreamsViewModel @Inject constructor(
         }
     }
 
+    private var prefetchJob: Job? = null
+
+    /** Looks up links for live games in the background (cached), a few at a time. */
+    fun prefetchLive(events: List<SportsEvent>) {
+        prefetchJob?.cancel()
+        if (events.isEmpty()) return
+        prefetchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(3_000)
+            events.take(8).forEach { event ->
+                runCatching { discovery.discover(event) }
+                    .onFailure { if (it is CancellationException) throw it }
+            }
+        }
+    }
+
     fun clear() {
         job?.cancel()
         loadedEventId = null

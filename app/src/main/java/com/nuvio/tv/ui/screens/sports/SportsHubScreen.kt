@@ -251,6 +251,14 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         }
     }
 
+    // Background search for live games (like Mobile): links for games on now are looked up
+    // ahead of time, so opening one shows its links right away.
+    val liveNowIds = (if (allTab) allBoards?.flatMap { it.events }.orEmpty() else events)
+        .filter { it.status == SportsEventStatus.LIVE }
+    LaunchedEffect(liveNowIds.map { it.id }.sorted().joinToString(",")) {
+        streamsViewModel.prefetchLive(liveNowIds)
+    }
+
     var nflChannels by remember { mutableStateOf<List<SportsCatalogMatch>?>(null) }
     LaunchedEffect(view, selectedLeague) {
         if (view == HubView.CHANNELS && selectedLeague == SportsLeague.NFL) {
