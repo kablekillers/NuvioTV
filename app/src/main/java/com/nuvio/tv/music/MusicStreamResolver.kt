@@ -88,10 +88,27 @@ object MusicStreamResolver {
     fun resolve(videoId: String): ResolvedMusicStream {
         cached(videoId)?.let { return it }
         if (MusicAddonRegistry.isAddonTrack(videoId)) return resolveAddon(videoId)
+        return resolveWith(videoId, AccountScope.MUSIC).also {
+            if (cache.size >= 64) cache.clear()
+            cache[videoId] = it
+        }
+    }
+
+    /**
+     * A video for the YouTube tab, with the YouTube tab's own sign-in. Played in the app's own
+     * player: YouTube's web player in a WebView asks TVs to "sign in to confirm you're not a bot"
+     * and its sign-in button can't be used with a remote.
+     */
+    fun resolveVideo(context: Context, videoId: String): ResolvedMusicStream {
+        init(context)
+        return resolveWith(videoId, AccountScope.ONETUBE)
+    }
+
+    private fun resolveWith(videoId: String, scope: AccountScope): ResolvedMusicStream {
         val context = appContext ?: error("MusicStreamResolver.init() has not been called")
-        // Music has its own YouTube sign-in. Make the engine hold Music's profiles before asking
-        // for the stream; otherwise it resolves with whichever profile OneTube used last.
-        val manager = YouTubeAccountScopes.engine(context, AccountScope.MUSIC)
+        // Music and the YouTube tab each have their own YouTube sign-in. Make the engine hold the
+        // right profiles before asking for the stream.
+        val manager = YouTubeAccountScopes.engine(context, scope)
 
         runCatching { manager.resetPlaybackClient() }
         var info = manager.mediaItemService.getFormatInfoObserve(videoId).blockingFirst()
@@ -130,10 +147,7 @@ object MusicStreamResolver {
             "resolved $videoId client=${info.clientInfo?.clientName} " +
                 "dash=${info.containsDashFormats()} hls=${info.containsHlsUrl()}"
         )
-        val resolved = ResolvedMusicStream(videoId, url, headers, mimeType)
-        if (cache.size >= 64) cache.clear()
-        cache[videoId] = resolved
-        return resolved
+        return ResolvedMusicStream(videoId, url, headers, mimeType)
     }
 
     /** Drops every cached stream; used when playback keeps failing. */
