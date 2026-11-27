@@ -1778,6 +1778,7 @@ private fun LegacySidebarScaffold(
                 com.nuvio.tv.ui.components.TvWhatsNewHost()
                 com.nuvio.tv.ui.components.TvMessageBoardHost()
                 com.nuvio.tv.ui.screens.sports.SportsGameAlertsHost()
+                com.nuvio.tv.core.vpn.KkVpnConsentHost()
             }
         }
     }
@@ -2191,6 +2192,7 @@ private fun ModernSidebarScaffold(
                 com.nuvio.tv.ui.components.TvWhatsNewHost()
                 com.nuvio.tv.ui.components.TvMessageBoardHost()
                 com.nuvio.tv.ui.screens.sports.SportsGameAlertsHost()
+                com.nuvio.tv.core.vpn.KkVpnConsentHost()
             }
         }
 

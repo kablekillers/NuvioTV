@@ -53,6 +53,11 @@
         android:supportsRtl="true"
         android:localeConfig="@xml/locale_config"
         android:theme="@style/Theme.MyApplication">
+        <!-- Kable Killers VPN (IPVanish WireGuard), same declaration as Nuvio One. -->
+        <service android:name="com.wireguard.android.backend.GoBackend$VpnService" android:enabled="true">
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
+        </service>
+
 
         <!-- Live TV (from Nuvio One): keeps the launcher's home screen rows up to date. -->
         <receiver

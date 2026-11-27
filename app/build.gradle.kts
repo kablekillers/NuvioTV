@@ -552,6 +552,8 @@ dependencies {
     // QR code + local server for addon management
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
+    // Kable Killers VPN: WireGuard tunnel (IPVanish WireGuard profiles), same library as Nuvio One.
+    implementation("com.wireguard.android:tunnel:1.0.20260102")
 
 
     // Supabase

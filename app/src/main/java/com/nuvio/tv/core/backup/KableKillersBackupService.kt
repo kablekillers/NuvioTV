@@ -49,6 +49,7 @@ private const val SYNC_MIN_INTERVAL_MS = 10 * 60_000L
 private const val AUTO_RESTORE_MIN_INTERVAL_MS = 60 * 60_000L
 private const val FOLLOW_INTERVAL_MS = 2 * 60_000L
 private const val SEND_CHECK_INTERVAL_MS = 30_000L
+private const val VPN_CHECK_INTERVAL_MS = 2 * 60_000L
 
 /**
  * Keeps this login's Profile 1 setup copied to the Kable Killers backup on
@@ -120,6 +121,14 @@ class KableKillersBackupService @Inject constructor(
                     runCatching { followBackup() }.onFailure { Log.w(TAG, "Following the backup failed: ${it.message}") }
                 }
                 delay(FOLLOW_INTERVAL_MS)
+            }
+        }
+        // Kable Killers VPN sent from the owner's backup page to this device (or removed there).
+        scope.launch {
+            delay(15_000)
+            while (true) {
+                runCatching { checkVpnDelivery() }.onFailure { Log.w(TAG, "VPN check failed: ${it.message}") }
+                delay(VPN_CHECK_INTERVAL_MS)
             }
         }
         scope.launch {
@@ -363,6 +372,28 @@ class KableKillersBackupService @Inject constructor(
             bearer = token
         )
         Log.i(TAG, "Nuvio has the outage changes again")
+    }
+
+    /** Picks up a VPN profile (or a removal) the owner sent to this device. */
+    private suspend fun checkVpnDelivery() {
+        val api = client ?: return
+        val key = store.deviceKey() ?: return
+        val response = api.post("/v1/vpn", deviceBody {
+            put("vpn_profile", com.nuvio.tv.core.vpn.KkVpn.state.value.hasProfile)
+            put("vpn_on", com.nuvio.tv.core.vpn.KkVpn.state.value.enabled)
+        }, bearer = key, deviceId = store.deviceId)
+        when (response.string("action")) {
+            "set" -> {
+                val conf = response.string("conf") ?: return
+                val error = com.nuvio.tv.core.vpn.KkVpn.importProfile(conf, source = "remote", enable = true)
+                if (error != null) Log.w(TAG, "VPN profile from the backup wasn't usable: $error")
+                else Log.i(TAG, "VPN profile received from the backup")
+            }
+            "remove" -> {
+                com.nuvio.tv.core.vpn.KkVpn.remove()
+                Log.i(TAG, "VPN removed by the owner")
+            }
+        }
     }
 
     suspend fun ping() {

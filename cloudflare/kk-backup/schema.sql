@@ -83,3 +83,20 @@ CREATE TABLE IF NOT EXISTS upload_leases (
   snapshot_id INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
+
+-- Kable Killers VPN sent from the owner page to one device (IPVanish WireGuard .conf, encrypted).
+-- Held only until that device collects it, then deleted. action: set | remove.
+CREATE TABLE IF NOT EXISTS vpn_pushes (
+  device_id TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  payload TEXT,
+  created_at INTEGER NOT NULL
+);
+
+-- What each device last reported about its VPN (shown on the owner page).
+CREATE TABLE IF NOT EXISTS device_vpn (
+  device_id TEXT PRIMARY KEY,
+  has_profile INTEGER NOT NULL DEFAULT 0,
+  is_on INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);

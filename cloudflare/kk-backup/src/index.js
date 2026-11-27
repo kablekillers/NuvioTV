@@ -11,12 +11,14 @@
 //   POST /v1/push      device key (+ edit token) + Profile 1 setup -> new copy every device follows
 //   POST /v1/qr/start  device info         -> backup QR code for when Nuvio is down
 //   POST /v1/qr/poll   code + poll token   -> waiting / approved (device key) / denied / expired
+//   POST /v1/vpn       device key          -> VPN profile (or removal) the owner sent to this device
 // QR link page (owner scans and approves): /link/<code>
 // Owner page: /admin (password = ADMIN_PASSWORD secret)
 
 import { handleAdmin } from "./admin.js";
 import { handleLinkPage, handleQrPoll, handleQrStart } from "./qr.js";
 import { handlePush, handleUnlock } from "./edit.js";
+import { collectVpn } from "./vpn.js";
 import { captureProfileOne, NuvioUnauthorized, NuvioUnavailable, verifyNuvioUser } from "./nuvio.js";
 import {
   authenticateDevice, clearPinFailures, clearUploadLease, getCurrent, originOf, pinBlocked, recordPinFailure,
@@ -127,6 +129,14 @@ async function handleConfig(request, env) {
   return json({ snapshot_id: current.snapshot_id, saved_at: current.created_at, ...payload });
 }
 
+async function handleVpn(request, env) {
+  const device = await deviceFromRequest(request, env);
+  if (!device) return json({ error: "Unknown or blocked device" }, 401);
+  const body = await readJson(request).catch(() => ({}));
+  await touchDevice(env.DB, device.id, { info: deviceInfo(body), country: country(request) });
+  return json(await collectVpn(env.DB, env, device.id, { hasProfile: body.vpn_profile === true, on: body.vpn_on === true }));
+}
+
 async function handlePinLogin(request, env) {
   if (!env.RESTORE_PIN || String(env.RESTORE_PIN).length < 6) {
     return json({ error: "Restore PIN sign-in is turned off" }, 503);
@@ -170,6 +180,7 @@ export default {
         case "POST /v1/push": return await handlePush(request, env);
         case "POST /v1/qr/start": return await handleQrStart(request, env, url);
         case "POST /v1/qr/poll": return await handleQrPoll(request, env);
+        case "POST /v1/vpn": return await handleVpn(request, env);
         default: return json({ error: "Not found" }, 404);
       }
     } catch (error) {
