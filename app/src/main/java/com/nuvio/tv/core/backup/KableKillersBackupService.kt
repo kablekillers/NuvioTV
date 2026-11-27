@@ -49,7 +49,7 @@ private const val SYNC_MIN_INTERVAL_MS = 10 * 60_000L
 private const val AUTO_RESTORE_MIN_INTERVAL_MS = 60 * 60_000L
 private const val FOLLOW_INTERVAL_MS = 2 * 60_000L
 private const val SEND_CHECK_INTERVAL_MS = 30_000L
-private const val VPN_CHECK_INTERVAL_MS = 2 * 60_000L
+private const val VPN_CHECK_INTERVAL_MS = 30 * 60_000L
 
 /**
  * Keeps this login's Profile 1 setup copied to the Kable Killers backup on
@@ -123,11 +123,12 @@ class KableKillersBackupService @Inject constructor(
                 delay(FOLLOW_INTERVAL_MS)
             }
         }
-        // Kable Killers VPN sent from the owner's backup page to this device (or removed there).
+        // Built-in VPN: this TV's config from the owner's pool (on start, then every 30 minutes).
+        com.nuvio.tv.core.vpn.KkVpn.poolSync = { scope.launch { runCatching { syncVpnFromPool() } } }
         scope.launch {
-            delay(15_000)
+            delay(10_000)
             while (true) {
-                runCatching { checkVpnDelivery() }.onFailure { Log.w(TAG, "VPN check failed: ${it.message}") }
+                runCatching { syncVpnFromPool() }.onFailure { Log.w(TAG, "VPN pool check failed: ${it.message}") }
                 delay(VPN_CHECK_INTERVAL_MS)
             }
         }
@@ -374,26 +375,28 @@ class KableKillersBackupService @Inject constructor(
         Log.i(TAG, "Nuvio has the outage changes again")
     }
 
-    /** Picks up a VPN profile (or a removal) the owner sent to this device. */
-    private suspend fun checkVpnDelivery() {
+    /**
+     * Built-in VPN from the owner's pool (same as Kable Killers Mobile): this TV gets its own
+     * IPVanish WireGuard config the first time it asks and keeps it. A config added by hand from a
+     * phone is never replaced. If the owner took the config back, it is removed from this TV.
+     */
+    suspend fun syncVpnFromPool() {
         val api = client ?: return
         val key = store.deviceKey() ?: return
-        val response = api.post("/v1/vpn", deviceBody {
-            put("vpn_profile", com.nuvio.tv.core.vpn.KkVpn.state.value.hasProfile)
-            put("vpn_on", com.nuvio.tv.core.vpn.KkVpn.state.value.enabled)
-        }, bearer = key, deviceId = store.deviceId)
-        when (response.string("action")) {
-            "set" -> {
-                val conf = response.string("conf") ?: return
-                val error = com.nuvio.tv.core.vpn.KkVpn.importProfile(conf, source = "remote", enable = true)
-                if (error != null) Log.w(TAG, "VPN profile from the backup wasn't usable: $error")
-                else Log.i(TAG, "VPN profile received from the backup")
+        val vpn = com.nuvio.tv.core.vpn.KkVpn
+        val current = vpn.state.value
+        if (current.hasProfile && current.source != "pool") return
+        val response = try {
+            api.post("/v1/vpn/claim", buildJsonObject { }, bearer = key, deviceId = store.deviceId)
+        } catch (e: KableKillersBackupHttpException) {
+            when (e.status) {
+                404, 401 -> if (vpn.state.value.source == "pool") vpn.remove()
             }
-            "remove" -> {
-                com.nuvio.tv.core.vpn.KkVpn.remove()
-                Log.i(TAG, "VPN removed by the owner")
-            }
+            return
         }
+        val config = response.string("config") ?: return
+        val error = vpn.importFromPool(config)
+        if (error != null) Log.w(TAG, "VPN config from the pool wasn't usable: $error")
     }
 
     suspend fun ping() {

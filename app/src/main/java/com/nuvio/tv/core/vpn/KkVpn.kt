@@ -30,7 +30,7 @@ import javax.crypto.spec.GCMParameterSpec
 data class KkVpnState(
     /** A WireGuard profile (e.g. IPVanish) is saved on this TV. */
     val hasProfile: Boolean = false,
-    /** Where the profile came from: "remote" (sent by Kable Killers) or "phone". */
+    /** Where the profile came from: "pool" (Kable Killers' config pool) or "phone". */
     val source: String? = null,
     /** The customer wants it on. */
     val enabled: Boolean = false,
@@ -101,6 +101,19 @@ object KkVpn {
         _state.update { it.copy(hasProfile = true, source = source, server = server, enabled = enable, error = null) }
         if (enable) connect() else disconnect()
         return null
+    }
+
+    /** Asks the backup for this TV's config from the owner's pool (set by the backup service). */
+    @Volatile var poolSync: (() -> Unit)? = null
+
+    /**
+     * A config from the owner's pool. Saved only when it changed; the customer's on/off choice is
+     * kept (a new TV starts with the VPN off until the customer turns it on).
+     */
+    fun importFromPool(text: String): String? {
+        val stored = prefs()?.getString("profile", null)?.let { runCatching { decrypt(it) }.getOrNull() }
+        if (stored?.trim() == text.trim() && _state.value.source == "pool") return null
+        return importProfile(text, source = "pool", enable = _state.value.enabled)
     }
 
     fun remove() {

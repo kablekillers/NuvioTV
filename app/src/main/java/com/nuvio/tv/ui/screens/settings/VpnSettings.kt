@@ -74,7 +74,13 @@ internal fun VpnSettingsContent(initialFocusRequester: FocusRequester? = null) {
                         modifier = if (initialFocusRequester != null) Modifier.focusRequester(initialFocusRequester) else Modifier,
                     )
                 } else {
-                    SettingsNote(text = "No VPN set up on this TV yet. Kable Killers can send it to this TV, or add it from your phone below.")
+                    SettingsActionRow(
+                        title = "Get the Kable Killers VPN",
+                        subtitle = "Gets this TV's VPN from Kable Killers. If none is free yet, ask Kable Killers or add your own from a phone below.",
+                        leadingIcon = Icons.Default.VpnKey,
+                        onClick = { KkVpn.poolSync?.invoke() },
+                        modifier = if (initialFocusRequester != null) Modifier.focusRequester(initialFocusRequester) else Modifier,
+                    )
                 }
             }
             SettingsGroupCard(title = "VPN profile") {
@@ -83,12 +89,11 @@ internal fun VpnSettingsContent(initialFocusRequester: FocusRequester? = null) {
                     subtitle = "Scan a QR code with a phone on the same Wi-Fi and send your IPVanish WireGuard (.conf) file.",
                     leadingIcon = Icons.Default.PhoneAndroid,
                     onClick = { showPhone = true },
-                    modifier = if (!state.hasProfile && initialFocusRequester != null) Modifier.focusRequester(initialFocusRequester) else Modifier,
                 )
                 if (state.hasProfile) {
                     SettingsActionRow(
                         title = "Remove VPN profile",
-                        subtitle = if (state.source == "remote") "Sent by Kable Killers." else "Added from a phone.",
+                        subtitle = if (state.source == "pool") "From Kable Killers. It comes back on the next check unless Kable Killers takes it back." else "Added from a phone.",
                         leadingIcon = Icons.Default.Delete,
                         onClick = { confirmRemove = true },
                     )
