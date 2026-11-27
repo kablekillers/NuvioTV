@@ -83,3 +83,16 @@ CREATE TABLE IF NOT EXISTS upload_leases (
   snapshot_id INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
+
+-- Built-in VPN: IPVanish WireGuard configs the owner uploaded on /admin.
+-- Each device gets its own config (device_id) the first time it asks and keeps it.
+CREATE TABLE IF NOT EXISTS vpn_configs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sha256 TEXT NOT NULL UNIQUE,
+  config TEXT NOT NULL,
+  label TEXT,
+  created_at INTEGER NOT NULL,
+  device_id TEXT UNIQUE,
+  assigned_at INTEGER,
+  delivered_at INTEGER
+);

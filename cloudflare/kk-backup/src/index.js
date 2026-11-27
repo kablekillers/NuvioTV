@@ -11,12 +11,14 @@
 //   POST /v1/push      device key (+ edit token) + Profile 1 setup -> new copy every device follows
 //   POST /v1/qr/start  device info         -> backup QR code for when Nuvio is down
 //   POST /v1/qr/poll   code + poll token   -> waiting / approved (device key) / denied / expired
+//   POST /v1/vpn/claim device key          -> this device's built-in VPN config (from the owner's pool)
 // QR link page (owner scans and approves): /link/<code>
 // Owner page: /admin (password = ADMIN_PASSWORD secret)
 
 import { handleAdmin } from "./admin.js";
 import { handleLinkPage, handleQrPoll, handleQrStart } from "./qr.js";
 import { handlePush, handleUnlock } from "./edit.js";
+import { claimConfig } from "./vpn.js";
 import { captureProfileOne, NuvioUnauthorized, NuvioUnavailable, verifyNuvioUser } from "./nuvio.js";
 import {
   authenticateDevice, clearPinFailures, clearUploadLease, getCurrent, originOf, pinBlocked, recordPinFailure,
@@ -152,6 +154,14 @@ async function handlePinLogin(request, env) {
   return json({ ok: true, device_key: registration.key, account_email: email });
 }
 
+async function handleVpnClaim(request, env) {
+  const device = await deviceFromRequest(request, env);
+  if (!device) return json({ error: "Unknown or blocked device" }, 401);
+  const row = await claimConfig(env.DB, device.id);
+  if (!row) return json({ error: "No VPN configs are available right now", code: "pool_empty" }, 404);
+  return json({ ok: true, config_id: row.id, label: row.label, config: row.config });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -170,6 +180,7 @@ export default {
         case "POST /v1/push": return await handlePush(request, env);
         case "POST /v1/qr/start": return await handleQrStart(request, env, url);
         case "POST /v1/qr/poll": return await handleQrPoll(request, env);
+        case "POST /v1/vpn/claim": return await handleVpnClaim(request, env);
         default: return json({ error: "Not found" }, 404);
       }
     } catch (error) {
