@@ -288,7 +288,8 @@ class KkLiveChannels @Inject constructor(
         }
         if (list.isEmpty()) error("No US channels found in your add-ons yet")
         return buildString {
-            append("#EXTM3U\n")
+            // Free daily US TV guide (XMLTV); Live TV matches it to channels by name.
+            append("#EXTM3U x-tvg-url=\"").append(GUIDE_URL).append("\"\n")
             list.forEach { c ->
                 val name = c.name.replace(",", " ").replace("\"", "'")
                 append("#EXTINF:-1 tvg-id=\"kk.").append(c.slug).append("\" tvg-name=\"").append(name).append('"')
@@ -350,6 +351,8 @@ class KkLiveChannels @Inject constructor(
         private const val TTL_MILLIS = 6 * 60 * 60_000L
         /** Bumped when the lineup rules change, so lists saved under the old rules are rebuilt. */
         private const val LINEUP_VERSION = "core1|"
+        /** epgshare01's US guide: rebuilt daily, about four days ahead. */
+        const val GUIDE_URL = "https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz"
 
         fun channelUrl(slug: String) = CHANNEL_PREFIX + slug
 
