@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -126,6 +127,9 @@ object MusicPlayer {
         fastProgress = enabled
     }
 
+    private val isFireTv: Boolean =
+        android.os.Build.MANUFACTURER.equals("Amazon", ignoreCase = true) || android.os.Build.MODEL.startsWith("AFT")
+
     /** Safe to call from the service and from the screens; only builds the player once. */
     @Synchronized
     fun init(context: Context) {
@@ -149,6 +153,11 @@ object MusicPlayer {
                 buildUponParameters()
                     .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
                     .setMaxAudioBitrate(MusicSettings.audioQuality.value.maxKbps * 1000)
+                    .apply {
+                        // Fire TV: songs closed the app on a Fire TV Stick 4K Max (fine on other
+                        // sticks). Prefer the AAC stream every Fire TV decodes in hardware over Opus.
+                        if (isFireTv) setPreferredAudioMimeTypes(MimeTypes.AUDIO_AAC, MimeTypes.AUDIO_MP4)
+                    }
             )
         }
         trackSelector = selector
@@ -209,7 +218,9 @@ object MusicPlayer {
         session = MediaSession.Builder(app, exoPlayer)
             .setCallback(mediaSessionCallback)
             .build()
-        MusicEqualizer.attach(audioSessionId)
+        // Fire TV: no equalizer effect on the session (one of the suspects for the Fire TV
+        // Stick 4K Max closing when a song starts).
+        if (!isFireTv) MusicEqualizer.attach(audioSessionId)
         MusicEqualizer.apply(MusicSettings.equalizerPreset.value)
         ensureTicker()
     }
