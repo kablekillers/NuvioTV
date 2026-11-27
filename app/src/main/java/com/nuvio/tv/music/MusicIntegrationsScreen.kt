@@ -70,6 +70,8 @@ import kotlinx.coroutines.withContext
 /** Last.fm scrobbling, Spotify playlist import and WebDAV in one place. */
 @Composable
 internal fun MusicIntegrationsScreen(
+    youTubeAccount: com.nuvio.tv.youtube.YouTubeAccountState? = null,
+    onOpenYouTubeAccount: (() -> Unit)? = null,
     onClose: () -> Unit,
     onOpenWebDav: () -> Unit,
     onOpenNavidrome: () -> Unit,
@@ -159,6 +161,27 @@ internal fun MusicIntegrationsScreen(
                     .padding(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                // Same as Kable Killers Mobile: YouTube Music is where the music comes from, so it comes first.
+                if (onOpenYouTubeAccount != null) {
+                    IntegrationCard(
+                        icon = Icons.Default.MusicNote,
+                        tint = MusicPalette.accentCoral,
+                        title = "YouTube Music",
+                        subtitle = when {
+                            youTubeAccount?.signedIn == true ->
+                                "Signed in" + (youTubeAccount.accountName?.let { " as $it" } ?: "") + ". Your library, likes and playlists are shown."
+                            else -> "Playing from YouTube Music. Sign in to see your own library, likes and playlists."
+                        }
+                    ) {
+                        IntegrationPill(
+                            icon = Icons.Default.MusicNote,
+                            label = if (youTubeAccount?.signedIn == true) "Manage account" else "Sign in to YouTube Music",
+                            primary = youTubeAccount?.signedIn != true,
+                            onClick = onOpenYouTubeAccount
+                        )
+                    }
+                }
+
                 IntegrationCard(
                     icon = Icons.Default.Album,
                     tint = MusicPalette.accentTeal,
@@ -178,6 +201,8 @@ internal fun MusicIntegrationsScreen(
                     )
                 }
 
+                // Like Mobile: Last.fm only shows when this build can sign in to it.
+                if (lastFm.available || lastFm.configured) {
                 IntegrationCard(
                     icon = Icons.Default.Favorite,
                     tint = MusicPalette.accentCoral,
@@ -296,6 +321,7 @@ internal fun MusicIntegrationsScreen(
                         Spacer(Modifier.height(8.dp))
                         Text(text = it, color = MusicPalette.error, fontSize = 11.sp)
                     }
+                }
                 }
 
                 IntegrationCard(

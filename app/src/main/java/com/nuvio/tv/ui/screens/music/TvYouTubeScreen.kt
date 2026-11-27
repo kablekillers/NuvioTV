@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,10 +53,54 @@ import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 
-private enum class TvYtFeed(val label: String, val category: String?) {
+private enum class TvYtFeed(val label: String, val category: String?, val needsAccount: Boolean = false) {
+    Search("Search", null),
+    ForYou("For you", null, needsAccount = true), Subscriptions("Subscriptions", null, needsAccount = true),
     Trending("Trending", "all"), Following("Following", null), Music("Music", "music"), Gaming("Gaming", "gaming"),
     Sports("Sports", "sports"), News("News", "news"), Movies("Movies", "movies"), Comedy("Comedy", "comedy"),
-    Science("Science", "science"), History("History", null), Search("Search", null),
+    Science("Science", "science"), History("History", null),
+}
+
+/** "For you" and "Subscriptions" from the signed-in YouTube account (its own sign-in, separate from Music's). */
+private object TvYouTubeAccountFeeds {
+    private fun service(context: Context) =
+        com.nuvio.tv.youtube.YouTubeAccountScopes.engine(context, com.nuvio.tv.youtube.AccountScope.ONETUBE)
+
+    private fun com.liskovsoft.mediaserviceinterfaces.data.MediaItem.toVideo(): TvYouTubeVideo? {
+        val id = videoId?.takeIf { it.isNotBlank() } ?: return null
+        val seconds = (durationMs / 1000).takeIf { it > 0 }
+        return TvYouTubeVideo(
+            videoId = id,
+            title = title?.toString().orEmpty(),
+            channel = author.orEmpty(),
+            channelId = channelId.orEmpty(),
+            thumbnail = cardImageUrl ?: backgroundImageUrl.orEmpty(),
+            publishedAt = "",
+            duration = seconds?.let { "PT${it / 3600}H${(it % 3600) / 60}M${it % 60}S" },
+            isLive = isLive,
+        )
+    }
+
+    suspend fun forYou(context: Context): List<TvYouTubeVideo> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        service(context).contentService.homeObserve
+            .timeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .take(3)
+            .toList()
+            .blockingGet()
+            .flatten()
+            .flatMap { it.mediaItems.orEmpty() }
+            .mapNotNull { it.toVideo() }
+            .distinctBy { it.videoId }
+    }
+
+    suspend fun subscriptions(context: Context): List<TvYouTubeVideo> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        service(context).contentService.subscriptionsObserve
+            .timeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .blockingFirst()
+            ?.mediaItems.orEmpty()
+            .mapNotNull { it.toVideo() }
+            .distinctBy { it.videoId }
+    }
 }
 
 private data class TvYtChannel(val id: String, val name: String)
@@ -104,6 +149,13 @@ fun TvYouTubeScreen() {
     var loading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+    // Sign in to YouTube (code on youtube.com/activate), the same way as Music but its own account.
+    val accountViewModel: com.nuvio.tv.youtube.YouTubeAccountViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    remember(accountViewModel) { accountViewModel.useScope(com.nuvio.tv.youtube.AccountScope.ONETUBE) }
+    val account by accountViewModel.state.collectAsState()
+    var showAccount by remember { mutableStateOf(false) }
+    val feeds = TvYtFeed.entries.filter { !it.needsAccount || account.signedIn }
+    LaunchedEffect(account.signedIn) { if (!account.signedIn && feed.needsAccount) feed = TvYtFeed.Trending }
 
     suspend fun load(token: String?): TvYouTubePage {
         val ch = channel
@@ -111,6 +163,8 @@ fun TvYouTubeScreen() {
         return when {
             ch != null -> TvYouTubeApi.channel(ch.id, token)
             feed == TvYtFeed.Search -> if (q.isEmpty()) TvYouTubePage(emptyList(), null) else TvYouTubeApi.search(q, token)
+            feed == TvYtFeed.ForYou -> TvYouTubePage(if (token == null) TvYouTubeAccountFeeds.forYou(context) else emptyList(), null)
+            feed == TvYtFeed.Subscriptions -> TvYouTubePage(if (token == null) TvYouTubeAccountFeeds.subscriptions(context) else emptyList(), null)
             feed.category != null -> TvYouTubeApi.trending(feed.category!!, token)
             feed == TvYtFeed.Following -> TvYouTubePage(
                 following.take(12).flatMap { runCatching { TvYouTubeApi.channel(it.id).videos.take(6) }.getOrDefault(emptyList()) }
@@ -121,7 +175,7 @@ fun TvYouTubeScreen() {
         }
     }
 
-    LaunchedEffect(feed, query, channel, if (feed == TvYtFeed.History) historyVersion else 0) {
+    LaunchedEffect(feed, query, channel, if (feed == TvYtFeed.History) historyVersion else 0, account.signedIn) {
         if (feed == TvYtFeed.Search && query.isNotBlank()) delay(500)
         loading = true
         message = null
@@ -187,6 +241,13 @@ fun TvYouTubeScreen() {
                 Spacer(Modifier.width(12.dp))
                 Text(ch?.name ?: "YouTube", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (ch == null) {
+                    Spacer(Modifier.width(20.dp))
+                    HubPill(
+                        if (account.signedIn) (account.accountName ?: "Account") else "Sign in to YouTube",
+                        selected = !account.signedIn,
+                    ) { showAccount = true }
+                }
                 if (ch != null) {
                     Spacer(Modifier.width(20.dp))
                     val followed = following.any { it.id == ch.id }
@@ -202,7 +263,7 @@ fun TvYouTubeScreen() {
         if (channel == null) {
             item(key = "feeds") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-                    items(TvYtFeed.entries, key = { it.name }) { option ->
+                    items(feeds, key = { it.name }) { option ->
                         HubPill(option.label, selected = feed == option) { feed = option }
                     }
                 }
@@ -226,6 +287,22 @@ fun TvYouTubeScreen() {
                 }
                 repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
             }
+        }
+    }
+    if (showAccount) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showAccount = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            com.nuvio.tv.music.MusicAccountScreen(
+                account = account,
+                onClose = { showAccount = false },
+                onSignIn = { accountViewModel.startSignIn() },
+                onCancelSignIn = { accountViewModel.cancelSignIn() },
+                onSelectAccount = { id -> accountViewModel.selectAccount(id) },
+                onAddAccount = { accountViewModel.startSignIn() },
+                onSignOut = { accountViewModel.signOut() },
+            )
         }
     }
 }

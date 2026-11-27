@@ -422,6 +422,8 @@ fun MusicScreen(
                         }
                     )
                     showIntegrations -> MusicIntegrationsScreen(
+                        youTubeAccount = account,
+                        onOpenYouTubeAccount = { showAccount = true },
                         onClose = { showIntegrations = false },
                         onOpenWebDav = {
                             showIntegrations = false
