@@ -17,7 +17,34 @@ class SportsStreamsViewModel @Inject constructor(
     private val discovery: SportsAddonDiscovery,
     private val liveTv: SportsLiveTv,
     private val hubSearch: SportsHubSearch,
+    private val liveTvRepository: com.nuvio.tv.livetv.data.LiveTvRepository,
 ) : ViewModel() {
+    /** Live TV channels and guide listings, for "On now" in US Channels. */
+    val liveChannels = liveTvRepository.channels
+    val guidePrograms = liveTvRepository.programs
+
+    /** What's on now for each US channel name (from the Live TV guide), by channel name. */
+    fun nowOn(
+        names: List<String>,
+        channels: List<com.nuvio.tv.livetv.model.LiveChannel>,
+        programs: Map<String, List<com.nuvio.tv.livetv.model.EpgProgram>>,
+        nowMs: Long,
+    ): Map<String, String> {
+        if (names.isEmpty() || channels.isEmpty()) return emptyMap()
+        val byKey = HashMap<String, com.nuvio.tv.livetv.model.LiveChannel>()
+        channels.forEach { ch -> com.nuvio.tv.core.links.LinkMemory.channelKey(ch.name)?.let { byKey.putIfAbsent(it, ch) } }
+        val out = HashMap<String, String>()
+        val missing = ArrayList<String>()
+        names.forEach { name ->
+            val ch = com.nuvio.tv.core.links.LinkMemory.channelKey(name)?.let { byKey[it] } ?: return@forEach
+            val list = programs[ch.key]
+            if (list == null) missing += ch.key
+            else list.firstOrNull { it.startMs <= nowMs && nowMs < it.stopMs }?.let { out[name] = it.title }
+        }
+        if (missing.isNotEmpty()) liveTvRepository.loadChannelsNow(missing)
+        return out
+    }
+
     var matches by androidx.compose.runtime.mutableStateOf<List<SportsCatalogMatch>>(emptyList())
         private set
     var browse by androidx.compose.runtime.mutableStateOf<List<SportsCatalogMatch>>(emptyList())

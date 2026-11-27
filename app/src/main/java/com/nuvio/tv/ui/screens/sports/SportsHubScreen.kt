@@ -439,8 +439,16 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                         list == null -> InfoPanel("Searching your add-ons for US sports channels…")
                         list.isEmpty() -> InfoPanel("No US sports channels found in your enabled add-ons.")
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // What's on now, from the Live TV guide (refreshed every minute).
+                            val guideChannels by streamsViewModel.liveChannels.collectAsStateWithLifecycle()
+                            val programs by streamsViewModel.guidePrograms.collectAsStateWithLifecycle()
+                            var minute by remember { mutableStateOf(System.currentTimeMillis() / 60_000L) }
+                            LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); minute = System.currentTimeMillis() / 60_000L } }
+                            val nowOn = remember(list, guideChannels, programs, minute) {
+                                streamsViewModel.nowOn(list.map { it.name }, guideChannels, programs, System.currentTimeMillis())
+                            }
                             list.forEach { channel ->
-                                GroupedSources(channel.name, channel.sources, onOpenStream, addToMultiview)
+                                GroupedSources(channel.name, channel.sources, onOpenStream, addToMultiview, nowOn[channel.name])
                             }
                         }
                     }
@@ -1410,9 +1418,11 @@ private fun GroupedSources(
     sources: List<SportsCatalogMatch>,
     onOpenStream: (SportsCatalogMatch) -> Unit,
     onAddToMultiview: (SportsCatalogMatch) -> Unit,
+    nowOn: String? = null,
 ) {
     if (sources.size == 1) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (nowOn != null) Text("ON NOW · $nowOn", color = CinemaGold.Soft, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             SourceRow(sources.first().copy(title = title.takeIf { it.isNotBlank() } ?: sources.first().title), verified = true) {
                 onOpenStream(sources.first())
             }
@@ -1439,6 +1449,7 @@ private fun GroupedSources(
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (nowOn != null) Text("ON NOW · $nowOn", color = CinemaGold.Soft, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     "${sources.size} links · " + sources.map { it.addon.displayName }.distinct().joinToString(),
                     color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
