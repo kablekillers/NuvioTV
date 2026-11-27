@@ -149,3 +149,24 @@
 
 -dontwarn java.beans.ConstructorProperties
 -dontwarn java.beans.Transient
+# dnsjava (Live TV DNS fallback) references the JDK-only name service SPI, absent on Android.
+-dontwarn sun.net.spi.nameservice.**
+
+# ── Nuvio One port (Music, YouTube engine, Live TV): same rules as Nuvio One ──
+# SmartTube's MediaServiceCore reads YouTube's JSON into classes by field name, calls into a
+# JavaScript engine, and builds its requests with reflection. Shrinking or renaming any of it breaks Music.
+-keep class com.liskovsoft.** { *; }
+-keepclassmembers class com.liskovsoft.** { *; }
+-dontwarn com.liskovsoft.**
+-keep class com.eclipsesource.v8.** { *; }
+-dontwarn com.eclipsesource.v8.**
+-keep class com.nuvio.tv.youtube.** { *; }
+-keep class com.music.** { *; }
+-keep class com.nuvio.stalker.** { *; }
+-dontwarn org.chromium.net.**
+-dontwarn com.google.net.cronet.**
+-dontwarn com.jayway.jsonpath.**
+-dontwarn net.minidev.**
+-dontwarn org.xbill.DNS.spi.**
+# Readable crash reports: keep the app's own names (unused code is still removed).
+-keep,allowshrinking,allowoptimization class com.nuvio.tv.** { *; }

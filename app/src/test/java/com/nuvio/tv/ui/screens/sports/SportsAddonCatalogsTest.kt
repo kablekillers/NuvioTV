@@ -20,7 +20,7 @@ class SportsAddonCatalogsTest {
 
         providers.forEach { addon ->
             val route = SportsAddonCatalogs.routes(addon, SportsLeague.NBA).single()
-            assertEquals(addon.catalogs.single().apiType, route.type)
+            assertEquals(addon.catalogs.single().apiType, route.apiType)
             assertEquals(addon.catalogs.single().id, route.id)
             assertTrue(SportsAddonCatalogs.routes(addon.copy(enabled = false), SportsLeague.NBA).isEmpty())
         }
