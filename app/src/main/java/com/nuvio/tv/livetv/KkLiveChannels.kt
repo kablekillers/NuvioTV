@@ -152,8 +152,13 @@ class KkLiveChannels @Inject constructor(
                                 val core = KkCoreLineup.match(name) ?: return@mapNotNull null
                                 val itemGenresUs = item.genres.any { usLabel.containsMatchIn(it) && !otherCountry.containsMatchIn(it) }
                                 val itemGenresForeign = item.genres.any { otherCountry.containsMatchIn(it) } && !itemGenresUs
+                                // A feed counts as US only with real evidence (its name, genres, list or
+                                // add-on says US); an unlabelled list is no longer enough. Feeds whose
+                                // name or description reads Spanish/foreign are left out either way.
+                                val text = "${item.name} ${item.description.orEmpty()}"
+                                if (foreignText.containsMatchIn(text)) return@mapNotNull null
                                 val isUs = !itemGenresForeign &&
-                                    (nameSaysUs || itemGenresUs || genreIsUs || catalogIsUs || addonIsUs || !otherCountry.containsMatchIn(catalogText))
+                                    (nameSaysUs || itemGenresUs || genreIsUs || catalogIsUs || addonIsUs)
                                 if (!isUs) return@mapNotNull null
                                 Found(addon, item, core.name, core.group)
                             }
@@ -350,7 +355,7 @@ class KkLiveChannels @Inject constructor(
         /** How old the channel list can get before it's scanned again in the background. */
         private const val TTL_MILLIS = 6 * 60 * 60_000L
         /** Bumped when the lineup rules change, so lists saved under the old rules are rebuilt. */
-        private const val LINEUP_VERSION = "core1|"
+        private const val LINEUP_VERSION = "core2|"
         /** epgshare01's US guide: rebuilt daily, about four days ahead. */
         const val GUIDE_URL = "https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz"
 
@@ -366,6 +371,11 @@ class KkLiveChannels @Inject constructor(
         private val usAddon = Regex("""us\s*-?\s*tv|usa\s*-?\s*tv|\busa?\b|united states|america""", RegexOption.IGNORE_CASE)
         private val otherCountry = Regex(
             """\b(uk|gb|united kingdom|canada|ca|mexico|méxico|mx|latam|latino|brasil|brazil|argentina|colombia|chile|peru|spain|españa|espana|france|italia|italy|germany|deutschland|de|portugal|india|pakistan|arab|arabic|mena|africa|dstv|australia|au|nz|ireland|nederland|netherlands|turkey|türkiye|poland|russia|philippines|caribbean|caribe|español|espanol|spanish|deportes)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        /** Words that mark a Spanish-language or other-country feed of a US channel name. */
+        private val foreignText = Regex(
+            """\b(en vivo|en directo|noticias|canal|latin|latino|latinoam[eé]rica|hispano|universo|telemundo|univision|deportes|español|espanol|portugu[eê]s|brasil|méxico|mexico|argentina|colombia|chile|per[uú]|venezuela|ecuador|españa|espana|france|français|deutsch|italia|polska|türk|arab|العربية|india|hindi|uk|canada)\b""",
             RegexOption.IGNORE_CASE,
         )
         private val usTags = setOf("us", "usa", "u.s.", "u.s.a.", "am", "us/ca")
@@ -537,7 +547,15 @@ internal object KkCoreLineup {
 
     private val byKey: Map<String, KkCoreChannel> = buildMap { channels.forEach { c -> c.keys.forEach { putIfAbsent(it, c) } } }
     private val suffixes = listOf("east", "west", "usa", "us", "hd", "channel", "network", "tv", "eastern", "pacific")
-    private val localNetwork = Regex("""^\s*(abc|cbs|nbc|fox|pbs|cw)\b(?!\s*(news|sports?|business|kids|life|soul|weather|deportes|family|movies?))""", RegexOption.IGNORE_CASE)
+    /**
+     * Local affiliates only: the network, then nothing, a channel number, a call sign (WABC, KTVU),
+     * East/West, or a place name. "NBC Universo", "Fox Soccer Plus", "CBS Sports" and the like
+     * are other channels, not the network.
+     */
+    private val localNetwork = Regex(
+        """^\s*(abc|cbs|nbc|fox|pbs|cw)\b(?!\s*(news|sports?|business|kids|life|soul|weather|deportes|family|movies?|universo|soccer|nation|now|plus|español|espanol|latino|world|international|comedy|classics?|reality|music|crime|go\b|xtra|extra|drama|action|docs?|stream|sci|entertainment|cinema|channel|true|heroes|kids|nature|food|living|signature|bet|max|one\b))""",
+        RegexOption.IGNORE_CASE,
+    )
 
     /** The lineup channel a (cleaned) add-on name stands for, or null when it isn't in the lineup. */
     fun match(name: String): KkCoreChannel? {
