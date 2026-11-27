@@ -83,9 +83,8 @@ class KableKillersAccountPolicyTest {
     }
 
     @Test
-    fun customerHouseholdWatchDataStaysOnDevice() {
-        assertTrue(KableKillersAccountPolicy.syncsWatchDataToCloud(customer, 1))
-        (2..6).forEach { assertFalse(KableKillersAccountPolicy.syncsWatchDataToCloud(customer, it)) }
+    fun customerWatchDataStaysOnDeviceIncludingProfileOne() {
+        (1..6).forEach { assertFalse(KableKillersAccountPolicy.syncsWatchDataToCloud(customer, it)) }
     }
 
     @Test
