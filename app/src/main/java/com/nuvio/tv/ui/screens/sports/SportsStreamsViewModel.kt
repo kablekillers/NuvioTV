@@ -17,11 +17,14 @@ class SportsStreamsViewModel @Inject constructor(
     private val discovery: SportsAddonDiscovery,
     private val liveTv: SportsLiveTv,
     private val hubSearch: SportsHubSearch,
-    private val liveTvRepository: com.nuvio.tv.livetv.data.LiveTvRepository,
+    private val liveTvRepositoryLazy: dagger.Lazy<com.nuvio.tv.livetv.data.LiveTvRepository>,
 ) : ViewModel() {
+    // Built only when US Channels is opened (not for every Sports Hub visit).
+    private val liveTvRepository get() = liveTvRepositoryLazy.get()
+
     /** Live TV channels and guide listings, for "On now" in US Channels. */
-    val liveChannels = liveTvRepository.channels
-    val guidePrograms = liveTvRepository.programs
+    val liveChannels by lazy { liveTvRepository.channels }
+    val guidePrograms by lazy { liveTvRepository.programs }
 
     /** What's on now for each US channel name (from the Live TV guide), by channel name. */
     fun nowOn(
@@ -118,7 +121,7 @@ class SportsStreamsViewModel @Inject constructor(
         if (events.isEmpty()) return
         prefetchJob = viewModelScope.launch {
             kotlinx.coroutines.delay(3_000)
-            events.take(8).forEach { event ->
+            events.take(4).forEach { event ->
                 runCatching { discovery.discover(event) }
                     .onFailure { if (it is CancellationException) throw it }
             }

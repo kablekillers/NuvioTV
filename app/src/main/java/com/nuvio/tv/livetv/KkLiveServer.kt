@@ -34,7 +34,9 @@ class KkLiveServer @Inject constructor(
     @ApplicationContext private val context: Context,
     private val channels: KkLiveChannels,
     private val addonRepository: AddonRepository,
-    private val liveRepository: LiveTvRepository,
+    // Lazy: Live TV's repository is only built when the playlist is first added or refreshed,
+    // not at every app start.
+    private val liveRepositoryLazy: dagger.Lazy<LiveTvRepository>,
     private val livePrefs: LiveTvPreferences,
 ) {
     private var server: Server? = null
@@ -50,7 +52,7 @@ class KkLiveServer @Inject constructor(
             scope.launch {
                 runCatching {
                     livePrefs.playlists.first().firstOrNull { it.url == KkLiveChannels.PLAYLIST_URL }
-                        ?.let { liveRepository.refreshPlaylist(it.id) }
+                        ?.let { liveRepositoryLazy.get().refreshPlaylist(it.id) }
                 }
             }
         }
@@ -74,7 +76,7 @@ class KkLiveServer @Inject constructor(
                 runCatching {
                     val playlist = livePrefs.playlists.first().firstOrNull { it.url == KkLiveChannels.PLAYLIST_URL }
                     if (playlist == null && !flags.getBoolean("playlist_added", false)) {
-                        liveRepository.addPlaylist(KkLiveChannels.PLAYLIST_NAME, KkLiveChannels.PLAYLIST_URL)
+                        liveRepositoryLazy.get().addPlaylist(KkLiveChannels.PLAYLIST_NAME, KkLiveChannels.PLAYLIST_URL)
                         flags.edit().putBoolean("playlist_added", true).putString("addons_key", key).apply()
                     } else if (playlist != null && flags.getString("addons_key", null) != key) {
                         // Only when the add-ons actually changed (not on every app start).

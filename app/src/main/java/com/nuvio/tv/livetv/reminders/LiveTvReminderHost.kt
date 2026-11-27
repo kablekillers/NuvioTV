@@ -84,7 +84,7 @@ fun LiveTvReminderHost(navController: NavController) {
                     "${r.channelKey}|${r.startMs}" !in shown && now >= r.startMs - 60_000 && now < r.startMs + 10 * 60_000
                 }?.also { shown += "${it.channelKey}|${it.startMs}" }
             }
-            delay(10_000)
+            delay(30_000)
         }
     }
 
