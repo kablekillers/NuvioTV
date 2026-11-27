@@ -58,6 +58,17 @@ import java.net.URL
  */
 internal object TvWhatsNewNotes {
     val byVersion: Map<String, List<String>> = mapOf(
+        "1.1.14" to listOf(
+            "Sports Hub is now American sports only, with an All tab plus a tab for each sport, game stats, season stats before games, and standings.",
+            "Sports links show up as each add-on answers, links that worked for you before are listed first, and dead links are hidden.",
+            "My Teams alerts: a small banner when your team's game is about to start, starts, is close late, or ends.",
+            "Live TV: the classic cable lineup with a live TV guide, and it opens right away.",
+            "Music: a new player, matching Kable Killers Mobile.",
+            "Coming up: upcoming episodes of your shows, above Continue Watching.",
+            "Hidden rows set on your phone now stay hidden on the TV, on every profile.",
+            "Continue Watching stays private to each household, including Profile 1.",
+            "Messages from Kable Killers now show on the TV too.",
+        ),
         "1.1.13" to listOf(
             "Fixed: each profile has its own Continue Watching again. Profile 1 syncs to the cloud; other profiles stay on this TV.",
             "Fixed: the profile button is back at the top of the side menu. Press up from Home to switch profiles.",
