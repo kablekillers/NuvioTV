@@ -483,8 +483,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                             addonResults.isEmpty() -> InfoPanel("No add-on results for \"$searchText\".")
                             else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 addonResults.forEach { match ->
-                                    SourceRow(match, verified = true) { onOpenStream(match) }
-                                    PanelButton("＋ Add to Multi-View", active = false) { addToMultiview(match) }
+                                    SourceRow(match, verified = true, onMultiview = { addToMultiview(match) }) { onOpenStream(match) }
                                 }
                             }
                         }
@@ -496,8 +495,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                         nflChannels!!.isEmpty() -> InfoPanel("No NFL Network or NFL RedZone channels found in enabled add-ons.")
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             nflChannels!!.forEach { match ->
-                                SourceRow(match, verified = true) { onOpenStream(match) }
-                                PanelButton("＋ Add to Multi-View", active = false) { addToMultiview(match) }
+                                SourceRow(match, verified = true, onMultiview = { addToMultiview(match) }) { onOpenStream(match) }
                             }
                         }
                     }
@@ -650,7 +648,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 DetailHeading("START MULTI-VIEW")
-                InfoPanel("Choose a game in Sports Hub, select a source, then choose Add to Multi-View. Repeat for up to four games. Use the D-pad to select which game has sound.")
+                InfoPanel("Choose a game in Sports Hub, press Right on a link and choose ＋ Multi-View. Repeat for up to four games. Use the D-pad to select which game has sound.")
                 PanelButton("OK · Browse games", active = true) {
                     multiviewHelp = false
                     allTab = true
@@ -1208,8 +1206,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                                     Text("BROWSE LEAGUE SOURCES · MATCHUP NOT VERIFIED", color = Muted, fontSize = 12.sp,
                                         fontWeight = FontWeight.ExtraBold, letterSpacing = 1.8.sp, modifier = Modifier.padding(top = 6.dp))
                                     browse.take(12).forEach { match ->
-                                        SourceRow(match, verified = false) { onOpenStream(match) }
-                                        PanelButton("＋ Add to Multi-View", active = false) { onAddMultiview(match) }
+                                        SourceRow(match, verified = false, onMultiview = { onAddMultiview(match) }) { onOpenStream(match) }
                                     }
                                 }
                             }
@@ -1234,8 +1231,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                                 }
                             }
                             else -> matches.take(12).forEach { match ->
-                                SourceRow(match, verified = true) { onOpenStream(match) }
-                                PanelButton("＋ Add to Multi-View", active = false) { onAddMultiview(match) }
+                                SourceRow(match, verified = true, onMultiview = { onAddMultiview(match) }) { onOpenStream(match) }
                             }
                         }
                         if (loading && matches.isNotEmpty()) {
@@ -1374,7 +1370,21 @@ private fun DetailHeading(text: String) {
 
 /** One stream source from an installed add-on. */
 @Composable
-private fun SourceRow(match: SportsCatalogMatch, verified: Boolean, onClick: () -> Unit) {
+private fun SourceRow(
+    match: SportsCatalogMatch,
+    verified: Boolean,
+    onMultiview: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    // The Multi-View button sits on the same line (press Right): a button under each link
+    // was skipped by the remote's Down button.
+    if (onMultiview != null) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.weight(1f)) { SourceRow(match, verified, onMultiview = null, onClick = onClick) }
+            PanelButton("＋ Multi-View", active = false, onClick = onMultiview)
+        }
+        return
+    }
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(18.dp)
     Row(
@@ -1423,10 +1433,13 @@ private fun GroupedSources(
     if (sources.size == 1) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (nowOn != null) Text("ON NOW · $nowOn", color = CinemaGold.Soft, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            SourceRow(sources.first().copy(title = title.takeIf { it.isNotBlank() } ?: sources.first().title), verified = true) {
+            SourceRow(
+                sources.first().copy(title = title.takeIf { it.isNotBlank() } ?: sources.first().title),
+                verified = true,
+                onMultiview = { onAddToMultiview(sources.first()) },
+            ) {
                 onOpenStream(sources.first())
             }
-            PanelButton("＋ Add to Multi-View", active = false) { onAddToMultiview(sources.first()) }
         }
         return
     }
@@ -1460,8 +1473,7 @@ private fun GroupedSources(
         if (expanded) {
             Column(Modifier.padding(start = 28.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 sources.forEach { source ->
-                    SourceRow(source, verified = true) { onOpenStream(source) }
-                    PanelButton("＋ Add to Multi-View", active = false) { onAddToMultiview(source) }
+                    SourceRow(source, verified = true, onMultiview = { onAddToMultiview(source) }) { onOpenStream(source) }
                 }
             }
         }
