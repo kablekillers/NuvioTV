@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import javax.inject.Inject
@@ -40,6 +41,7 @@ class KkLiveServer @Inject constructor(
     private val livePrefs: LiveTvPreferences,
 ) {
     private var server: Server? = null
+    private val addMutex = kotlinx.coroutines.sync.Mutex()
 
     fun start() {
         if (server != null) return
@@ -58,6 +60,33 @@ class KkLiveServer @Inject constructor(
         }
         server = runCatching { Server().also { it.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true) } }.getOrNull()
         scope.launch { followAddons() }
+        scope.launch { keepPlaylist() }
+    }
+
+    /**
+     * Live TV must never sit on "No playlists yet": whenever this TV has no playlist at all (a new
+     * profile on a fresh TV, a sign-in that arrived before the add-ons, or the playlist removed
+     * with nothing else left), the Kable Killers playlist goes back in. It doesn't wait for the
+     * add-ons: its channels fill in when they arrive ([followAddons] re-reads it then).
+     */
+    @OptIn(FlowPreview::class)
+    private suspend fun keepPlaylist() {
+        livePrefs.playlists
+            .map { it.isEmpty() }
+            .distinctUntilChanged()
+            .debounce(3_000)
+            .filter { it }
+            .collect {
+                runCatching {
+                    addMutex.withLock {
+                        if (livePrefs.playlists.first().isEmpty()) {
+                            liveRepositoryLazy.get().addPlaylist(KkLiveChannels.PLAYLIST_NAME, KkLiveChannels.PLAYLIST_URL)
+                            context.getSharedPreferences("kk_livetv", Context.MODE_PRIVATE)
+                                .edit().putBoolean("playlist_added", true).apply()
+                        }
+                    }
+                }
+            }
     }
 
     /**
@@ -74,11 +103,17 @@ class KkLiveServer @Inject constructor(
             .debounce(4_000)
             .collect { key ->
                 runCatching {
+                    val added = addMutex.withLock {
+                        val none = livePrefs.playlists.first().none { it.url == KkLiveChannels.PLAYLIST_URL }
+                        if (none && !flags.getBoolean("playlist_added", false)) {
+                            liveRepositoryLazy.get().addPlaylist(KkLiveChannels.PLAYLIST_NAME, KkLiveChannels.PLAYLIST_URL)
+                            flags.edit().putBoolean("playlist_added", true).putString("addons_key", key).apply()
+                            true
+                        } else false
+                    }
                     val playlist = livePrefs.playlists.first().firstOrNull { it.url == KkLiveChannels.PLAYLIST_URL }
-                    if (playlist == null && !flags.getBoolean("playlist_added", false)) {
-                        liveRepositoryLazy.get().addPlaylist(KkLiveChannels.PLAYLIST_NAME, KkLiveChannels.PLAYLIST_URL)
-                        flags.edit().putBoolean("playlist_added", true).putString("addons_key", key).apply()
-                    } else if (playlist != null && flags.getString("addons_key", null) != key) {
+                    if (added) Unit
+                    else if (playlist != null && flags.getString("addons_key", null) != key) {
                         // Only when the add-ons actually changed (not on every app start).
                         flags.edit().putString("addons_key", key).apply()
                         // Live TV re-reads the playlist when this scan finishes (onScanned).
