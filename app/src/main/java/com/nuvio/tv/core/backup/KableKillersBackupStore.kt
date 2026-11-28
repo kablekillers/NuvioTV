@@ -39,8 +39,33 @@ class KableKillersBackupStore @Inject constructor(
     }
 
     fun clearDeviceKey() {
-        prefs.edit().remove(KEY_DEVICE_KEY).apply()
+        prefs.edit()
+            .remove(KEY_DEVICE_KEY)
+            .remove(KEY_EDIT_TOKEN)
+            .remove(KEY_EDIT_TOKEN_EXPIRES)
+            .apply()
         refresh()
+    }
+
+    /** Which backup copy this device last applied or sent (so it only applies newer ones). */
+    var lastAppliedSnapshotId: Long
+        get() = prefs.getLong(KEY_APPLIED_SNAPSHOT, 0L)
+        set(value) { prefs.edit().putLong(KEY_APPLIED_SNAPSHOT, value).apply() }
+
+    /** Fingerprint of Profile 1's setup right after the last apply/send; a change means the owner edited it. */
+    var localBaseline: String?
+        get() = prefs.getString(KEY_LOCAL_BASELINE, null)
+        set(value) { prefs.edit().putString(KEY_LOCAL_BASELINE, value).apply() }
+
+    /** Edit token from unlocking Profile 1 with the restore PIN (customer login, Nuvio down). */
+    fun editToken(nowSeconds: Long = System.currentTimeMillis() / 1000): String? {
+        val expires = prefs.getLong(KEY_EDIT_TOKEN_EXPIRES, 0L)
+        if (expires <= nowSeconds + 60) return null
+        return prefs.getString(KEY_EDIT_TOKEN, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun saveEditToken(token: String, expiresAtSeconds: Long) {
+        prefs.edit().putString(KEY_EDIT_TOKEN, token).putLong(KEY_EDIT_TOKEN_EXPIRES, expiresAtSeconds).apply()
     }
 
     fun markBackup(atMs: Long = System.currentTimeMillis()) {
@@ -71,5 +96,9 @@ class KableKillersBackupStore @Inject constructor(
         const val KEY_ACCOUNT = "account_email"
         const val KEY_LAST_BACKUP = "last_backup_at"
         const val KEY_LAST_RESTORE = "last_restore_at"
+        const val KEY_APPLIED_SNAPSHOT = "applied_snapshot_id"
+        const val KEY_LOCAL_BASELINE = "local_baseline"
+        const val KEY_EDIT_TOKEN = "edit_token"
+        const val KEY_EDIT_TOKEN_EXPIRES = "edit_token_expires_at"
     }
 }

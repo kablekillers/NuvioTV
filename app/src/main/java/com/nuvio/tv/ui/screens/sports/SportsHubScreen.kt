@@ -1,5 +1,16 @@
 package com.nuvio.tv.ui.screens.sports
 
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import com.nuvio.tv.ui.screens.stream.LinkHealth
+import com.nuvio.tv.ui.screens.stream.LiveLinkChecker
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -78,6 +89,9 @@ import com.nuvio.tv.ui.theme.cinemaShine
 import com.nuvio.tv.ui.theme.cinemaSpinRing
 import com.nuvio.tv.ui.theme.rememberCinemaBreath
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -93,22 +107,58 @@ private val Muted = Color(0xFF9E998F)
 private val Soft = Color(0xFFCFC9BE)
 
 private enum class HubView(val label: String) {
-    ALL("All games"), STANDINGS("Standings"), REPLAYS("Replays"), HIGHLIGHTS("Highlights"), MY_TEAMS("My Teams")
+    // "All" tab only
+    ALL_SPORTS("All Sports"), LIVE_EVENTS("Live Events"), US_CHANNELS("US Channels"), MY_TEAMS("My Teams"), SEARCH("🔍 Search"),
+    // Each sport's tabs
+    CHANNELS("NFL Channels"), LIVE("Live Now"), UPCOMING("Upcoming"), FINAL("Final"), EVENTS("Events"),
+    REPLAYS("Replays"), HIGHLIGHTS("Highlights"), STANDINGS("Standings"),
 }
 
+/** Tabs under "All" (league = null) or under one sport. NFL keeps NFL Channels first. */
+private fun viewsFor(league: SportsLeague?): List<HubView> = if (league == null) {
+    listOf(HubView.ALL_SPORTS, HubView.LIVE_EVENTS, HubView.US_CHANNELS, HubView.MY_TEAMS, HubView.SEARCH)
+} else buildList {
+    if (league == SportsLeague.NFL) add(HubView.CHANNELS)
+    if (league.scoreboardPath != null) addAll(listOf(HubView.LIVE, HubView.UPCOMING, HubView.FINAL))
+    // Add-on events: WWE has no ESPN schedule; boxing isn't on ESPN's UFC feed.
+    if (league.scoreboardPath == null || league == SportsLeague.UFC) add(HubView.EVENTS)
+    add(HubView.REPLAYS)
+    add(HubView.HIGHLIGHTS)
+    // F1 championship tables come from Jolpica.
+    if (league.usesTeamStats && league.scoreboardPath != null || league == SportsLeague.FORMULA_1) add(HubView.STANDINGS)
+}
+
+/** Sport plus Men's/Women's (or ATP/WTA, UFC) when the sport has several feeds. */
+private fun SportsEvent.divisionLabel(): String? = division?.let { "$it ${league.shortLabel}" }
+
 @Composable
-fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel()) {
+fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.shared, onOpenStream: (SportsCatalogMatch) -> Unit = {}, streamsViewModel: SportsStreamsViewModel = hiltViewModel(), multiviewViewModel: SportsMultiviewViewModel = hiltViewModel()) {
     var selectedLeague by rememberSaveable { mutableStateOf(SportsLeague.NFL) }
-    var board by remember { mutableStateOf<SportsScoreboard?>(null) }
-    var loading by remember { mutableStateOf(true) }
+    // "All" is the first tab: All Sports, Live Events, US Channels (and My Teams, Search).
+    var allTab by rememberSaveable { mutableStateOf(true) }
+    var board by remember { mutableStateOf(repository.peek(selectedLeague)) }
+    var loading by remember { mutableStateOf(board == null) }
     var refreshFailed by remember { mutableStateOf(false) }
-    var selectedEventId by remember { mutableStateOf<String?>(null) }
+    // Saveable so pressing Back from the stream picker re-opens the same game
+    // with the streams that were already found.
+    var selectedEventId by rememberSaveable { mutableStateOf<String?>(null) }
     val cardFocus = remember { mutableMapOf<String, FocusRequester>() }
     val lifecycleOwner = LocalLifecycleOwner.current
     var showIntro by rememberSaveable { mutableStateOf(true) }
     val tabFocus = remember { FocusRequester() }
+    val multiviewTiles = remember { mutableStateListOf<TvMultiviewTile>() }
+    var multiviewOpen by remember { mutableStateOf(false) }
+    var multiviewFocus by remember { mutableStateOf<String?>(null) }
+    var multiviewPending by remember { mutableStateOf<String?>(null) }
+    var multiviewHelp by remember { mutableStateOf(false) }
+    // Games opened from search results (any league), so their details can be shown.
+    var searchGames by remember { mutableStateOf<List<SportsEvent>>(emptyList()) }
 
-    LaunchedEffect(selectedLeague, lifecycleOwner) {
+    LaunchedEffect(selectedLeague, allTab, lifecycleOwner) {
+        if (allTab || selectedLeague.scoreboardPath == null) {
+            loading = false
+            return@LaunchedEffect
+        }
         board = repository.cached(selectedLeague)
         loading = board == null
         refreshFailed = false
@@ -134,7 +184,30 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     val context = androidx.compose.ui.platform.LocalContext.current
     remember { SportsPreferences.init(context) }
     val prefs by SportsPreferences.state.collectAsStateWithLifecycle()
-    var view by rememberSaveable { mutableStateOf(HubView.ALL) }
+    var view by rememberSaveable { mutableStateOf(HubView.ALL_SPORTS) }
+    // Never leave a tab showing that this sport doesn't have.
+    val tabViews = viewsFor(if (allTab) null else selectedLeague)
+    if (view !in tabViews) view = tabViews.first()
+
+    // All Sports: live and starting soon in every sport.
+    var allBoards by remember { mutableStateOf<List<SportsScoreboard>?>(null) }
+    LaunchedEffect(allTab, view, lifecycleOwner) {
+        if (!allTab || view != HubView.ALL_SPORTS) return@LaunchedEffect
+        val leagues = SportsLeague.entries.filter { it.scoreboardPath != null }
+        allBoards = leagues.mapNotNull { repository.peek(it) }.takeIf { it.isNotEmpty() }
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var first = true
+            while (true) {
+                val fresh = coroutineScope {
+                    leagues.map { lg -> async { runCatching { repository.scoreboard(lg, forceRefresh = !first) }.getOrNull() } }
+                        .awaitAll().filterNotNull()
+                }
+                allBoards = fresh
+                first = false
+                delay(60_000L)
+            }
+        }
+    }
 
     // Score delay: keep recent scoreboards and show the one from [delay] ago.
     val history = remember(selectedLeague) { mutableStateListOf<SportsScoreboard>() }
@@ -159,9 +232,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     val events = shownBoard?.events.orEmpty()
     val liveGames = SportsEventSections.live(events)
 
-    val catalogOnly = selectedLeague.scoreboardPath == null
     val replays = view == HubView.REPLAYS || view == HubView.HIGHLIGHTS
-    val browseCatalog = replays || catalogOnly && view == HubView.ALL
+    val browseCatalog = !allTab && (replays || view == HubView.EVENTS)
     var catalogMatches by remember(selectedLeague, browseCatalog, replays) {
         mutableStateOf<List<SportsCatalogMatch>?>(null)
     }
@@ -179,12 +251,83 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
         }
     }
 
+    // Background search for live games (like Mobile): links for games on now are looked up
+    // ahead of time, so opening one shows its links right away.
+    val liveNowIds = (if (allTab) allBoards?.flatMap { it.events }.orEmpty() else events)
+        .filter { it.status == SportsEventStatus.LIVE }
+    LaunchedEffect(liveNowIds.map { it.id }.sorted().joinToString(",")) {
+        streamsViewModel.prefetchLive(liveNowIds)
+    }
+
+    var nflChannels by remember { mutableStateOf<List<SportsCatalogMatch>?>(null) }
+    LaunchedEffect(view, selectedLeague) {
+        if (view == HubView.CHANNELS && selectedLeague == SportsLeague.NFL) {
+            nflChannels = streamsViewModel.cachedNflChannels()
+            nflChannels = try { streamsViewModel.findNflChannels() } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) { emptyList() }
+        }
+    }
+
+    // Every add-on's live events and US sports channels (same for any league tab), as on Mobile.
+    var liveEvents by remember { mutableStateOf(streamsViewModel.cachedLiveEvents()) }
+    var usChannels by remember { mutableStateOf(streamsViewModel.cachedUsChannels()) }
+    LaunchedEffect(view) {
+        try {
+            when (view) {
+                HubView.LIVE_EVENTS -> liveEvents = streamsViewModel.liveEvents()
+                HubView.US_CHANNELS -> usChannels = streamsViewModel.usChannels()
+                else -> Unit
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            if (view == HubView.LIVE_EVENTS && liveEvents == null) liveEvents = emptyList()
+            if (view == HubView.US_CHANNELS && usChannels == null) usChannels = emptyList()
+        }
+    }
+
+    // Search: teams ("packers", "brewers"), channels ("espn2"), events ("ufc").
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val searchText = searchQuery.trim()
+    val searchActive = view == HubView.SEARCH && searchText.length >= 2
+    var searchBoards by remember { mutableStateOf<List<SportsScoreboard>>(emptyList()) }
+    var searchAddonResults by remember { mutableStateOf<List<SportsCatalogMatch>?>(null) }
+    LaunchedEffect(searchActive) {
+        if (!searchActive) return@LaunchedEffect
+        // Today's games in every league (cached first, then fresh), plus channels and events.
+        val leagues = SportsLeague.entries.filter { it.scoreboardPath != null }
+        val boards = leagues.mapNotNull { repository.peek(it) }.toMutableList()
+        searchBoards = boards.toList()
+        coroutineScope {
+            launch { if (usChannels == null) usChannels = runCatching { streamsViewModel.usChannels() }.getOrNull() }
+            launch { if (liveEvents == null) liveEvents = runCatching { streamsViewModel.liveEvents() }.getOrNull() }
+            leagues.filter { lg -> boards.none { it.league == lg } }.map { lg ->
+                async { runCatching { repository.scoreboard(lg) }.getOrNull() }
+            }.awaitAll().filterNotNull().let { fresh -> searchBoards = boards + fresh }
+        }
+    }
+    LaunchedEffect(searchText, view) {
+        searchAddonResults = null
+        if (view != HubView.SEARCH || searchText.length < 2) return@LaunchedEffect
+        delay(600) // wait for typing to pause
+        searchAddonResults = try { streamsViewModel.searchAddons(searchText) } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { emptyList() }
+    }
+    val addToMultiview: (SportsCatalogMatch) -> Unit = { match ->
+        multiviewPending = match.title
+        multiviewViewModel.search(match)
+    }
+
     var myTeamGames by remember { mutableStateOf<List<SportsEvent>?>(null) }
     LaunchedEffect(view, prefs.favoriteTeams) {
         if (view != HubView.MY_TEAMS) return@LaunchedEffect
         myTeamGames = null
-        val found = SportsPreferences.favoriteLeagues(prefs).flatMap { lg ->
-            runCatching { repository.scoreboard(lg).events }.getOrDefault(emptyList())
+        val found = coroutineScope {
+            SportsPreferences.favoriteLeagues(prefs).map { lg ->
+                async { runCatching { repository.scoreboard(lg).events }.getOrDefault(emptyList()) }
+            }.awaitAll().flatten()
         }.filter { SportsPreferences.involvesFavorite(it, prefs) }
         myTeamGames = SportsEventSections.live(found) + SportsEventSections.upcoming(found) + SportsEventSections.final(found)
     }
@@ -197,7 +340,9 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Background)) {
-        HubGlows()
+        // Nothing behind the multi-view should animate: every redraw here takes
+        // GPU time away from the video tiles on onn / Google TV sticks.
+        if (!multiviewOpen) HubGlows()
         Column(
             modifier = Modifier.fillMaxSize()
                 .verticalScroll(rememberScrollState())
@@ -210,7 +355,7 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                     Text("Sports Hub", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold)
                 }
                 Text(
-                    statusLine(board, refreshFailed, selectedLeague),
+                    if (allTab) "All sports" else statusLine(board, refreshFailed, selectedLeague),
                     color = Muted,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(end = 14.dp, bottom = 8.dp)
@@ -218,20 +363,27 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 if (liveGames.isNotEmpty()) CinemaLivePill("${liveGames.size} LIVE", Modifier.padding(bottom = 4.dp))
             }
 
-            ScoreTicker(events)
+            ScoreTicker(if (allTab) allBoards?.flatMap { it.events }.orEmpty() else events, animate = !multiviewOpen)
 
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                AllSportsTab(active = allTab, modifier = if (allTab) Modifier.focusRequester(tabFocus) else Modifier) {
+                    if (!allTab) {
+                        allTab = true
+                        view = viewsFor(null).first()
+                    }
+                }
                 SportsLeague.entries.forEach { league ->
-                    LeagueTab(league, active = league == selectedLeague,
-                        modifier = if (league == selectedLeague) Modifier.focusRequester(tabFocus) else Modifier) {
-                        if (league != selectedLeague) {
-                            if (view == HubView.STANDINGS && (!league.usesTeamStats || league.scoreboardPath == null)) {
-                                view = HubView.ALL
-                            }
+                    val active = !allTab && league == selectedLeague
+                    LeagueTab(league, active = active,
+                        modifier = if (active) Modifier.focusRequester(tabFocus) else Modifier) {
+                        if (!active) {
+                            allTab = false
                             selectedLeague = league
+                            // NFL opens on NFL Channels; every other sport on its first tab.
+                            view = viewsFor(league).first()
                         }
                     }
                 }
@@ -242,10 +394,15 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                HubView.entries.forEach { v ->
-                    if (v != HubView.STANDINGS || selectedLeague.usesTeamStats) {
-                        val label = if (v == HubView.ALL && catalogOnly) "Events" else v.label
-                        PanelButton(label, active = view == v) { view = v }
+                tabViews.forEach { v ->
+                    PanelButton(v.label, active = view == v) { view = v }
+                }
+                Spacer(Modifier.width(18.dp))
+                PanelButton("▦  Multi-View (" + multiviewTiles.size + "/4)", active = multiviewOpen) {
+                    if (multiviewTiles.isNotEmpty()) {
+                        multiviewOpen = true
+                    } else {
+                        multiviewHelp = true
                     }
                 }
                 Spacer(Modifier.width(18.dp))
@@ -259,17 +416,105 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             }
 
             when {
+                view == HubView.LIVE_EVENTS -> {
+                    InfoPanel("Live events from all your add-ons · American sports only (soccer = MLS) · the same event from several add-ons is grouped")
+                    val list = liveEvents
+                    when {
+                        list == null -> InfoPanel("Searching your add-ons for live events…")
+                        list.isEmpty() -> InfoPanel("No live events found right now in your enabled add-ons.")
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            list.groupBy { it.sport }.forEach { (sport, inSport) ->
+                                SectionTitle("${sport.uppercase()} · ${inSport.size}", live = false)
+                                inSport.forEach { event ->
+                                    GroupedSources(event.title, event.sources, onOpenStream, addToMultiview)
+                                }
+                            }
+                        }
+                    }
+                }
+                view == HubView.US_CHANNELS -> {
+                    InfoPanel("US sports channels (ESPN, ESPN2, FS1, NFL Network…) from all your add-ons · foreign feeds left out")
+                    val list = usChannels
+                    when {
+                        list == null -> InfoPanel("Searching your add-ons for US sports channels…")
+                        list.isEmpty() -> InfoPanel("No US sports channels found in your enabled add-ons.")
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // What's on now, from the Live TV guide (refreshed every minute).
+                            val guideChannels by streamsViewModel.liveChannels.collectAsStateWithLifecycle()
+                            val programs by streamsViewModel.guidePrograms.collectAsStateWithLifecycle()
+                            var minute by remember { mutableStateOf(System.currentTimeMillis() / 60_000L) }
+                            LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); minute = System.currentTimeMillis() / 60_000L } }
+                            val nowOn = remember(list, guideChannels, programs, minute) {
+                                streamsViewModel.nowOn(list.map { it.name }, guideChannels, programs, System.currentTimeMillis())
+                            }
+                            list.forEach { channel ->
+                                GroupedSources(channel.name, channel.sources, onOpenStream, addToMultiview, nowOn[channel.name])
+                            }
+                        }
+                    }
+                }
+                view == HubView.SEARCH -> {
+                    SportsSearchField(searchQuery, onChange = { searchQuery = it })
+                    if (searchText.length < 2) {
+                        InfoPanel("Type a team (Packers, Brewers), a channel (ESPN2) or an event (UFC).")
+                    } else {
+                        val games = SportsHubSearch.games(searchText, searchBoards.flatMap { it.events } + events)
+                        val channels = usChannels?.let { SportsHubSearch.channels(searchText, it) }
+                        val foundEvents = liveEvents?.let { SportsHubSearch.events(searchText, it) }
+                        if (games.isNotEmpty()) {
+                            SectionTitle("GAMES · ${games.size}", live = false)
+                            games.take(30).forEach { event ->
+                                val requester = cardFocus.getOrPut(event.id) { FocusRequester() }
+                                GameCard(event, requester) { searchGames = games; selectedEventId = event.id }
+                            }
+                        }
+                        if (!channels.isNullOrEmpty()) {
+                            SectionTitle("CHANNELS · ${channels.size}", live = false)
+                            channels.forEach { GroupedSources(it.name, it.sources, onOpenStream, addToMultiview) }
+                        }
+                        if (!foundEvents.isNullOrEmpty()) {
+                            SectionTitle("LIVE EVENTS · ${foundEvents.size}", live = false)
+                            foundEvents.forEach { GroupedSources(it.title, it.sources, onOpenStream, addToMultiview) }
+                        }
+                        SectionTitle("FROM YOUR ADD-ONS" + (searchAddonResults?.let { " · ${it.size}" } ?: ""), live = false)
+                        val addonResults = searchAddonResults
+                        when {
+                            addonResults == null -> InfoPanel("Searching your add-ons for \"$searchText\"…")
+                            addonResults.isEmpty() -> InfoPanel("No add-on results for \"$searchText\".")
+                            else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                addonResults.forEach { match ->
+                                    SourceRow(match, verified = true, onMultiview = { addToMultiview(match) }) { onOpenStream(match) }
+                                }
+                            }
+                        }
+                    }
+                }
+                view == HubView.CHANNELS -> {
+                    when {
+                        nflChannels == null -> InfoPanel("Searching installed add-ons for NFL Network and RedZone…")
+                        nflChannels!!.isEmpty() -> InfoPanel("No NFL Network or NFL RedZone channels found in enabled add-ons.")
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            nflChannels!!.forEach { match ->
+                                SourceRow(match, verified = true, onMultiview = { addToMultiview(match) }) { onOpenStream(match) }
+                            }
+                        }
+                    }
+                }
                 browseCatalog -> {
                     val kind = when (view) {
                         HubView.REPLAYS -> SportsContentKind.REPLAY
                         HubView.HIGHLIGHTS -> SportsContentKind.HIGHLIGHT
                         else -> SportsContentKind.EVENT
                     }
-                    val rows = catalogMatches?.filter { it.kind == kind }
+                    val rows = catalogMatches?.filter { match ->
+                        match.kind == kind && (view != HubView.CHANNELS ||
+                            Regex("""(?i)nfl.?network|nfl.?red.?zone|red.?zone.?nfl|nfl.?channel""")
+                                .containsMatchIn(match.title))
+                    }
                     when {
                         rows == null -> InfoPanel("Checking installed add-ons…")
                         rows.isEmpty() -> {
-                            val label = if (replays) view.label.lowercase() else "events"
+                            val label = if (view == HubView.CHANNELS) "channels" else if (replays) view.label.lowercase() else "events"
                             InfoPanel("No ${selectedLeague.label} $label from installed add-ons.")
                         }
                         else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -295,39 +540,63 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
                         }
                     }
                 }
+                view == HubView.ALL_SPORTS -> {
+                    val all = allBoards?.flatMap { it.events }.orEmpty()
+                    val now = System.currentTimeMillis()
+                    val live = SportsEventSections.live(all)
+                    val soon = SportsEventSections.upcoming(all).filter { e ->
+                        e.status == SportsEventStatus.SCHEDULED &&
+                            (e.startTimeEpochMillis ?: Long.MAX_VALUE) <= now + 3 * 60 * 60_000L
+                    }
+                    when {
+                        allBoards == null -> InfoPanel("Loading today's games in every sport…")
+                        else -> {
+                            SectionTitle("LIVE NOW · ${live.size}", live = true)
+                            if (live.isEmpty()) InfoPanel("Nothing live right now.")
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                live.take(40).forEach { event ->
+                                    val requester = cardFocus.getOrPut(event.id) { FocusRequester() }
+                                    GameCard(event, requester, showLeague = true) { selectedEventId = event.id }
+                                }
+                            }
+                            SectionTitle("STARTING SOON · ${soon.size}", live = false)
+                            if (soon.isEmpty()) InfoPanel("Nothing starting in the next 3 hours.")
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                soon.take(40).forEach { event ->
+                                    val requester = cardFocus.getOrPut(event.id) { FocusRequester() }
+                                    GameCard(event, requester, showLeague = true) { selectedEventId = event.id }
+                                }
+                            }
+                        }
+                    }
+                }
                 loading && events.isEmpty() ->
                     InfoPanel("Loading ${selectedLeague.label} scores…")
                 refreshFailed && events.isEmpty() ->
                     InfoPanel("Scores unavailable. Check your connection — we'll keep trying automatically.")
-                events.isEmpty() ->
-                    InfoPanel("No ${selectedLeague.label} games on the schedule right now.")
-                else -> {
+                view == HubView.LIVE -> {
                     val featured = liveGames.firstOrNull()
-                    val sections = listOf(
-                        "LIVE NOW" to liveGames.drop(if (featured != null) 1 else 0),
-                        "UPCOMING" to SportsEventSections.upcoming(events),
-                        "FINAL" to SportsEventSections.final(events)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                        if (featured != null) {
-                            val requester = cardFocus.getOrPut(featured.id) { FocusRequester() }
-                            FeaturedGameCard(featured, requester, Modifier.weight(0.47f)) { selectedEventId = featured.id }
+                    if (featured == null) {
+                        InfoPanel("No ${selectedLeague.label} games live right now.")
+                    } else Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                        val requester = cardFocus.getOrPut(featured.id) { FocusRequester() }
+                        FeaturedGameCard(featured, requester, Modifier.weight(0.47f)) { selectedEventId = featured.id }
+                        Column(Modifier.weight(0.53f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            liveGames.drop(1).take(30).forEach { event ->
+                                val r = cardFocus.getOrPut(event.id) { FocusRequester() }
+                                GameCard(event, r) { selectedEventId = event.id }
+                            }
                         }
-                        Column(Modifier.weight(if (featured != null) 0.53f else 1f), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                            if (featured == null) {
-                                SectionTitle("LIVE NOW", live = true)
-                                InfoPanel("No ${selectedLeague.label} games live right now.")
-                            }
-                            sections.forEach { (section, items) ->
-                                if (items.isEmpty()) return@forEach
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    SectionTitle(section, live = section == "LIVE NOW")
-                                    items.take(30).forEach { event ->
-                                        val requester = cardFocus.getOrPut(event.id) { FocusRequester() }
-                                        GameCard(event, requester) { selectedEventId = event.id }
-                                    }
-                                }
-                            }
+                    }
+                }
+                view == HubView.UPCOMING || view == HubView.FINAL -> {
+                    val list = if (view == HubView.UPCOMING) SportsEventSections.upcoming(events) else SportsEventSections.final(events)
+                    if (list.isEmpty()) {
+                        InfoPanel(if (view == HubView.UPCOMING) "No upcoming ${selectedLeague.label} games on the schedule." else "No finished ${selectedLeague.label} games right now.")
+                    } else Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        list.take(40).forEach { event ->
+                            val requester = cardFocus.getOrPut(event.id) { FocusRequester() }
+                            GameCard(event, requester) { selectedEventId = event.id }
                         }
                     }
                 }
@@ -345,6 +614,8 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
 
     val selected = selectedEventId?.let { id ->
         events.firstOrNull { it.id == id } ?: myTeamGames?.firstOrNull { it.id == id }
+            ?: searchGames.firstOrNull { it.id == id }
+            ?: allBoards?.firstNotNullOfOrNull { b -> b.events.firstOrNull { it.id == id } }
     }
     if (selectedEventId != null) {
         val closeDetails = {
@@ -354,14 +625,107 @@ fun SportsHubScreen(repository: SportsEventRepository = SportsEventRepository.sh
             id?.let { cardFocus[it] }?.let { runCatching { it.requestFocus() } }
             Unit
         }
+        val gameListsReady = when (view) {
+            HubView.MY_TEAMS -> myTeamGames != null
+            HubView.SEARCH -> searchBoards.isNotEmpty()
+            HubView.ALL_SPORTS -> allBoards != null
+            else -> shownBoard != null
+        }
         if (selected == null) {
             // Game dropped off the provider's scoreboard (e.g. league switched); just close.
-            LaunchedEffect(Unit) { closeDetails() }
+            // Wait for the lists to load first, e.g. right after returning from a stream.
+            if (gameListsReady) LaunchedEffect(Unit) { closeDetails() }
         } else {
             LaunchedEffect(selected.id) { streamsViewModel.lookup(selected) }
-            GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.browse, streamsViewModel.diagnostics, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> closeDetails(); onOpenStream(match) }, onDismiss = closeDetails)
+            GameDetailsDialog(selected, repository, streamsViewModel.matches, streamsViewModel.browse, streamsViewModel.diagnostics, streamsViewModel.loading, streamsViewModel.error, onOpenStream = { match -> onOpenStream(match) }, onAddMultiview = { match -> multiviewPending = selected.title; multiviewViewModel.search(match); closeDetails() }, onDismiss = closeDetails)
         }
     }
+
+    if (multiviewHelp) {
+        Dialog(onDismissRequest = { multiviewHelp = false }) {
+            Column(
+                Modifier.background(Background, RoundedCornerShape(16.dp)).padding(28.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                DetailHeading("START MULTI-VIEW")
+                InfoPanel("Choose a game in Sports Hub, press Right on a link and choose ＋ Multi-View. Repeat for up to four games. Use the D-pad to select which game has sound.")
+                PanelButton("OK · Browse games", active = true) {
+                    multiviewHelp = false
+                    allTab = true
+                    view = HubView.ALL_SPORTS
+                }
+            }
+        }
+    }
+
+    if (multiviewPending != null) {
+        Dialog(onDismissRequest = { multiviewPending = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.fillMaxSize().background(Background).padding(36.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                PanelButton("‹ Back to Sports Hub", active = false) { multiviewPending = null }
+                DetailHeading("CHOOSE A STREAM · " + multiviewPending.orEmpty())
+                if (multiviewViewModel.loading) InfoPanel("Searching enabled add-ons for playable streams…")
+                multiviewViewModel.error?.let { InfoPanel(it) }
+                if (!multiviewViewModel.loading && multiviewViewModel.choices.isEmpty()) {
+                    InfoPanel("No direct playable links found. Try another source.")
+                }
+                // Same as Mobile: only links that answered the test are offered.
+                val allChoices = multiviewViewModel.choices
+                val health = allChoices.associate { it.id to (it.stream?.let(LiveLinkChecker::health) ?: LinkHealth.Ok) }
+                val working = allChoices.filter { health[it.id] == LinkHealth.Ok }
+                val testing = allChoices.count { health[it.id] == LinkHealth.Checking }
+                val dead = allChoices.count { health[it.id] == LinkHealth.Dead }
+                if (allChoices.isNotEmpty()) {
+                    Text(
+                        buildString {
+                            append(if (working.isEmpty() && testing > 0) "Testing links…" else "Pick a link · ${working.size} working")
+                            if (testing > 0 && working.isNotEmpty()) append(" · testing $testing more")
+                            if (dead > 0) append(" · $dead hidden (not working)")
+                        },
+                        color = Muted, fontSize = 14.sp,
+                    )
+                    if (working.isEmpty() && testing == 0) InfoPanel("None of these links are working right now. Try another stream.")
+                }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    working.forEach { choice ->
+                        PanelButton(choice.addon + " · " + choice.label, active = false) {
+                            val tile = TvMultiviewTile(choice.id, multiviewPending.orEmpty(), choice.url)
+                            if (multiviewTiles.size == 4) multiviewTiles.removeAt(0)
+                            multiviewTiles.add(tile)
+                            multiviewFocus = tile.id
+                            multiviewPending = null
+                            multiviewOpen = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (multiviewOpen && multiviewTiles.isNotEmpty()) {
+        Dialog(onDismissRequest = { multiviewOpen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.fillMaxSize().background(Background).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PanelButton("‹ Sports Hub", active = false) { multiviewOpen = false }
+                    PanelButton("Remove focused", active = false) {
+                        multiviewTiles.removeAll { it.id == multiviewFocus }
+                        multiviewFocus = multiviewTiles.firstOrNull()?.id
+                        if (multiviewTiles.isEmpty()) multiviewOpen = false
+                    }
+                    Text("MULTI-VIEW · " + multiviewTiles.size + "/4 · D-pad selects audio",
+                        color = CinemaGold.Base, fontSize = 16.sp)
+                }
+                SportsMultiviewPlayers(
+                    tiles = multiviewTiles.toList(),
+                    focusedId = multiviewFocus,
+                    onFocus = { multiviewFocus = it },
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            }
+        }
+    }
+
 }
 
 /** Gold and ember glows that slowly breathe behind the hub. */
@@ -382,7 +746,7 @@ private fun HubGlows() {
 
 /** Broadcast-style strip of scores that scrolls on its own. */
 @Composable
-private fun ScoreTicker(events: List<SportsEvent>) {
+private fun ScoreTicker(events: List<SportsEvent>, animate: Boolean = true) {
     val scored = events.filter { it.hasScores }
         .sortedBy { if (it.status == SportsEventStatus.LIVE) 0 else 1 }
         .take(16)
@@ -395,7 +759,7 @@ private fun ScoreTicker(events: List<SportsEvent>) {
         contentAlignment = Alignment.CenterStart
     ) {
         Row(
-            Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 800, velocity = 42.dp).padding(start = 16.dp),
+            (if (animate) Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 800, velocity = 42.dp) else Modifier).padding(start = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(36.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -440,8 +804,6 @@ private fun Modifier.focusGrow(focused: Boolean, to: Float): Modifier = composed
 }
 
 private fun leagueLogoUrl(league: SportsLeague): String? = when (league) {
-    SportsLeague.ATP -> "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3f/ATP_Tour_logo.svg/330px-ATP_Tour_logo.svg.png"
-    SportsLeague.WTA -> "https://www.wtatennis.com/resources/v7.55.15/i/elements/wta-publisher-logo.png"
     else -> league.logoPath?.let { "https://a.espncdn.com/$it" }
 }
 
@@ -470,7 +832,7 @@ private fun LeagueLogo(league: SportsLeague, logoSize: Dp) {
                 contentDescription = "${league.label} logo",
                 contentScale = ContentScale.Fit,
                 onError = { failed = true },
-                modifier = if (league == SportsLeague.ATP || league == SportsLeague.WTA) {
+                modifier = if (league == SportsLeague.TENNIS) {
                     Modifier.fillMaxSize().background(Color(0xFFF5EFE9), CircleShape).padding(2.dp)
                 } else Modifier.fillMaxSize(),
             )
@@ -485,6 +847,35 @@ private fun statusLine(board: SportsScoreboard?, refreshFailed: Boolean, league:
     val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(fetched))
     return if (refreshFailed) "$base • Couldn't refresh — showing scores from $time"
     else "$base • Updated $time"
+}
+
+/** First tab in the sports row: every sport, Live Events and US Channels. */
+@Composable
+private fun AllSportsTab(active: Boolean, modifier: Modifier = Modifier, onSelect: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(50)
+    val textColor by animateColorAsState(if (focused || active) CinemaGold.Soft else Soft, label = "all_text")
+    Row(
+        modifier = modifier
+            .focusGrow(focused, 1.07f)
+            .border(
+                if (focused) 3.dp else 1.dp,
+                if (focused) CinemaGold.Soft else if (active) CinemaGold.Base.copy(alpha = 0.7f) else CardBorder,
+                shape
+            )
+            .background(if (focused || active) CardFocused else Card, shape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onSelect)
+            .padding(start = 8.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier.size(46.dp).cinemaSpinRing(active).padding(4.dp).clip(CircleShape).background(Color(0xFF141317)),
+            contentAlignment = Alignment.Center
+        ) { Text("★", color = CinemaGold.Base, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold) }
+        Text("All", color = textColor, fontSize = 15.sp, fontWeight = if (active) FontWeight.ExtraBold else FontWeight.SemiBold)
+    }
 }
 
 @Composable
@@ -621,7 +1012,7 @@ private fun FeaturedGameCard(event: SportsEvent, focusRequester: FocusRequester,
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatusBadge(event)
-                Text("Featured game", color = Soft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(event.divisionLabel() ?: "Featured game", color = Soft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 Text(whenText(event), color = Soft, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
@@ -669,7 +1060,7 @@ private fun FeaturedTeam(team: SportsCompetitor, league: SportsLeague, glow: Col
 }
 
 @Composable
-private fun GameCard(event: SportsEvent, focusRequester: FocusRequester, onSelect: () -> Unit) {
+private fun GameCard(event: SportsEvent, focusRequester: FocusRequester, showLeague: Boolean = false, onSelect: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(16.dp)
     val statusColor = when (event.status) {
@@ -703,6 +1094,8 @@ private fun GameCard(event: SportsEvent, focusRequester: FocusRequester, onSelec
             }
         }
         val details = buildList {
+            // "Women's College Basketball" / "ATP Tennis" on every game, sport name on All Sports.
+            (event.divisionLabel() ?: event.league.shortLabel.takeIf { showLeague })?.let(::add)
             if (event.status == SportsEventStatus.SCHEDULED) {
                 val records = listOfNotNull(event.away, event.home)
                     .filter { !it.record.isNullOrBlank() }
@@ -724,11 +1117,27 @@ private fun GameCard(event: SportsEvent, focusRequester: FocusRequester, onSelec
 }
 
 @Composable
-private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventRepository, matches: List<SportsCatalogMatch>, browse: List<SportsCatalogMatch>, diagnostics: String, loading: Boolean, error: String?, onOpenStream: (SportsCatalogMatch) -> Unit, onDismiss: () -> Unit) {
+private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventRepository, matches: List<SportsCatalogMatch>, browse: List<SportsCatalogMatch>, diagnostics: String, loading: Boolean, error: String?, onOpenStream: (SportsCatalogMatch) -> Unit, onAddMultiview: (SportsCatalogMatch) -> Unit, onDismiss: () -> Unit) {
     var boxScore by remember(event.id) { mutableStateOf<SportsBoxScore?>(null) }
     var statsLoading by remember(event.id) { mutableStateOf(event.status != SportsEventStatus.SCHEDULED) }
     var statsFailed by remember(event.id) { mutableStateOf(false) }
     var selectedTeam by remember(event.id) { mutableStateOf(0) }
+    // Golf leaderboard / race order / tennis sets / fight card: fuller F1 results from Jolpica when finished.
+    var detailed by remember(event.id) { mutableStateOf<SportsResults?>(null) }
+    LaunchedEffect(event.id, event.status) {
+        if (event.league.usesTeamStats) return@LaunchedEffect
+        detailed = runCatching { repository.detailedResults(event) }.getOrElse { if (it is CancellationException) throw it; null }
+    }
+    // Season leaders before the game; game leaders when ESPN has no full box score (some college sports).
+    var leaders by remember(event.id) { mutableStateOf<SportsLeaders?>(null) }
+    var leadersLoading by remember(event.id) { mutableStateOf(event.league.usesTeamStats) }
+    LaunchedEffect(event.id, event.status, statsLoading, boxScore == null) {
+        if (!event.league.usesTeamStats) { leadersLoading = false; return@LaunchedEffect }
+        val needed = event.status == SportsEventStatus.SCHEDULED || (!statsLoading && boxScore == null)
+        if (!needed) return@LaunchedEffect
+        leaders = runCatching { repository.leaders(event) }.getOrElse { if (it is CancellationException) throw it; null }
+        leadersLoading = false
+    }
 
     // Load player stats; keep them updating while the game is live.
     LaunchedEffect(event.id, event.status) {
@@ -778,7 +1187,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                     }
                     Spacer(Modifier.weight(1f))
                     StatusBadge(event)
-                    Text(event.league.label.uppercase(), color = CinemaGold.Base, fontSize = 13.sp,
+                    Text((event.division?.let { "$it " }.orEmpty() + event.league.label).uppercase(), color = CinemaGold.Base, fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold, letterSpacing = 3.sp)
                 }
 
@@ -788,7 +1197,7 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                     Column(Modifier.weight(0.45f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         DetailHeading("WATCH GAME")
                         when {
-                            loading -> InfoPanel("Searching installed sports add-ons…")
+                            loading && matches.isEmpty() -> InfoPanel("Searching installed sports add-ons…")
                             error != null -> InfoPanel(error)
                             matches.isEmpty() -> {
                                 InfoPanel("No exact game match found in installed add-ons.")
@@ -797,28 +1206,77 @@ private fun GameDetailsDialog(event: SportsEvent, repository: SportsEventReposit
                                     Text("BROWSE LEAGUE SOURCES · MATCHUP NOT VERIFIED", color = Muted, fontSize = 12.sp,
                                         fontWeight = FontWeight.ExtraBold, letterSpacing = 1.8.sp, modifier = Modifier.padding(top = 6.dp))
                                     browse.take(12).forEach { match ->
-                                        SourceRow(match, verified = false) { onOpenStream(match) }
+                                        SourceRow(match, verified = false, onMultiview = { onAddMultiview(match) }) { onOpenStream(match) }
+                                    }
+                                }
+                            }
+                            event.status == SportsEventStatus.FINAL -> {
+                                // Same as Mobile: full games first, then the short highlight clips.
+                                val full = matches.filter { it.kind != SportsContentKind.HIGHLIGHT }
+                                val clips = matches.filter { it.kind == SportsContentKind.HIGHLIGHT }
+                                if (full.isNotEmpty()) {
+                                    Text("FULL GAME REPLAYS", color = CinemaGold.Base, fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold, letterSpacing = 1.8.sp)
+                                    full.take(12).forEach { match ->
+                                        SourceRow(match, verified = true) { onOpenStream(match) }
+                                    }
+                                }
+                                if (clips.isNotEmpty()) {
+                                    Text("HIGHLIGHTS", color = CinemaGold.Base, fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold, letterSpacing = 1.8.sp,
+                                        modifier = Modifier.padding(top = 6.dp))
+                                    clips.take(12).forEach { match ->
+                                        SourceRow(match, verified = true) { onOpenStream(match) }
                                     }
                                 }
                             }
                             else -> matches.take(12).forEach { match ->
-                                SourceRow(match, verified = true) { onOpenStream(match) }
+                                SourceRow(match, verified = true, onMultiview = { onAddMultiview(match) }) { onOpenStream(match) }
                             }
+                        }
+                        if (loading && matches.isNotEmpty()) {
+                            Text("Still checking more add-ons…", color = Muted, fontSize = 12.sp)
                         }
                     }
                     Column(Modifier.weight(0.55f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.weight(1f)) { DetailHeading("PLAYER STATS") }
-                            boxScore?.teams?.forEachIndexed { index, team ->
-                                PanelButton(team.shortLabel, active = index == selectedTeam) { selectedTeam = index }
+                            val scheduled = event.status == SportsEventStatus.SCHEDULED
+                            val showLeaders = scheduled || (boxScore == null && leaders != null)
+                            Box(Modifier.weight(1f)) {
+                                DetailHeading(when {
+                                    !event.league.usesTeamStats -> "RESULTS"
+                                    scheduled -> "SEASON STATS"
+                                    showLeaders -> "GAME LEADERS"
+                                    else -> "PLAYER STATS"
+                                })
+                            }
+                            val teamLabels = if (showLeaders) leaders?.teams?.map { it.shortLabel } else boxScore?.teams?.map { it.shortLabel }
+                            teamLabels?.forEachIndexed { index, label ->
+                                PanelButton(label, active = index == selectedTeam) { selectedTeam = index }
                             }
                         }
                         val team = boxScore?.teams?.getOrNull(selectedTeam)
+                        val teamLeaders = leaders?.teams?.getOrNull(selectedTeam)
                         when {
-                            !event.league.usesTeamStats -> InfoPanel("Individual stats aren't available for this event.")
-                            event.status == SportsEventStatus.SCHEDULED -> InfoPanel("Player stats appear once the game starts.")
+                            !event.league.usesTeamStats -> {
+                                val results = detailed ?: event.results
+                                when {
+                                    results != null -> ResultsTable(results)
+                                    scheduledOrUnknown(event) -> InfoPanel("Results appear once this event starts.")
+                                    else -> InfoPanel("No results reported for this event yet.")
+                                }
+                            }
+                            event.status == SportsEventStatus.SCHEDULED -> when {
+                                teamLeaders != null -> {
+                                    Text("This season's leaders · the game hasn't started yet", color = Muted, fontSize = 13.sp)
+                                    LeadersTable(teamLeaders)
+                                }
+                                leadersLoading -> InfoPanel("Loading season stats…")
+                                else -> InfoPanel("Season stats aren't available for this game. Player stats appear once it starts.")
+                            }
                             team != null -> team.groups.forEach { group -> StatTable(group) }
                             statsLoading -> InfoPanel("Loading player stats…")
+                            teamLeaders != null -> LeadersTable(teamLeaders)
                             statsFailed -> InfoPanel("Player stats unavailable right now.")
                             else -> InfoPanel("No player stats reported for this game yet.")
                         }
@@ -912,7 +1370,21 @@ private fun DetailHeading(text: String) {
 
 /** One stream source from an installed add-on. */
 @Composable
-private fun SourceRow(match: SportsCatalogMatch, verified: Boolean, onClick: () -> Unit) {
+private fun SourceRow(
+    match: SportsCatalogMatch,
+    verified: Boolean,
+    onMultiview: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    // The Multi-View button sits on the same line (press Right): a button under each link
+    // was skipped by the remote's Down button.
+    if (onMultiview != null) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.weight(1f)) { SourceRow(match, verified, onMultiview = null, onClick = onClick) }
+            PanelButton("＋ Multi-View", active = false, onClick = onMultiview)
+        }
+        return
+    }
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(18.dp)
     Row(
@@ -937,8 +1409,107 @@ private fun SourceRow(match: SportsCatalogMatch, verified: Boolean, onClick: () 
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(match.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(match.addon.displayName, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            val worked = remember(match) {
+                com.nuvio.tv.core.links.LinkMemory.workedBefore(match.streamId, match.title, match.addon.displayName)
+            }
+            Text(
+                if (worked) "${match.addon.displayName}  ·  ✓ Worked last time" else match.addon.displayName,
+                color = if (worked) CinemaGold.Soft else Muted,
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
+            )
         }
+    }
+}
+
+/** A channel or event with one or more add-on links; more than one folds open on OK. */
+@Composable
+private fun GroupedSources(
+    title: String,
+    sources: List<SportsCatalogMatch>,
+    onOpenStream: (SportsCatalogMatch) -> Unit,
+    onAddToMultiview: (SportsCatalogMatch) -> Unit,
+    nowOn: String? = null,
+) {
+    if (sources.size == 1) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (nowOn != null) Text("ON NOW · $nowOn", color = CinemaGold.Soft, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            SourceRow(
+                sources.first().copy(title = title.takeIf { it.isNotBlank() } ?: sources.first().title),
+                verified = true,
+                onMultiview = { onAddToMultiview(sources.first()) },
+            ) {
+                onOpenStream(sources.first())
+            }
+        }
+        return
+    }
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(18.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth()
+                .focusGrow(focused, 1.03f)
+                .clip(shape)
+                .background(if (focused) CardFocused else Card)
+                .border(if (focused) 3.dp else 1.dp, if (focused) CinemaGold.Soft else CardBorder, shape)
+                .cinemaFocusShine(focused, strength = 0.14f)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (nowOn != null) Text("ON NOW · $nowOn", color = CinemaGold.Soft, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${sources.size} links · " + sources.map { it.addon.displayName }.distinct().joinToString(),
+                    color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(if (expanded) "Hide ▲" else "Show ▼", color = CinemaGold.Base, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+        }
+        if (expanded) {
+            Column(Modifier.padding(start = 28.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                sources.forEach { source ->
+                    SourceRow(source, verified = true, onMultiview = { onAddToMultiview(source) }) { onOpenStream(source) }
+                }
+            }
+        }
+    }
+}
+
+/** Search box: OK on the remote opens the TV keyboard; results update as you type. */
+@Composable
+private fun SportsSearchField(query: String, onChange: (String) -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(shape)
+            .background(if (focused) CardFocused else Card)
+            .border(if (focused) 3.dp else 1.dp, if (focused) CinemaGold.Soft else CardBorder, shape)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("🔍", fontSize = 18.sp)
+        Box(Modifier.weight(1f)) {
+            if (query.isEmpty()) Text("Search teams, channels, events…", color = Muted, fontSize = 17.sp)
+            BasicTextField(
+                value = query,
+                onValueChange = onChange,
+                singleLine = true,
+                textStyle = TextStyle(color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold),
+                cursorBrush = SolidColor(CinemaGold.Base),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+            )
+        }
+        if (query.isNotEmpty()) PanelButton("Clear", active = false) { onChange("") }
     }
 }
 
@@ -962,6 +1533,98 @@ private fun PanelButton(label: String, active: Boolean, modifier: Modifier = Mod
             .padding(horizontal = 20.dp, vertical = 10.dp)
     ) {
         Text(label, color = if (focused || active) CinemaGold.Ink else Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+    }
+}
+
+private fun scheduledOrUnknown(event: SportsEvent) =
+    event.status == SportsEventStatus.SCHEDULED || event.status == SportsEventStatus.UNKNOWN
+
+/** Leaderboard / race results / sets / fight card. Each row can take focus so the remote scrolls it. */
+@Composable
+private fun ResultsTable(results: SportsResults) {
+    // First column narrow (position), second flexible (name), the rest fixed.
+    val nameColumn = if (results.columns.firstOrNull() in setOf("Pos")) 1 else 0
+    Column(
+        Modifier.fillMaxWidth()
+            .background(Card, RoundedCornerShape(18.dp))
+            .border(1.dp, CardBorder, RoundedCornerShape(18.dp))
+            .padding(vertical = 10.dp)
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(results.title, color = CinemaGold.Base, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
+            Text(results.source, color = Muted, fontSize = 11.sp)
+        }
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+            results.columns.forEachIndexed { index, col ->
+                Text(col, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                    modifier = resultCell(index, nameColumn, col))
+            }
+        }
+        results.rows.forEach { row ->
+            var focused by remember { mutableStateOf(false) }
+            Row(
+                Modifier.fillMaxWidth()
+                    .background(if (focused) CardFocused else if (row.highlight) CinemaGold.Base.copy(alpha = 0.08f) else Color.Transparent)
+                    .onFocusChanged { focused = it.isFocused }
+                    .focusable()
+                    .padding(horizontal = 16.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                row.cells.forEachIndexed { index, cell ->
+                    Text(cell, color = if (row.highlight && index == nameColumn) CinemaGold.Soft else Color.White,
+                        fontSize = 14.sp, fontWeight = if (index == nameColumn) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = resultCell(index, nameColumn, results.columns.getOrNull(index).orEmpty()))
+                }
+            }
+        }
+    }
+}
+
+private val narrowResultColumn = Regex("""^(R\d|S\d|No\.|Pts|PTS|W|To par)$""")
+
+private fun RowScope.resultCell(index: Int, nameColumn: Int, column: String): Modifier = when {
+    index == nameColumn -> Modifier.weight(1f).padding(end = 8.dp)
+    index < nameColumn -> Modifier.width(44.dp)
+    narrowResultColumn.matches(column) -> Modifier.width(50.dp).padding(start = 4.dp)
+    column.startsWith("Q") -> Modifier.width(74.dp).padding(start = 4.dp)
+    else -> Modifier.width(110.dp).padding(start = 6.dp)
+}
+
+/** One team's stat leaders: category, then each leader with their numbers. */
+@Composable
+private fun LeadersTable(team: SportsTeamLeaders) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        team.categories.forEach { category ->
+            var focused by remember { mutableStateOf(false) }
+            val shape = RoundedCornerShape(14.dp)
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(shape)
+                    .background(if (focused) CardFocused else Card)
+                    .border(if (focused) 2.dp else 1.dp, if (focused) CinemaGold.Soft else CardBorder, shape)
+                    // Focusable so the remote can scroll through long lists.
+                    .onFocusChanged { focused = it.isFocused }
+                    .focusable()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(category.title.uppercase(), color = CinemaGold.Base, fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold, letterSpacing = 1.4.sp)
+                category.leaders.forEach { line ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            line.name + (line.position?.let { "  $it" } ?: ""),
+                            color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.45f),
+                        )
+                        Text(line.value, color = Soft, fontSize = 14.sp, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.55f))
+                    }
+                }
+            }
+        }
     }
 }
 

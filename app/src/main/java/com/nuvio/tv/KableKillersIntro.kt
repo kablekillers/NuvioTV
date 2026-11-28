@@ -42,32 +42,31 @@ fun ComponentActivity.playKableKillersIntro() {
         (overlay.parent as? ViewGroup)?.removeView(overlay)
     }
 
+    // Black cover over the video until real frames are on screen. Without it the first
+    // frames showed up cropped/offset while the surface was still being sized.
+    val cover = android.view.View(this).apply { setBackgroundColor(Color.BLACK) }
+    overlay.addView(
+        cover,
+        FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+    )
+
     video.setOnPreparedListener { player ->
         player.isLooping = false
-
-        // Maintain the original video aspect ratio.
-        val videoWidth = player.videoWidth
-        val videoHeight = player.videoHeight
-
-        if (videoWidth > 0 && videoHeight > 0) {
-            val displayWidth = root.width
-            val displayHeight = root.height
-
-            if (displayWidth > 0 && displayHeight > 0) {
-                val scale = minOf(
-                    displayWidth.toFloat() / videoWidth,
-                    displayHeight.toFloat() / videoHeight
-                )
-
-                video.layoutParams = FrameLayout.LayoutParams(
-                    (videoWidth * scale).toInt(),
-                    (videoHeight * scale).toInt(),
-                    Gravity.CENTER
-                )
+        player.setOnInfoListener { _, what, _ ->
+            if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
+                // One extra frame so the correctly sized frame is the first one shown.
+                cover.postDelayed({ cover.visibility = android.view.View.GONE }, 50)
             }
+            false
         }
-
+        // VideoView already keeps the video's aspect ratio inside MATCH_PARENT,
+        // so no manual resize (resizing mid-playback caused the offset frame).
         video.start()
+        // Safety net for decoders that never report rendering start.
+        cover.postDelayed({ cover.visibility = android.view.View.GONE }, 1500)
     }
 
     video.setOnCompletionListener {
@@ -97,6 +96,5 @@ fun ComponentActivity.playKableKillersIntro() {
         )
 
         overlay.bringToFront()
-        video.start()
     }
 }

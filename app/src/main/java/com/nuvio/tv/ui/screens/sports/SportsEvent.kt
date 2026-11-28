@@ -1,47 +1,66 @@
 package com.nuvio.tv.ui.screens.sports
 
-/** Provider-independent sports metadata. Stream availability is never inferred from event status. */
+/** One ESPN feed a league pulls from, e.g. men's or women's college basketball. */
+data class SportsFeed(
+    val path: String,
+    /** Label shown on each game when a league has several feeds ("Men's", "Women's", "ATP"). */
+    val division: String? = null,
+    /** ESPN only lists ranked/featured college games unless asked for all of Division I. */
+    val allDivisionOne: Boolean = false,
+)
+
+/**
+ * The Sports Hub's sports (top row, after "All"): American sports only.
+ * A league can pull several ESPN feeds (men's + women's college games, ATP + WTA).
+ * A league with no feeds is found only in add-on catalogs (WWE).
+ */
 enum class SportsLeague(
     val label: String,
-    val scoreboardPath: String?,
+    internal val feeds: List<SportsFeed>,
     internal val catalogSport: String,
     internal val shortLabel: String = label,
     internal val logoPath: String? = null,
     internal val usesTeamStats: Boolean = true,
 ) {
-    NFL("NFL", "football/nfl", "american_football", logoPath = "i/teamlogos/leagues/500/nfl.png"),
-    COLLEGE_FOOTBALL("College Football", "football/college-football", "american_football",
-        shortLabel = "College", logoPath = "redesign/assets/img/icons/NCAASports_Football.png"),
-    NBA("NBA", "basketball/nba", "basketball", logoPath = "i/teamlogos/leagues/500/nba.png"),
-    MLB("MLB", "baseball/mlb", "baseball", logoPath = "i/teamlogos/leagues/500/mlb.png"),
-    NHL("NHL", "hockey/nhl", "hockey", logoPath = "i/teamlogos/leagues/500/nhl.png"),
-    UFC("UFC", "mma/ufc", "fight", logoPath = "i/teamlogos/leagues/500/ufc.png", usesTeamStats = false),
-    NCAA_MEN("NCAA Men's Basketball", "basketball/mens-college-basketball", "basketball",
-        "NCAA Men", "redesign/assets/img/icons/NCAASports_MensBasketball.png"),
-    NCAA_WOMEN("NCAA Women's Basketball", "basketball/womens-college-basketball", "basketball",
-        "NCAA Women", "redesign/assets/img/icons/NCAASports_WomensBasketball.png"),
-    WNBA("WNBA", "basketball/wnba", "basketball", logoPath = "i/teamlogos/leagues/500-dark/wnba.png"),
-    ATP("ATP Tennis", "tennis/atp", "tennis", "ATP", usesTeamStats = false),
-    WTA("WTA Tennis", "tennis/wta", "tennis", "WTA", usesTeamStats = false),
-    PGA("PGA Tour", "golf/pga", "golf", "PGA", "i/teamlogos/leagues/500-dark/pgatour.png", false),
-    LPGA("LPGA", "golf/lpga", "golf", logoPath = "i/teamlogos/leagues/500-dark/lpga.png", usesTeamStats = false),
-    FORMULA_1("Formula 1", "racing/f1", "motor_sports", "F1", "i/teamlogos/leagues/500/f1.png", false),
-    NASCAR("NASCAR Cup Series", "racing/nascar-premier", "motor_sports",
+    NFL("NFL", listOf(SportsFeed("football/nfl")), "american_football", logoPath = "i/teamlogos/leagues/500/nfl.png"),
+    NBA("NBA", listOf(SportsFeed("basketball/nba")), "basketball", logoPath = "i/teamlogos/leagues/500/nba.png"),
+    MLB("MLB", listOf(SportsFeed("baseball/mlb")), "baseball", logoPath = "i/teamlogos/leagues/500/mlb.png"),
+    NHL("NHL", listOf(SportsFeed("hockey/nhl")), "hockey", logoPath = "i/teamlogos/leagues/500/nhl.png"),
+    COLLEGE_FOOTBALL("College Football", listOf(SportsFeed("football/college-football")), "american_football",
+        shortLabel = "College Football", logoPath = "redesign/assets/img/icons/NCAASports_Football.png"),
+    COLLEGE_BASKETBALL("College Basketball", listOf(
+        SportsFeed("basketball/mens-college-basketball", "Men's", allDivisionOne = true),
+        SportsFeed("basketball/womens-college-basketball", "Women's", allDivisionOne = true),
+    ), "basketball", logoPath = "redesign/assets/img/icons/NCAASports_MensBasketball.png"),
+    COLLEGE_HOCKEY("College Hockey", listOf(
+        SportsFeed("hockey/mens-college-hockey", "Men's"),
+        SportsFeed("hockey/womens-college-hockey", "Women's"),
+    ), "hockey"),
+    TENNIS("Tennis", listOf(SportsFeed("tennis/atp", "ATP"), SportsFeed("tennis/wta", "WTA")), "tennis",
+        usesTeamStats = false),
+    PGA("PGA Golf", listOf(SportsFeed("golf/pga")), "golf", "Golf", "i/teamlogos/leagues/500-dark/pgatour.png", false),
+    UFC("Boxing / MMA / UFC", listOf(SportsFeed("mma/ufc", "UFC")), "fight", "Boxing/MMA/UFC",
+        "i/teamlogos/leagues/500/ufc.png", usesTeamStats = false),
+    FORMULA_1("Formula 1", listOf(SportsFeed("racing/f1")), "motor_sports", "F1", "i/teamlogos/leagues/500/f1.png", false),
+    NASCAR("NASCAR Cup Series", listOf(SportsFeed("racing/nascar-premier")), "motor_sports",
         "NASCAR", "redesign/assets/img/icons/ESPN-icon-NASCAR.png", false),
-    INDYCAR("IndyCar", "racing/irl", "motor_sports",
+    WNBA("WNBA", listOf(SportsFeed("basketball/wnba")), "basketball", logoPath = "i/teamlogos/leagues/500-dark/wnba.png"),
+    MLS("MLS", listOf(SportsFeed("soccer/usa.1")), "football", logoPath = "i/leaguelogos/soccer/500/19.png"),
+    COLLEGE_BASEBALL("College Baseball", listOf(SportsFeed("baseball/college-baseball")), "baseball"),
+    LPGA("LPGA", listOf(SportsFeed("golf/lpga")), "golf", logoPath = "i/teamlogos/leagues/500-dark/lpga.png", usesTeamStats = false),
+    COLLEGE_VOLLEYBALL("College Volleyball", listOf(
+        SportsFeed("volleyball/womens-college-volleyball", "Women's"),
+        SportsFeed("volleyball/mens-college-volleyball", "Men's"),
+    ), "volleyball"),
+    INDYCAR("IndyCar", listOf(SportsFeed("racing/irl")), "motor_sports",
         logoPath = "i/espn/teamlogos/500/indycar_series.png", usesTeamStats = false),
-    MOTORSPORT("Motorsports", null, "motor_sports", "Motorsports", usesTeamStats = false),
-    COMBAT("Boxing & MMA", null, "fight", "Boxing & MMA", usesTeamStats = false),
-    SOCCER("Soccer", null, "football", usesTeamStats = false),
-    RUGBY("Rugby", null, "rugby", usesTeamStats = false),
-    AFL("AFL", null, "afl", usesTeamStats = false),
-    CRICKET("Cricket", null, "cricket", usesTeamStats = false),
-    DARTS("Darts", null, "darts", usesTeamStats = false),
-    BILLIARDS("Billiards", null, "billiards", usesTeamStats = false),
-    OTHER("Other Sports", null, "other", usesTeamStats = false),
+    WWE("WWE", emptyList(), "wrestling", usesTeamStats = false),
     ;
 
-    internal val isCollegeBasketball: Boolean get() = this == NCAA_MEN || this == NCAA_WOMEN
+    /** First feed's ESPN path, or null for add-on-only sports. */
+    val scoreboardPath: String? get() = feeds.firstOrNull()?.path
+
+    internal val isCollegeBasketball: Boolean get() = this == COLLEGE_BASKETBALL
 }
 
 enum class SportsEventStatus { SCHEDULED, LIVE, FINAL, POSTPONED, UNKNOWN }
@@ -83,6 +102,12 @@ data class SportsEvent(
     val broadcasts: List<String> = emptyList(),
     val catalogMatchTitle: String? = null,
     val racingSession: String? = null,
+    /** "Men's" / "Women's" / "ATP"… when the league pulls several feeds. */
+    val division: String? = null,
+    /** ESPN feed this game came from (for box scores in multi-feed leagues). */
+    val feedPath: String? = null,
+    /** Golf leaderboard / race order / tennis sets / fight results, when the provider has them. */
+    val results: SportsResults? = null,
 ) {
     init {
         require(id.isNotBlank())
@@ -120,6 +145,12 @@ interface SportsEventProvider {
 
     /** Individual player stats for a game, or null when the provider has none (e.g. not started). */
     suspend fun boxScore(event: SportsEvent): SportsBoxScore? = null
+
+    /** Each team's stat leaders: season numbers before the game, game numbers once it starts. */
+    suspend fun leaders(event: SportsEvent): SportsLeaders? = null
+
+    /** Fuller results from another source (e.g. F1 times and points), or null to use [SportsEvent.results]. */
+    suspend fun detailedResults(event: SportsEvent): SportsResults? = null
 
     /** League tables, or null when the provider has none (e.g. UFC). */
     suspend fun standings(league: SportsLeague): SportsStandings? = null

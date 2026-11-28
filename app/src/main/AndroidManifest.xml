@@ -20,6 +20,15 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Kable Killers Music (from Nuvio One): playback notification, downloads, party page, local audio. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- Live TV (from Nuvio One): recordings and reminders start on time. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
 
     <uses-feature
         android:name="android.hardware.touchscreen"
@@ -44,6 +53,72 @@
         android:supportsRtl="true"
         android:localeConfig="@xml/locale_config"
         android:theme="@style/Theme.MyApplication">
+        <!-- Kable Killers VPN (IPVanish WireGuard), same declaration as Nuvio One. -->
+        <service android:name="com.wireguard.android.backend.GoBackend$VpnService" android:enabled="true">
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
+        </service>
+
+
+        <!-- Crash catcher: saves what went wrong when the app closes and shows it the next time
+             the app opens (with a QR code), so customers far away can send it in. -->
+        <provider
+            android:name=".livetv.crash.CrashCatcherInitProvider"
+            android:authorities="${applicationId}.crashcatcher"
+            android:exported="false"
+            android:initOrder="1000" />
+        <activity
+            android:name=".livetv.crash.CrashReportActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
+        <!-- Live TV (from Nuvio One): keeps the launcher's home screen rows up to date. -->
+        <receiver
+            android:name=".livetv.home.LauncherRowsReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.nuvio.tv.livetv.LAUNCHER_ROWS" />
+            </intent-filter>
+        </receiver>
+        <provider
+            android:name=".livetv.home.LauncherImageProvider"
+            android:authorities="${applicationId}.launcherimg"
+            android:exported="true" />
+        <!-- Live TV: wakes the app for scheduled recordings, and sets them again after a restart. -->
+        <receiver
+            android:name=".livetv.record.RecordingAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.nuvio.tv.livetv.RECORD" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".livetv.record.LiveTvRecordingService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+
+        <!-- Kable Killers Music (from Nuvio One): keeps audio playing while the music screens are closed. -->
+        <service
+            android:name=".music.MusicPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+        <service
+            android:name=".music.MusicDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".music.MusicPartyService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <activity
+            android:name=".music.SpotifyLoginActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|layoutDirection|fontScale|locale"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.MyApplication" />
+
         <meta-data
             android:name="io.sentry.auto-init"
             android:value="false" />

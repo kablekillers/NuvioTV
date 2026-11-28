@@ -227,6 +227,8 @@ class HomeViewModel @Inject constructor(
     internal var collectionsCache: List<Collection> = emptyList()
     internal var homeCatalogOrderKeys: List<String> = emptyList()
     internal var disabledHomeCatalogKeys: Set<String> = emptySet()
+    /** Completed once the saved hidden rows have been read, so the first load never shows them. */
+    internal val disabledHomeCatalogKeysReady = kotlinx.coroutines.CompletableDeferred<Unit>()
     internal var followAddonsOrderEnabled: Boolean = false
     internal var customCatalogTitles: Map<String, String> = emptyMap()
     internal var currentHeroCatalogKeys: List<String> = emptyList()
@@ -783,7 +785,12 @@ class HomeViewModel @Inject constructor(
             )
             if (items.isNotEmpty()) {
                 val (mainItems, upcomingOnly) = splitUpcomingItems(items, sortMode)
-                _uiState.update { it.copy(continueWatchingItems = mainItems, upcomingItems = upcomingOnly) }
+                _uiState.update {
+                    it.copy(
+                        continueWatchingItems = mainItems.uniqueCards(),
+                        upcomingItems = upcomingOnly.uniqueCards()
+                    )
+                }
                 _initialCwResolved.value = true
             }
         }

@@ -43,6 +43,7 @@ import javax.inject.Inject
 class NuvioApplication : Application(), SingletonImageLoader.Factory {
 
     @Inject lateinit var cacheCleaner: CacheCleaner
+    @Inject lateinit var kkLiveServer: com.nuvio.tv.livetv.KkLiveServer
     @Inject lateinit var startupSyncService: StartupSyncService
     @Inject lateinit var androidTvChannelSyncService: AndroidTvChannelSyncService
     @Inject lateinit var sentrySettingsDataStore: SentrySettingsDataStore
@@ -83,6 +84,12 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        com.nuvio.tv.core.links.LinkMemory.init(this)
+        com.nuvio.tv.core.vpn.KkVpn.init(this)
+        // Kable Killers Music: the chosen YouTube content region, ready before the first feed request.
+        runCatching { com.nuvio.tv.youtube.YouTubeContentRegion.apply(this) }
+        // Live TV: the Kable Killers playlist (your add-ons' US channels), served on this device.
+        runCatching { kkLiveServer.start() }
         cacheCleaner.runStartupCleanup()
         SentryInitializer.start(this, sentrySettingsDataStore)
         PluginRuntimeHooks.onApplicationCreate(this)

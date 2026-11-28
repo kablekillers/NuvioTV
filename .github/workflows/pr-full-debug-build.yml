@@ -10,6 +10,8 @@ on:
       - watch-party-integration-stage
       - tv-dev/1.1.11-features
       - tv-dev/1.1.13-whatsnew
+      - feature/tv-sports-multiview-cnc
+      - kk-backup-qr
   workflow_dispatch:
 
 permissions:
@@ -59,14 +61,24 @@ jobs:
           done
 
       - name: Prepare test signing
+        # KK_TEST_KEYSTORE_B64 (a test-only key, never the customer release key) keeps the same
+        # signature on every test build, so a new test APK installs over the last one and keeps
+        # the TV's settings. Without the secret, a throwaway key is made for this run.
+        env:
+          KK_TEST_KEYSTORE_B64: ${{ secrets.KK_TEST_KEYSTORE_B64 }}
         run: |
-          keytool -genkeypair -v \
-            -keystore "$RUNNER_TEMP/ci-debug.jks" \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -dname "CN=Kable Killers Test,O=Android,C=US" \
-            -keyalg RSA -keysize 2048 -validity 10000
+          if [ -n "$KK_TEST_KEYSTORE_B64" ]; then
+            echo "$KK_TEST_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/ci-debug.jks"
+            echo "Using the fixed Kable Killers test key"
+          else
+            keytool -genkeypair -v \
+              -keystore "$RUNNER_TEMP/ci-debug.jks" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=Kable Killers Test,O=Android,C=US" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
           {
             echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/ci-debug.jks"
             echo "NUVIO_RELEASE_KEY_ALIAS=androiddebugkey"

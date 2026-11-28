@@ -1070,7 +1070,7 @@
     <string name="layout_cw_sort_streaming_desc">Released items first, upcoming at the end</string>
     <string name="layout_cw_sort_split_upcoming">Separate Upcoming Row</string>
     <string name="layout_cw_sort_split_upcoming_desc">Move unaired episodes to a separate Upcoming row</string>
-    <string name="upcoming_section_title">Upcoming</string>
+    <string name="upcoming_section_title">Coming up</string>
     <string name="layout_trailer_button">Show Trailer Button</string>
     <string name="layout_trailer_button_sub">Show trailer button on detail page (only when trailer is available).</string>
     <string name="layout_trailer_play_in_background">Play in Background</string>
@@ -3411,6 +3411,12 @@
     <string name="kk_backup_restore_confirm_title">Restore Profile 1?</string>
     <string name="kk_backup_restore_confirm_subtitle">Profile 1\'s add-ons, plugins, collections, Home rows and settings will be replaced with the saved copy. Continue Watching and your library are not changed.</string>
     <string name="kk_backup_restore_confirm_action">Restore</string>
+    <string name="kk_backup_qr_scan_prompt">Nuvio is offline right now. Send a photo of this QR to Kable Killers to sign in with the backup.</string>
+    <string name="kk_backup_qr_signing_in">Signing in and loading the Kable Killers setup…</string>
+    <string name="kk_backup_qr_signed_in">Signed in with the Kable Killers backup</string>
+    <string name="kk_backup_qr_denied">This device wasn\'t let in. Contact Kable Killers.</string>
+    <string name="kk_backup_sign_out_title">Sign out of this device</string>
+    <string name="kk_backup_sign_out_subtitle">Disconnects this device from the Kable Killers backup. Signing back in takes a new QR code.</string>
     <string name="kk_backup_pin_title">Set up from backup</string>
     <string name="kk_backup_pin_subtitle">Use the Kable Killers login email and restore PIN</string>
     <string name="kk_backup_pin_dialog_subtitle">Enter the Kable Killers login email and the restore PIN. Profile 1 will be filled in from the backup.</string>

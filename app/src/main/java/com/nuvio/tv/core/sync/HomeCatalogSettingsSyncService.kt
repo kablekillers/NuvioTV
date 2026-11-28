@@ -124,7 +124,7 @@ class HomeCatalogSettingsSyncService @Inject constructor(
             val syncScope = currentScope(profileId)
                 ?: return@withContext Result.success(false)
             val localState = layoutPreferenceDataStore.getHomeCatalogSettingsState()
-            Log.d(TAG, "Pull start profile=$profileId ${localState.summary()}")
+            Log.w(TAG, "Pull start profile=$profileId ${localState.summary()}")
 
             if (localState.disabledKeys.any(::hasLegacyHomeCatalogDisabledKeyFormat)) {
                 val localPayload = loadLocalPayload()
@@ -150,7 +150,7 @@ class HomeCatalogSettingsSyncService @Inject constructor(
                 settingsJson = remoteBlob?.settingsJson ?: buildJsonObject { }
             )
             if (remoteBlob == null) {
-                Log.d(TAG, "No remote row profile=$profileId; preserving local (startup is pull-only)")
+                Log.w(TAG, "No remote row profile=$profileId; preserving local (startup is pull-only)")
                 return@withContext Result.success(false)
             }
 
@@ -159,10 +159,10 @@ class HomeCatalogSettingsSyncService @Inject constructor(
                 Log.w(TAG, "Pull parse failure profile=$profileId")
                 return@withContext Result.success(false)
             }
-            Log.d(TAG, "Pull remote payload profile=$profileId ${remotePayload.summary()}")
+            Log.w(TAG, "Pull remote payload profile=$profileId ${remotePayload.summary()}")
 
             if (remotePayload.items.isEmpty()) {
-                Log.d(TAG, "Remote payload empty profile=$profileId; preserving local (startup is pull-only)")
+                Log.w(TAG, "Remote payload empty profile=$profileId; preserving local (startup is pull-only)")
                 return@withContext Result.success(false)
             }
 
@@ -173,7 +173,7 @@ class HomeCatalogSettingsSyncService @Inject constructor(
                 isSyncingFromRemote = false
             }
 
-            Log.d(TAG, "Pull apply success profile=$profileId ${remotePayload.summary()}")
+            Log.w(TAG, "Pull apply success profile=$profileId ${remotePayload.summary()}")
             Result.success(true)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to pull home catalog settings", e)
@@ -190,6 +190,9 @@ class HomeCatalogSettingsSyncService @Inject constructor(
             pushToRemote(reason = "triggerPush")
         }
     }
+
+    /** Profile 1's Home rows, in the shape Nuvio stores them (for the Kable Killers backup). */
+    internal suspend fun localPayloadForBackup(): SyncHomeCatalogPayload = loadLocalPayload()
 
     private suspend fun loadLocalPayload(): SyncHomeCatalogPayload {
         val addons = addonRepository.getInstalledAddons().first().enabledAddons()

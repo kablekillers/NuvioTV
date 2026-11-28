@@ -34,7 +34,7 @@ class WatchStateSyncServiceTest {
     }
 
     @Test
-    fun `customer household profiles never send watch history to the cloud`() = runTest {
+    fun `customer login never sends watch history to the cloud, Profile 1 included`() = runTest {
         val postgrest = mockk<Postgrest>()
         val mutationStore = mockk<WatchStateMutationStore>(relaxed = true)
         coEvery { mutationStore.pendingProgressUpserts(any()) } returns mapOf("p" to progress("p"))
@@ -48,8 +48,10 @@ class WatchStateSyncServiceTest {
         assertTrue(watched.pushToRemote(3).isSuccess)
         coVerify(exactly = 0) { postgrest.rpc(any(), any<JsonObject>()) }
 
-        progress.pushToRemote(1).getOrThrow()
-        coVerify(exactly = 1) { postgrest.rpc("sync_push_watch_progress", any<JsonObject>()) }
+        // Profile 1 on the customer login stays on the device too (it is shared by every house).
+        assertTrue(progress.pushToRemote(1).isSuccess)
+        assertTrue(watched.pushToRemote(1).isSuccess)
+        coVerify(exactly = 0) { postgrest.rpc(any(), any<JsonObject>()) }
     }
 
     @Test

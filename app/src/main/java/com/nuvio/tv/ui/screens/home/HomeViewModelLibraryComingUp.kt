@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -21,8 +22,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
-private const val COMING_UP_MAX_SHOWS = 40
-private const val COMING_UP_DAYS_AHEAD = 30L
+private const val COMING_UP_MAX_SHOWS = 60
+private const val COMING_UP_DAYS_AHEAD = 60L
 private const val COMING_UP_REFRESH_MS = 6 * 60 * 60 * 1000L
 
 /**
@@ -33,20 +34,42 @@ private const val COMING_UP_REFRESH_MS = 6 * 60 * 60 * 1000L
 @OptIn(FlowPreview::class)
 internal fun HomeViewModel.observeLibraryComingUp() {
     viewModelScope.launch {
-        // Keyed to the profile so a switch always rebuilds from that profile's Library.
-        libraryRepository.libraryItems
-            .map { items ->
-                profileManager.activeProfileId.value to items
-                    .filter { it.type.equals("series", true) || it.type.equals("tv", true) }
-                    .map { Triple(it.id, it.type, it.name) }
-                    .distinct()
-                    .take(COMING_UP_MAX_SHOWS)
+        // Library series plus series watched recently (like Mobile), keyed to the profile so a
+        // profile picked after loading still rebuilds.
+        val watchedShows = watchProgressRepository.allProgress
+            .map { list ->
+                list.asSequence()
+                    .filter { it.contentType.equals("series", true) || it.contentType.equals("tv", true) }
+                    .sortedByDescending { it.lastWatched }
+                    .map { Triple(it.contentId, it.contentType, it.name) }
+                    .distinctBy { it.first }
+                    .take(20)
+                    .toList()
             }
+            .distinctUntilChanged()
+        kotlinx.coroutines.flow.combine(
+            libraryRepository.libraryItems,
+            watchedShows,
+            profileManager.activeProfileId
+        ) { items, watched, profileId ->
+            profileId to (items
+                .filter { it.type.equals("series", true) || it.type.equals("tv", true) }
+                .map { Triple(it.id, it.type, it.name) } + watched)
+                .distinctBy { it.first }
+                .take(COMING_UP_MAX_SHOWS)
+        }
             .distinctUntilChanged()
             .debounce(2_000L)
             .collectLatest { (profileId, shows) ->
                 while (true) {
-                    val items = loadLibraryComingUp(shows)
+                    val items = try {
+                        loadLibraryComingUp(shows)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        android.util.Log.w("ComingUp", "Coming up failed: ${e.javaClass.simpleName}: ${e.message}")
+                        emptyList()
+                    }
                     // Never show a list built for a profile that is no longer active.
                     if (profileManager.activeProfileId.value != profileId) return@collectLatest
                     _uiState.update { if (it.libraryComingUpItems == items) it else it.copy(libraryComingUpItems = items) }
@@ -66,9 +89,11 @@ private suspend fun HomeViewModel.loadLibraryComingUp(
     return kotlinx.coroutines.coroutineScope {
         shows.map { (id, type, fallbackName) ->
             async {
-                gate.withPermit {
+                // One show that fails (odd add-on data, a list that ends early) is skipped;
+                // before, the error escaped and closed the app right after a profile was picked.
+                try { gate.withPermit {
                     val result = withTimeoutOrNull(15_000L) {
-                        metaRepository.getMetaFromAllAddons(type = type, id = id).first { it !is NetworkResult.Loading }
+                        metaRepository.getMetaFromAllAddons(type = type, id = id).firstOrNull { it !is NetworkResult.Loading }
                     }
                     val meta = (result as? NetworkResult.Success)?.data ?: return@withPermit null
                     val next = meta.videos
@@ -103,6 +128,11 @@ private suspend fun HomeViewModel.loadLibraryComingUp(
                             isReleaseAlert = true,
                         )
                     )
+                } } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    android.util.Log.w("ComingUp", "Skipped $type $id: ${e.javaClass.simpleName}: ${e.message}")
+                    null
                 }
             }
         }.awaitAll().filterNotNull()
@@ -119,11 +149,26 @@ internal fun mergeComingUp(
     upcoming: List<ContinueWatchingItem>,
     library: List<ContinueWatchingItem>,
 ): List<ContinueWatchingItem> {
-    if (library.isEmpty()) return upcoming
+    // Two cards with the same key in one row close the app (Compose needs unique keys), so the
+    // row never repeats a card, whatever the lists it's built from contain.
+    if (library.isEmpty()) return upcoming.uniqueCards()
     fun ContinueWatchingItem.showId() = when (this) {
         is ContinueWatchingItem.InProgress -> progress.contentId
         is ContinueWatchingItem.NextUp -> info.contentId
     }
-    val shown = (continueWatching + upcoming).map { it.showId() }.toSet()
-    return upcoming + library.filter { it.showId() !in shown }
+    // Like Mobile: a show can be in Continue Watching (the episode you're on) and in Coming up
+    // (its next new episode). Only repeats within the Coming up row are dropped.
+    val shown = upcoming.map { it.showId() }.toSet()
+    return (upcoming + library.filter { it.showId() !in shown })
+        .uniqueCards()
+}
+
+/**
+ * Drops repeated cards (same show, season and episode). Compose closes the app when one row has
+ * two cards with the same key, which a profile's saved Continue Watching could contain.
+ */
+internal fun List<ContinueWatchingItem>.uniqueCards(): List<ContinueWatchingItem> {
+    if (size < 2) return this
+    val unique = distinctBy { continueWatchingItemKey(it) }
+    return if (unique.size == size) this else unique
 }

@@ -132,7 +132,8 @@ fun AboutSettingsContent(
                             )
 
                             Text(
-                                text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME),
+                                text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME) +
+                                    BuildConfig.TEST_BUILD_ID.takeIf { it.isNotBlank() }?.let { " · test $it" }.orEmpty(),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = NuvioTheme.colors.TextSecondary,
                                 textAlign = TextAlign.Center
@@ -173,6 +174,13 @@ fun AboutSettingsContent(
                                     onClick = onNavigateToSupportersContributors
                                 )
                             }
+
+                            SettingsActionRow(
+                                title = "Crash report",
+                                subtitle = "What happened the last time the app crashed, froze or was closed. Send a photo of it to support.",
+                                trailingIcon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                onClick = { com.nuvio.tv.livetv.crash.CrashCatcher.openLastReport(context) }
+                            )
 
                             SettingsActionRow(
                                 title = stringResource(R.string.about_licenses_attributions),

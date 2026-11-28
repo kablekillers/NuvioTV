@@ -53,6 +53,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
@@ -219,6 +220,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 val LocalSidebarExpanded = compositionLocalOf { false }
+
+/** Opens the side menu (Kable Killers Music / Live TV pages open it from their own menus and Back). */
+val LocalOpenSidebar = compositionLocalOf<() -> Unit> { {} }
 val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
 
 data class SplashBackground(
@@ -306,6 +310,9 @@ open class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var householdPinStore: com.nuvio.tv.data.local.HouseholdPinStore
+
+    @Inject
+    lateinit var kableKillersBackupService: com.nuvio.tv.core.backup.KableKillersBackupService
 
     @Inject
     lateinit var deviceSessionRegistration: DeviceSessionRegistration
@@ -429,6 +436,34 @@ open class MainActivity : ComponentActivity() {
                 }
             }
 
+            // On Android TV the activity usually stays alive in the background, so
+            // "reopening" the app resumes this same composition. If the account is
+            // signed out (Settings sign-out, revoked or expired session) after the
+            // QR step was already passed this session, reset the per-session gates
+            // so the QR sign-in screen comes back and, after signing in again,
+            // profile selection / PIN entry is not skipped.
+            // A device signed in through the Kable Killers backup QR (Nuvio down) has no
+            // Nuvio session but is signed in: it must not get the QR screen. Every
+            // sign-out button also disconnects the backup, so this only stays true
+            // until the customer signs out.
+            val kkBackupSignIn by kableKillersBackupService.state.collectAsState()
+            val signedInThroughBackup = kkBackupSignIn.hasDeviceKey && !kkBackupSignIn.accountEmail.isNullOrBlank()
+            var lastResolvedAuthWasAccount by remember { mutableStateOf<Boolean?>(null) }
+            LaunchedEffect(authState, signedInThroughBackup) {
+                when (authState) {
+                    is AuthState.FullAccount -> lastResolvedAuthWasAccount = true
+                    AuthState.SignedOut -> {
+                        if (lastResolvedAuthWasAccount == true && !signedInThroughBackup) {
+                            onboardingCompletedThisSession = false
+                            hasSelectedProfileThisSession = false
+                            splashTriggered = false
+                        }
+                        lastResolvedAuthWasAccount = false
+                    }
+                    AuthState.Loading -> Unit
+                }
+            }
+
             LaunchedEffect(hasSeenAuthQrOnFirstLaunch, authState) {
                 if (hasSeenAuthQrOnFirstLaunch == false && authState is AuthState.FullAccount) {
                     appOnboardingDataStore.setHasSeenAuthQrOnFirstLaunch(true)
@@ -454,12 +489,14 @@ open class MainActivity : ComponentActivity() {
             // profile counts as locked so a parent's lock is never skipped at startup.
             val householdPinStates by householdPinStore.lockedProfiles
                 .collectAsState(initial = null as Map<Int, Boolean>?)
-            val profilePinStates = remember(authState, cachedPinStates, pinStatesConfirmed, householdPinStates, profiles) {
+            val kkBackupState by kableKillersBackupService.state.collectAsState()
+            val profilePinStates = remember(authState, cachedPinStates, pinStatesConfirmed, householdPinStates, profiles, kkBackupState) {
                 com.nuvio.tv.core.sync.KableKillersAccountPolicy.enforcedPinLocks(
                     authState,
                     cachedPinStates,
                     pinStatesConfirmed,
-                    householdPinStates ?: profiles.associate { it.id to true }
+                    householdPinStates ?: profiles.associate { it.id to true },
+                    backupOnlyCustomer = kableKillersBackupService.isBackupOnlyCustomerDevice()
                 )
             }
 
@@ -754,8 +791,8 @@ open class MainActivity : ComponentActivity() {
                     if (!surfaceContentReady) {
                         // Still loading auth state; nothing to show yet.
                     } else if (
-                        hasSeenAuthQrOnFirstLaunch == false &&
-                        authState !is AuthState.FullAccount &&
+                        authState is AuthState.SignedOut &&
+                        !signedInThroughBackup &&
                         !onboardingCompletedThisSession
                     ) {
                         startupDestination = StartupDestination.Setup
@@ -1054,6 +1091,7 @@ open class MainActivity : ComponentActivity() {
                         buildSet {
                             add(Screen.Home.route)
                             add(Screen.SportsHub.route)
+                            add(Screen.LiveTv.route)
                             add(Screen.MusicHub.route)
                             add(Screen.YouTubeHub.route)
                             add(Screen.Calendar.route)
@@ -1092,6 +1130,13 @@ open class MainActivity : ComponentActivity() {
                                     route = Screen.SportsHub.route,
                                     label = "Sports Hub",
                                     icon = Icons.Default.Explore
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.LiveTv.route,
+                                    label = "Live TV",
+                                    icon = Icons.Default.LiveTv
                                 )
                             )
                             add(
@@ -1394,6 +1439,13 @@ open class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        // Kable Killers Music keeps playing in the background only if that's switched on.
+        val music = com.nuvio.tv.music.MusicPlayer.state.value
+        if (!com.nuvio.tv.music.MusicSettings.keepPlayingWhileBrowsing.value &&
+            (music.isPlaying || music.isBuffering)
+        ) {
+            com.nuvio.tv.music.MusicPlayer.pause()
+        }
         externalPlaybackTracker.onExternalPlayerCoveredApp()
         super.onStop()
         startupSyncService.stopPeriodicSurfacePulls()
@@ -1452,7 +1504,10 @@ private fun LegacySidebarScaffold(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerItemFocusRequesters = rememberDrawerItemFocusRequesters(drawerItems)
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val showSidebar = currentRoute in rootRoutes
+    // Live TV full screen happens inside the guide route, so hide the sidebar while it's active.
+    val liveTvFullscreen by com.nuvio.tv.livetv.ui.LiveTvFullscreen.active.collectAsState()
+    val showSidebar = currentRoute in rootRoutes &&
+        !(liveTvFullscreen && currentRoute == Screen.LiveTv.route)
 
     LaunchedEffect(currentRoute) {
         longPressBackHeld.value = false
@@ -1709,7 +1764,11 @@ private fun LegacySidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalOpenSidebar provides {
+                    pendingSidebarFocusRequest = true
+                    drawerState.setValue(DrawerValue.Open)
+                }
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -1717,6 +1776,9 @@ private fun LegacySidebarScaffold(
                     hideBuiltInHeaders = hideBuiltInHeaders
                 )
                 com.nuvio.tv.ui.components.TvWhatsNewHost()
+                com.nuvio.tv.ui.components.TvMessageBoardHost()
+                com.nuvio.tv.ui.screens.sports.SportsGameAlertsHost()
+                com.nuvio.tv.core.vpn.KkVpnConsentHost()
             }
         }
     }
@@ -1850,7 +1912,10 @@ private fun ModernSidebarScaffold(
     onNavigate: (String) -> Unit,
     onExitApp: () -> Unit
 ) {
-    val showSidebar = currentRoute in rootRoutes
+    // Live TV full screen happens inside the guide route, so hide the sidebar while it's active.
+    val liveTvFullscreen by com.nuvio.tv.livetv.ui.LiveTvFullscreen.active.collectAsState()
+    val showSidebar = currentRoute in rootRoutes &&
+        !(liveTvFullscreen && currentRoute == Screen.LiveTv.route)
     val sidebarTokens = NuvioComponents.tokens.sidebar
     val collapsedSidebarWidth = if (sidebarCollapsed) NuvioTheme.spacing.none else sidebarTokens.collapsedWidth
     val openSidebarWidth = sidebarTokens.expandedWidth
@@ -2112,7 +2177,12 @@ private fun ModernSidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalSidebarExpanded provides isSidebarExpanded,
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalOpenSidebar provides {
+                    isSidebarExpanded = true
+                    sidebarCollapsePending = false
+                    pendingSidebarFocusRequest = true
+                }
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -2120,6 +2190,9 @@ private fun ModernSidebarScaffold(
                     hideBuiltInHeaders = hideBuiltInHeaders
                 )
                 com.nuvio.tv.ui.components.TvWhatsNewHost()
+                com.nuvio.tv.ui.components.TvMessageBoardHost()
+                com.nuvio.tv.ui.screens.sports.SportsGameAlertsHost()
+                com.nuvio.tv.core.vpn.KkVpnConsentHost()
             }
         }
 

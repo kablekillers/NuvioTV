@@ -24,7 +24,10 @@ class SportsEventRepository(
     private val maxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS
 ) {
     private val mutex = Mutex()
-    private val cache = mutableMapOf<SportsLeague, SportsScoreboard>()
+    private val cache = java.util.concurrent.ConcurrentHashMap<SportsLeague, SportsScoreboard>()
+
+    /** Non-suspending read so the first frame after returning to the hub isn't empty. */
+    fun peek(league: SportsLeague): SportsScoreboard? = cache[league]
 
     suspend fun cached(league: SportsLeague): SportsScoreboard? = mutex.withLock { cache[league] }
 
@@ -74,6 +77,37 @@ class SportsEventRepository(
         mutex.withLock {
             if (boxScores.size >= MAX_CACHED_BOX_SCORES) boxScores.remove(boxScores.keys.first())
             boxScores[event.id] = fresh
+        }
+        return fresh
+    }
+
+    private val leadersCache = mutableMapOf<String, SportsLeaders>()
+
+    /** Stat leaders for a game; season numbers change slowly, so a copy up to 10 minutes old is reused. */
+    suspend fun leaders(event: SportsEvent, forceRefresh: Boolean = false): SportsLeaders? {
+        if (!forceRefresh) {
+            mutex.withLock { leadersCache[event.id] }?.let { cached ->
+                val maxAge = if (event.status == SportsEventStatus.LIVE) LIVE_BOX_SCORE_MAX_AGE_MILLIS else STANDINGS_MAX_AGE_MILLIS
+                if (event.status == SportsEventStatus.FINAL || clock() - cached.fetchedAtEpochMillis < maxAge) return cached
+            }
+        }
+        val fresh = provider.leaders(event)?.copy(fetchedAtEpochMillis = clock()) ?: return null
+        mutex.withLock {
+            if (leadersCache.size >= MAX_CACHED_BOX_SCORES) leadersCache.remove(leadersCache.keys.first())
+            leadersCache[event.id] = fresh
+        }
+        return fresh
+    }
+
+    private val detailedResultsCache = mutableMapOf<String, SportsResults>()
+
+    /** Fuller results from another source (F1 times and points); finished sessions don't change. */
+    suspend fun detailedResults(event: SportsEvent): SportsResults? {
+        mutex.withLock { detailedResultsCache[event.id] }?.let { return it }
+        val fresh = provider.detailedResults(event) ?: return null
+        mutex.withLock {
+            if (detailedResultsCache.size >= MAX_CACHED_BOX_SCORES) detailedResultsCache.remove(detailedResultsCache.keys.first())
+            detailedResultsCache[event.id] = fresh
         }
         return fresh
     }

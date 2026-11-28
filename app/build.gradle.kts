@@ -102,12 +102,23 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
+        // Kable Killers Music: optional services. Left empty, their cards stay hidden
+        // (Nuvio One's own keys aren't carried over).
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"\"")
+        buildConfigField("String", "SPOTIFY_LINK_BASE_URL", "\"\"")
+        buildConfigField("String", "LASTFM_API_KEY", "\"\"")
+        buildConfigField("String", "LASTFM_SECRET", "\"\"")
+        buildConfigField("String", "GOOGLE_DRIVE_CLIENT_ID", "\"\"")
+        buildConfigField("String", "GOOGLE_DRIVE_CLIENT_SECRET", "\"\"")
+        // Live TV: Nuvio One's own setup-sync service isn't used.
+        buildConfigField("String", "LIVETV_SYNC_URL", "\"\"")
+        buildConfigField("String", "NUVIO_CHANNEL", "\"stable\"")
         applicationId = "com.kablekillers.tv"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1083
-        versionName = "1.1.13"
+        versionCode = 1085
+        versionName = "1.1.15"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
@@ -200,6 +211,8 @@ android {
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
             buildConfigField("String", "SENTRY_ENVIRONMENT", buildConfigString("debug"))
+            // Test-build stamp shown in Settings > About so testers can tell builds apart.
+            buildConfigField("String", "TEST_BUILD_ID", buildConfigString((System.getenv("GITHUB_SHA") ?: "local").take(7)))
 
             // Dev environment (from local.dev.properties)
             buildConfigField("String", "SUPABASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_URL")))
@@ -235,6 +248,7 @@ android {
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
             buildConfigField("String", "SENTRY_ENVIRONMENT", buildConfigString("production"))
+            buildConfigField("String", "TEST_BUILD_ID", "\"\"")
 
             // Production environment (from local.properties)
             buildConfigField("String", "SUPABASE_URL", buildConfigString(localProperties.getProperty("NUVIO_SUPABASE_URL", "")))
@@ -267,6 +281,7 @@ android {
             )
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
             buildConfigField("String", "SENTRY_ENVIRONMENT", buildConfigString("benchmark"))
+            buildConfigField("String", "TEST_BUILD_ID", "\"\"")
             applicationIdSuffix = ".debug"
             matchingFallbacks += "release"
         }
@@ -537,6 +552,8 @@ dependencies {
     // QR code + local server for addon management
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
+    // Kable Killers VPN: WireGuard tunnel (IPVanish WireGuard profiles), same library as Nuvio One.
+    implementation("com.wireguard.android:tunnel:1.0.20260102")
 
 
     // Supabase
@@ -546,6 +563,16 @@ dependencies {
     implementation(libs.supabase.storage)
     implementation(libs.supabase.realtime)
     implementation(libs.ktor.client.okhttp)
+    // Kable Killers Music (from Nuvio One) and the YouTube engine it plays through.
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(project(":mediaservicecore:youtubeapi"))
+    implementation(project(":mediaservicecore:sharedutils"))
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // Live TV (from Nuvio One): VPN routing rules (protection is always off here) and SMB recordings.
+    implementation(project(":vpn-core"))
+    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
+    implementation("org.slf4j:slf4j-android:1.7.30")
     implementation(libs.sentry.android)
 
     // Kotlinx Serialization

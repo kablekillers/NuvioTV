@@ -25,6 +25,7 @@ import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ServerResponseException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -62,6 +63,7 @@ private const val AUTH_ENDPOINT_START_DEVICE_LOGIN = "/rest/v1/rpc/start_device_
 private const val AUTH_ENDPOINT_START_TV_LOGIN = "/rest/v1/rpc/start_tv_login_session"
 private const val AUTH_ENDPOINT_POLL_TV_LOGIN = "/rest/v1/rpc/poll_tv_login_session"
 private const val AUTH_ENDPOINT_EXCHANGE_TV_LOGIN = "/functions/v1/tv-logins-exchange"
+private const val STARTUP_AUTH_LOADING_TIMEOUT_MS = 12_000L
 private val tvLoginRequestCounter = AtomicLong(0L)
 private val authJsonMediaType = "application/json".toMediaType()
 
@@ -104,6 +106,30 @@ class AuthManager @Inject constructor(
 
     init {
         observeSessionStatus()
+        scope.launch {
+            delay(STARTUP_AUTH_LOADING_TIMEOUT_MS)
+            resolveStuckLoadingState("startup_timeout")
+        }
+    }
+
+    /**
+     * Startup must never stay on [AuthState.Loading]. When supabase-kt cannot
+     * finish restoring a session (offline, refresh failure, unknown status)
+     * fall back to the cached account if there is one, otherwise SignedOut so
+     * the QR sign-in screen appears. Nothing is cleared here: a later
+     * Authenticated/NotAuthenticated status still updates the state normally.
+     */
+    private fun resolveStuckLoadingState(reason: String) {
+        if (_authState.value !is AuthState.Loading) return
+        val user = auth.currentSessionOrNull()?.user ?: auth.currentUserOrNull()
+        val email = user?.email?.takeIf { it.isNotBlank() }
+        val resolved = if (user != null && email != null) {
+            AuthState.FullAccount(userId = user.id, email = email)
+        } else {
+            AuthState.SignedOut
+        }
+        Log.w(TAG, "Auth still loading ($reason); resolving to ${resolved.nameForLog()}")
+        _authState.compareAndSet(AuthState.Loading, resolved)
     }
 
     private fun observeSessionStatus() {
@@ -173,6 +199,7 @@ class AuthManager @Inject constructor(
                                     }
                                     SessionRefreshResult.TRANSIENT_FAILURE -> {
                                         Log.w(TAG, "Session refresh failed transiently; keeping current auth state")
+                                        resolveStuckLoadingState("refresh_transient_failure")
                                         finishStartupAuthDiagnostics("failed", "startup_refresh_token_transient_failure", AUTH_ENDPOINT_REFRESH, outcome.error?.authHttpStatus(), outcome.error)
                                     }
                                 }
@@ -201,6 +228,7 @@ class AuthManager @Inject constructor(
                             )
                         )
                         finishStartupAuthDiagnostics("failed", "startup_session_status_${status.javaClass.simpleName}")
+                        resolveStuckLoadingState("session_status_${status.javaClass.simpleName}")
                     }
                 }
             }
@@ -383,8 +411,23 @@ class AuthManager @Inject constructor(
         }
         try {
             auth.signOut()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (e: Exception) {
             Log.e(TAG, "Sign out failed", e)
+        }
+        // supabase-kt only deletes the stored session after the server logout
+        // call succeeds. If that call fails (offline, Cloudflare block, timeout)
+        // the saved session survives and is silently restored on the next app
+        // launch, which skips the QR sign-in screen. Always clear it locally.
+        if (auth.currentSessionOrNull() != null) {
+            try {
+                auth.clearSession()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (clearError: Exception) {
+                Log.e(TAG, "Failed to clear local session after sign out", clearError)
+            }
         }
         cachedEffectiveUserId = null
         cachedEffectiveUserSourceUserId = null

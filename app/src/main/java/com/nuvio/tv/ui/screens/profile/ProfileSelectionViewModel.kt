@@ -56,7 +56,8 @@ class ProfileSelectionViewModel @Inject constructor(
     private val profileLockStateDataStore: ProfileLockStateDataStore,
     private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore,
     private val authManager: AuthManager,
-    private val householdPinStore: com.nuvio.tv.data.local.HouseholdPinStore
+    private val householdPinStore: com.nuvio.tv.data.local.HouseholdPinStore,
+    private val kableKillersBackup: com.nuvio.tv.core.backup.KableKillersBackupService
 ) : ViewModel() {
     val activeProfileId: StateFlow<Int> = profileManager.activeProfileId
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
@@ -99,19 +100,29 @@ class ProfileSelectionViewModel @Inject constructor(
         profileLockStateDataStore.pinEnabled,
         profileLockStateDataStore.confirmed,
         householdPinStore.lockedProfiles,
-        authManager.authState
-    ) { locks, confirmed, householdLocks, authState ->
-        KableKillersAccountPolicy.enforcedPinLocks(authState, locks, confirmed, householdLocks)
+        authManager.authState,
+        kableKillersBackup.state
+    ) { locks, confirmed, householdLocks, authState, _ ->
+        KableKillersAccountPolicy.enforcedPinLocks(
+            authState, locks, confirmed, householdLocks,
+            backupOnlyCustomer = kableKillersBackup.isBackupOnlyCustomerDevice()
+        )
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        KableKillersAccountPolicy.enforcedPinLocks(authManager.authState.value, emptyMap(), false)
+        KableKillersAccountPolicy.enforcedPinLocks(
+            authManager.authState.value, emptyMap(), false,
+            backupOnlyCustomer = kableKillersBackup.isBackupOnlyCustomerDevice()
+        )
     )
 
-    /** Signed in with the shared customer login (kablekillers6). */
-    val isCustomerAccount: StateFlow<Boolean> = authManager.authState
-        .map { KableKillersAccountPolicy.isCustomerAccount(it) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, KableKillersAccountPolicy.isCustomerAccount(authManager.authState.value))
+    /** Signed in with the shared customer login (kablekillers6), through Nuvio or only through the backup. */
+    val isCustomerAccount: StateFlow<Boolean> = combine(authManager.authState, kableKillersBackup.state) { auth, _ ->
+        KableKillersAccountPolicy.isCustomerAccount(auth) || kableKillersBackup.isBackupOnlyCustomerDevice()
+    }.stateIn(
+        viewModelScope, SharingStarted.Eagerly,
+        KableKillersAccountPolicy.isCustomerAccount(authManager.authState.value) || kableKillersBackup.isBackupOnlyCustomerDevice()
+    )
 
     private val _isPinOperationInProgress = MutableStateFlow(false)
     val isPinOperationInProgress: StateFlow<Boolean> = _isPinOperationInProgress.asStateFlow()
@@ -393,7 +404,7 @@ class ProfileSelectionViewModel @Inject constructor(
             val result = if (usesDevicePin(profileId)) {
                 Result.success(verifyDevicePinOrOwner(profileId, pin))
             } else {
-                profileSyncService.verifyProfilePin(profileId, pin)
+                verifyCloudPinOrRestorePin(profileId, pin)
             }
             _isPinOperationInProgress.value = false
             onComplete(result)
@@ -403,7 +414,35 @@ class ProfileSelectionViewModel @Inject constructor(
     // ---- Household (customer) profile PINs: saved on this device only ----
 
     private fun usesDevicePin(profileId: Int): Boolean =
-        KableKillersAccountPolicy.usesDevicePin(authManager.authState.value, profileId)
+        KableKillersAccountPolicy.usesDevicePin(
+            authManager.authState.value, profileId,
+            backupOnlyCustomer = kableKillersBackup.isBackupOnlyCustomerDevice()
+        )
+
+    /**
+     * Profile 1's PIN is checked by Nuvio. When Nuvio can't be reached (or this device signed in only
+     * through the backup), the owner's restore PIN opens Profile 1 instead, through the Kable Killers
+     * backup, and lets this device send Profile 1 changes to the backup while Nuvio is down.
+     */
+    private suspend fun verifyCloudPinOrRestorePin(profileId: Int, pin: String): Result<SupabaseProfilePinVerifyResult> {
+        val canUseBackup = profileId == KableKillersAccountPolicy.PRIMARY_PROFILE_ID &&
+            kableKillersBackup.enabled && kableKillersBackup.state.value.hasDeviceKey
+        if (canUseBackup && authManager.authState.value !is com.nuvio.tv.domain.model.AuthState.FullAccount) {
+            return Result.success(verifyRestorePin(pin))
+        }
+        val cloud = profileSyncService.verifyProfilePin(profileId, pin)
+        if (cloud.isFailure && canUseBackup) return Result.success(verifyRestorePin(pin))
+        return cloud
+    }
+
+    private suspend fun verifyRestorePin(pin: String): SupabaseProfilePinVerifyResult =
+        kableKillersBackup.unlockWithRestorePin(pin).fold(
+            onSuccess = { SupabaseProfilePinVerifyResult(unlocked = true) },
+            onFailure = { error ->
+                val tooMany = (error as? com.nuvio.tv.core.backup.KableKillersBackupHttpException)?.status == 429
+                SupabaseProfilePinVerifyResult(unlocked = false, retryAfterSeconds = if (tooMany) 900 else 0)
+            }
+        )
 
     private suspend fun setDevicePin(profileId: Int, pin: String, currentPin: String?): SetProfilePinResult {
         return try {
@@ -432,8 +471,8 @@ class ProfileSelectionViewModel @Inject constructor(
         val local = householdPinStore.verify(profileId, pin)
         if (local.unlocked) return SupabaseProfilePinVerifyResult(unlocked = true)
         val primaryHasPin = profileLockStateDataStore.pinEnabled.first()[KableKillersAccountPolicy.PRIMARY_PROFILE_ID] == true
-        if (primaryHasPin) {
-            val owner = profileSyncService.verifyProfilePin(KableKillersAccountPolicy.PRIMARY_PROFILE_ID, pin).getOrNull()
+        if (primaryHasPin || kableKillersBackup.isBackupOnlyCustomerDevice()) {
+            val owner = verifyCloudPinOrRestorePin(KableKillersAccountPolicy.PRIMARY_PROFILE_ID, pin).getOrNull()
             if (owner?.unlocked == true) return SupabaseProfilePinVerifyResult(unlocked = true)
         }
         return SupabaseProfilePinVerifyResult(unlocked = false, retryAfterSeconds = local.retryAfterSeconds)

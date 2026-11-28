@@ -26,6 +26,7 @@ class SettingsCatalogTest {
                 SettingsCategory.PLAYBACK,
                 SettingsCategory.INTEGRATION,
                 SettingsCategory.TRACKING,
+                SettingsCategory.VPN,
                 SettingsCategory.ADVANCED,
                 SettingsCategory.APPS,
                 SettingsCategory.ABOUT,

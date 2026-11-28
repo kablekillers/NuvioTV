@@ -2,6 +2,7 @@
 
 package com.nuvio.tv.ui.screens.stream
 
+import com.nuvio.tv.ui.screens.sports.SportsAddonPriority
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -418,6 +419,23 @@ fun StreamScreen(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
+            // Live sports / TV lists (same as Mobile): test direct links in the
+            // background and hide clearly dead ones (never all of them), and list
+            // the premium sports add-ons first.
+            val liveCheck = LiveLinkChecker.appliesTo(uiState.contentType)
+            val checkable = remember(uiState.filteredStreams, liveCheck) {
+                if (liveCheck) uiState.filteredStreams.filter(LiveLinkChecker::isTestable) else emptyList()
+            }
+            LaunchedEffect(checkable) { if (checkable.isNotEmpty()) LiveLinkChecker.check(checkable) }
+            val deadCount = checkable.count { LiveLinkChecker.health(it) == LinkHealth.Dead }
+            val hideDead = deadCount > 0 && deadCount < checkable.size
+            val shownStreams = if (!liveCheck) uiState.filteredStreams else uiState.filteredStreams
+                .filter { !hideDead || LiveLinkChecker.health(it) != LinkHealth.Dead }
+                .sortedBy { SportsAddonPriority.rank(it.addonName, it.sourceAddonId) }
+                // Remember what works: links that played here before go first.
+                .sortedByDescending {
+                    com.nuvio.tv.core.links.LinkMemory.score(uiState.videoId, uiState.title, it.addonName, it.name ?: it.addonName)
+                }
             // Content overlay
             Row(
                 modifier = Modifier.fillMaxSize()
@@ -442,7 +460,7 @@ fun StreamScreen(
                 RightStreamSection(
                     isLoading = uiState.isLoading,
                     error = uiState.error,
-                    streams = uiState.filteredStreams,
+                    streams = shownStreams,
                     availableAddons = uiState.availableAddons,
                     sourceChips = uiState.sourceChips,
                     selectedAddonFilter = uiState.selectedAddonFilter,
@@ -453,7 +471,7 @@ fun StreamScreen(
                     onAddonFilterSelected = { viewModel.onEvent(StreamScreenEvent.OnAddonFilterSelected(it)) },
                     onRefresh = { viewModel.onEvent(StreamScreenEvent.OnRefresh) },
                     onStreamSelected = { stream ->
-                        val currentIndex = uiState.filteredStreams.indexOfFirst {
+                        val currentIndex = shownStreams.indexOfFirst {
                             it.url == stream.url &&
                                 it.infoHash == stream.infoHash &&
                                 it.ytId == stream.ytId &&
