@@ -785,7 +785,12 @@ class HomeViewModel @Inject constructor(
             )
             if (items.isNotEmpty()) {
                 val (mainItems, upcomingOnly) = splitUpcomingItems(items, sortMode)
-                _uiState.update { it.copy(continueWatchingItems = mainItems, upcomingItems = upcomingOnly) }
+                _uiState.update {
+                    it.copy(
+                        continueWatchingItems = mainItems.uniqueCards(),
+                        upcomingItems = upcomingOnly.uniqueCards()
+                    )
+                }
                 _initialCwResolved.value = true
             }
         }

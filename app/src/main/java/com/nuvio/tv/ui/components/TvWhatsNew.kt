@@ -58,6 +58,11 @@ import java.net.URL
  */
 internal object TvWhatsNewNotes {
     val byVersion: Map<String, List<String>> = mapOf(
+        "1.1.15" to listOf(
+            "Fixed: on some TVs the app closed right after picking a profile. Home now skips anything it can't load instead of closing.",
+            "If the app ever closes unexpectedly, a crash report now shows the next time you open it. Scan its QR code with your phone and send it to Kable Killers.",
+            "Crash report is also in Settings › About.",
+        ),
         "1.1.14" to listOf(
             "Sports Hub is now American sports only, with an All tab plus a tab for each sport, game stats, season stats before games, and standings.",
             "Sports links show up as each add-on answers, links that worked for you before are listed first, and dead links are hidden.",

@@ -41,6 +41,7 @@ object CrashCatcher {
     private const val PREFS = "livetv_crash_catcher"
     private const val KEY_EXIT_SEEN = "exit_seen_at"
     private const val KEY_SELF_KILL = "self_kill_at"
+    private const val KEY_SHOW_NEXT = "show_next_open"
     const val EXTRA_REPORT = "report"
 
     private val main = Handler(Looper.getMainLooper())
@@ -80,6 +81,17 @@ object CrashCatcher {
             }
         }, "CrashCatcherStart").apply { isDaemon = true }.start()
 
+        // A crash last time is shown once, over the first screen, the next time the app opens
+        // (the app can't show it while it's closing).
+        runCatching {
+            val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (prefs.getBoolean(KEY_SHOW_NEXT, false)) {
+                prefs.edit().putBoolean(KEY_SHOW_NEXT, false).apply()
+                pendingReport = File(app.filesDir, FILE_NAME).takeIf { it.exists() }?.readText()?.ifBlank { null }
+            }
+        }
+        (app as? Application)?.registerActivityLifecycleCallbacks(Tracker)
+
         startFreezeWatchdog(app)
         startBusyWatch(app)
 
@@ -88,12 +100,13 @@ object CrashCatcher {
             try {
                 val report = buildReport(thread, error)
                 val file = File(app.filesDir, FILE_NAME)
-                // Saved for Settings › Live TV › Help › Crash report (no screen pops up).
+                // Saved for Settings › About › Crash report, and shown the next time the app opens.
                 runCatching { file.writeText(report) }
                 Log.e(TAG, report)
                 runCatching {
                     app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                        .putLong(KEY_SELF_KILL, System.currentTimeMillis()).commit()
+                        .putLong(KEY_SELF_KILL, System.currentTimeMillis())
+                        .putBoolean(KEY_SHOW_NEXT, true).commit()
                 }
                 Process.killProcess(Process.myPid())
                 exitProcess(10)
