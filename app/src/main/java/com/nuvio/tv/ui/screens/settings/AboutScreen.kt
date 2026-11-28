@@ -176,6 +176,13 @@ fun AboutSettingsContent(
                             }
 
                             SettingsActionRow(
+                                title = "Crash report",
+                                subtitle = "What happened the last time the app crashed, froze or was closed. Send a photo of it to support.",
+                                trailingIcon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                onClick = { com.nuvio.tv.livetv.crash.CrashCatcher.openLastReport(context) }
+                            )
+
+                            SettingsActionRow(
                                 title = stringResource(R.string.about_licenses_attributions),
                                 subtitle = stringResource(R.string.about_licenses_attributions_subtitle),
                                 trailingIcon = Icons.AutoMirrored.Filled.KeyboardArrowRight,

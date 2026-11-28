@@ -54,6 +54,19 @@
         android:localeConfig="@xml/locale_config"
         android:theme="@style/Theme.MyApplication">
 
+        <!-- Crash catcher: saves what went wrong when the app closes and shows it the next time
+             the app opens (with a QR code), so customers far away can send it in. -->
+        <provider
+            android:name=".livetv.crash.CrashCatcherInitProvider"
+            android:authorities="${applicationId}.crashcatcher"
+            android:exported="false"
+            android:initOrder="1000" />
+        <activity
+            android:name=".livetv.crash.CrashReportActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
         <!-- Live TV (from Nuvio One): keeps the launcher's home screen rows up to date. -->
         <receiver
             android:name=".livetv.home.LauncherRowsReceiver"

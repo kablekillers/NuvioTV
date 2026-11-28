@@ -561,7 +561,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         } else if (!snapshot.hasLoadedRemoteProgress && state.continueWatchingItems.isNotEmpty() && mainItems.size < state.continueWatchingItems.size) {
                             state
                         } else {
-                            state.copy(continueWatchingItems = mainItems, upcomingItems = upcomingOnly)
+                            state.copy(continueWatchingItems = mainItems.uniqueCards(), upcomingItems = upcomingOnly.uniqueCards())
                         }
                     }
                     _initialCwResolved.value = true
@@ -651,7 +651,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                         // cached items that include Trakt in-progress entries.
                                         state
                                     } else {
-                                        state.copy(continueWatchingItems = partialMain, upcomingItems = partialUpcoming)
+                                        state.copy(continueWatchingItems = partialMain.uniqueCards(), upcomingItems = partialUpcoming.uniqueCards())
                                     }
                                 }
                                 debug.recordPartialRendered(
@@ -1091,7 +1091,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     } else if (state.continueWatchingItems == normalMain && state.upcomingItems == normalUpcoming) {
                         state
                     } else {
-                        state.copy(continueWatchingItems = normalMain, upcomingItems = normalUpcoming)
+                        state.copy(continueWatchingItems = normalMain.uniqueCards(), upcomingItems = normalUpcoming.uniqueCards())
                     }
                 }
                 SimklContinueWatchingDisplayLogger.log(
@@ -1669,7 +1669,7 @@ private suspend fun HomeViewModel.enrichVisibleContinueWatchingItems(
         if (state.continueWatchingItems == enrichedMain && state.upcomingItems == enrichedUpcoming) {
             state
         } else {
-            state.copy(continueWatchingItems = enrichedMain, upcomingItems = enrichedUpcoming)
+            state.copy(continueWatchingItems = enrichedMain.uniqueCards(), upcomingItems = enrichedUpcoming.uniqueCards())
         }
     }
     persistLocalContinueWatchingMetadata(
